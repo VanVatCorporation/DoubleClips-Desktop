@@ -42,14 +42,17 @@ runtime {
         appVersion = '1.0.0'
 
         if (org.gradle.internal.os.OperatingSystem.current().macOsX) {
+            jvmArgs = ['-Xdock:icon=' + project.file('src/main/resources/icons/app.icns').absolutePath]
+            imageOptions = ['--icon', project.file('src/main/resources/icons/app.icns').absolutePath]
             installerOptions = [
-                '--icon', 'src/main/resources/icons/app.icns',
+                '--icon', project.file('src/main/resources/icons/app.icns'),
                 '--vendor', 'VanVat Corporation'
             ]
             installerType = 'dmg'
         } else if (org.gradle.internal.os.OperatingSystem.current().windows) {
+            imageOptions = ['--icon', project.file('src/main/resources/icons/app.ico').absolutePath]
             installerOptions = [
-                '--icon', 'src/main/resources/icons/app.ico',
+                '--icon', project.file('src/main/resources/icons/app.ico'),
                 '--vendor', 'VanVat Corporation',
                 '--win-dir-chooser',
                 '--win-shortcut',

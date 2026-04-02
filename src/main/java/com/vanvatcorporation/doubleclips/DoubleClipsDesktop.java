@@ -10,6 +10,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.image.Image;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import org.kordamp.ikonli.javafx.FontIcon;
@@ -40,6 +41,10 @@ public class DoubleClipsDesktop extends Application {
 
         stage.setScene(scene);
         stage.setTitle("DoubleClips Desktop");
+
+        // Set window icon
+        stage.getIcons().add(new Image(getClass().getResourceAsStream("/icons/app.png")));
+
         stage.show();
     }
 
