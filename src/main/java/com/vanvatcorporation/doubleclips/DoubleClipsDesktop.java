@@ -1,46 +1,109 @@
 package com.vanvatcorporation.doubleclips;
 
 import atlantafx.base.theme.CupertinoDark;
+import com.vanvatcorporation.doubleclips.ui.panes.*;
 import javafx.application.Application;
-import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.control.Button;
-import javafx.scene.control.Label;
-import javafx.scene.layout.VBox;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.layout.*;
 import javafx.stage.Stage;
+import org.kordamp.ikonli.javafx.FontIcon;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignD;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignH;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignM;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
 
 public class DoubleClipsDesktop extends Application {
 
+    private static DoubleClipsDesktop instance;
+    private StackPane rootLayer;
+    private StackPane contentArea;
+
+    public static DoubleClipsDesktop getInstance() {
+        return instance;
+    }
+
     @Override
     public void start(Stage stage) {
-        // Set the Cupertino Dark theme for that "iOS on macOS" look
+        instance = this;
         Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
 
-        Label titleLabel = new Label("DoubleClips");
-        titleLabel.setStyle("-fx-font-size: 32px; -fx-font-weight: bold; -fx-text-fill: -color-accent-fg;");
-
-        Label subTitleLabel = new Label("Cross-platform Video Editor");
-        subTitleLabel.setStyle("-fx-font-size: 16px; -fx-opacity: 0.7;");
-
-        Button actionButton = new Button("Create New Project");
-        actionButton.getStyleClass().addAll("accent", "large");
-        actionButton.setPrefWidth(200);
+        // The root layer allows us to show overlays (like Template Preview) on top of everything
+        rootLayer = new StackPane(createMainLayout());
+        Scene scene = new Scene(rootLayer, 1200, 800);
         
-        // Add some "iOS" styling to the button (rounded corners are handled by Cupertino theme)
-        actionButton.setOnAction(e -> {
-            System.out.println("Creating new project...");
-        });
+        // Add custom styles
+        String styleSheet = getClass().getResource("/style.css").toExternalForm();
+        scene.getStylesheets().add(styleSheet);
 
-        VBox layout = new VBox(15, titleLabel, subTitleLabel, actionButton);
-        layout.setAlignment(Pos.CENTER);
-        layout.setPadding(new Insets(50));
-        layout.setStyle("-fx-background-color: -color-bg-default;");
-
-        Scene scene = new Scene(layout, 900, 600);
         stage.setScene(scene);
         stage.setTitle("DoubleClips Desktop");
         stage.show();
+    }
+
+    private Region createMainLayout() {
+        BorderPane root = new BorderPane();
+
+        // 1. Sidebar Construction
+        VBox sidebar = new VBox(15);
+        sidebar.getStyleClass().add("sidebar");
+        sidebar.setPrefWidth(260);
+
+        ToggleGroup navGroup = new ToggleGroup();
+
+        // Main Navigation Buttons (Icon + Text as in the sketch)
+        ToggleButton homeBtn = createNavButton("Home", new FontIcon(MaterialDesignH.HOME), navGroup);
+        ToggleButton templateBtn = createNavButton("Template", new FontIcon(MaterialDesignT.TABLE), navGroup);
+        ToggleButton searchBtn = createNavButton("Search", new FontIcon(MaterialDesignM.MAGNIFY), navGroup);
+        ToggleButton storageBtn = createNavButton("Storage", new FontIcon(MaterialDesignD.DATABASE), navGroup);
+        ToggleButton profileBtn = createNavButton("Profile", new FontIcon(MaterialDesignA.ACCOUNT_CIRCLE), navGroup);
+
+        homeBtn.setSelected(true);
+
+        sidebar.getChildren().addAll(homeBtn, templateBtn, searchBtn, storageBtn, profileBtn);
+
+        // 2. Content Area Construction
+        contentArea = new StackPane();
+        contentArea.getChildren().setAll(new HomePane());
+
+        root.setLeft(sidebar);
+        root.setCenter(contentArea);
+
+        // 3. Navigation Switch Logic
+        homeBtn.setOnAction(e -> switchPane(new HomePane()));
+        templateBtn.setOnAction(e -> switchPane(new TemplatePane()));
+        searchBtn.setOnAction(e -> switchPane(new SearchPane()));
+        storageBtn.setOnAction(e -> switchPane(new StoragePane()));
+        profileBtn.setOnAction(e -> switchPane(new ProfilePane()));
+
+        return root;
+    }
+
+    private void switchPane(Node pane) {
+        contentArea.getChildren().setAll(pane);
+    }
+
+    private ToggleButton createNavButton(String text, FontIcon icon, ToggleGroup group) {
+        ToggleButton btn = new ToggleButton(text);
+        btn.setToggleGroup(group);
+        btn.setGraphic(icon);
+        btn.setAlignment(Pos.CENTER_LEFT);
+        btn.getStyleClass().add("sidebar-button");
+        btn.setMaxWidth(Double.MAX_VALUE);
+        btn.setGraphicTextGap(15);
+        return btn;
+    }
+
+    public void showOverlay(Node overlay) {
+        rootLayer.getChildren().add(overlay);
+    }
+
+    public void hideOverlay(Node overlay) {
+        rootLayer.getChildren().remove(overlay);
     }
 
     public static void main(String[] args) {

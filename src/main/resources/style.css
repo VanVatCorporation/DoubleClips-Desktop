@@ -1,0 +1,123 @@
+.sidebar {
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: transparent -color-border-subtle transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 24 16;
+}
+
+.sidebar-button {
+    -fx-alignment: center-left;
+    -fx-padding: 12 16;
+    -fx-border-radius: 12;
+    -fx-background-radius: 12;
+    -fx-font-size: 16px;
+    -fx-font-weight: normal;
+}
+
+.sidebar-button:hover {
+    -fx-background-color: -color-bg-inset;
+}
+
+.sidebar-button:selected {
+    -fx-background-color: -color-accent-subtle;
+    -fx-text-fill: -color-accent-fg;
+    -fx-font-weight: bold;
+}
+
+/* Big Blue "Start Creating" Button matching Android'sMaterialCardView */
+.start-creating-button {
+    -fx-background-color: #007AFF; /* ios_blue */
+    -fx-background-radius: 24;
+    -fx-border-radius: 24;
+    -fx-padding: 32;
+    -fx-alignment: center;
+    -fx-text-fill: white;
+    -fx-font-size: 24px;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.2), 10, 0, 0, 4);
+}
+
+.start-creating-button:hover {
+    -fx-background-color: #0062CC;
+}
+
+.start-creating-button .ikonli-font-icon {
+    -fx-icon-color: white;
+    -fx-icon-size: 40px;
+}
+
+/* Recent Project Card */
+.project-card {
+    -fx-background-color: -color-bg-default;
+    -fx-background-radius: 16;
+    -fx-border-radius: 16;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+    -fx-padding: 16;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.05), 8, 0, 0, 2);
+}
+
+.project-card:hover {
+    -fx-border-color: -color-accent-muted;
+    -fx-background-color: -color-bg-subtle;
+}
+
+.project-thumbnail {
+    -fx-background-color: #333;
+    -fx-background-radius: 12;
+    -fx-min-width: 100;
+    -fx-min-height: 100;
+}
+
+/* Settings Group (Profile) */
+.settings-group {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 16;
+    -fx-border-radius: 16;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+    -fx-overflow-x: hidden;
+}
+
+.setting-item {
+    -fx-font-size: 16px;
+    -fx-cursor: hand;
+}
+
+.setting-item:hover {
+    -fx-background-color: -color-bg-inset;
+}
+
+.content-pane {
+    -fx-background-color: -color-bg-default;
+}
+
+/* Template Preview Overlay */
+.preview-overlay {
+    -fx-background-color: rgba(0, 0, 0, 0.85);
+}
+
+.preview-container {
+    -fx-background-color: black;
+    -fx-background-radius: 24;
+    -fx-border-radius: 24;
+    -fx-border-color: rgba(255, 255, 255, 0.1);
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.5), 30, 0, 0, 10);
+    -fx-overflow-x: hidden;
+}
+
+.overlay-controls {
+    -fx-padding: 20;
+    -fx-background-color: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.7));
+}
+
+.control-icon {
+    -fx-icon-color: white;
+    -fx-icon-size: 28px;
+}
+
+.control-label {
+    -fx-text-fill: white;
+    -fx-font-size: 13px;
+}
