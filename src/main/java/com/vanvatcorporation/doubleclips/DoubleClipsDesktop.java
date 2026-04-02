@@ -3,19 +3,17 @@ package com.vanvatcorporation.doubleclips;
 import atlantafx.base.theme.CupertinoDark;
 import com.vanvatcorporation.doubleclips.ui.panes.*;
 import javafx.application.Application;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import org.kordamp.ikonli.javafx.FontIcon;
-import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
-import org.kordamp.ikonli.materialdesign2.MaterialDesignD;
-import org.kordamp.ikonli.materialdesign2.MaterialDesignH;
-import org.kordamp.ikonli.materialdesign2.MaterialDesignM;
-import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 
 public class DoubleClipsDesktop extends Application {
 
@@ -49,22 +47,30 @@ public class DoubleClipsDesktop extends Application {
         BorderPane root = new BorderPane();
 
         // 1. Sidebar Construction
-        VBox sidebar = new VBox(15);
+        VBox sidebar = new VBox(8);
         sidebar.getStyleClass().add("sidebar");
-        sidebar.setPrefWidth(260);
+        sidebar.setPrefWidth(280);
+
+        // "Start Creating" button lives in the sidebar (top), as in the sketch
+        Button startCreatingBtn = new Button("Start Creating\nTap to create a new project");
+        startCreatingBtn.getStyleClass().add("start-creating-button");
+        startCreatingBtn.setMaxWidth(Double.MAX_VALUE);
+        startCreatingBtn.setGraphic(new FontIcon(MaterialDesignP.PLUS));
+        startCreatingBtn.setGraphicTextGap(16);
+        VBox.setMargin(startCreatingBtn, new Insets(0, 0, 16, 0));
 
         ToggleGroup navGroup = new ToggleGroup();
 
-        // Main Navigation Buttons (Icon + Text as in the sketch)
-        ToggleButton homeBtn = createNavButton("Home", new FontIcon(MaterialDesignH.HOME), navGroup);
-        ToggleButton templateBtn = createNavButton("Template", new FontIcon(MaterialDesignT.TABLE), navGroup);
-        ToggleButton searchBtn = createNavButton("Search", new FontIcon(MaterialDesignM.MAGNIFY), navGroup);
-        ToggleButton storageBtn = createNavButton("Storage", new FontIcon(MaterialDesignD.DATABASE), navGroup);
-        ToggleButton profileBtn = createNavButton("Profile", new FontIcon(MaterialDesignA.ACCOUNT_CIRCLE), navGroup);
+        // Nav buttons: text-only, bold, left-aligned (no icons) — matching the sketch
+        ToggleButton homeBtn = createNavButton("Home", navGroup);
+        ToggleButton templateBtn = createNavButton("Template", navGroup);
+        ToggleButton searchBtn = createNavButton("Search", navGroup);
+        ToggleButton storageBtn = createNavButton("Storage", navGroup);
+        ToggleButton profileBtn = createNavButton("Profile", navGroup);
 
         homeBtn.setSelected(true);
 
-        sidebar.getChildren().addAll(homeBtn, templateBtn, searchBtn, storageBtn, profileBtn);
+        sidebar.getChildren().addAll(startCreatingBtn, homeBtn, templateBtn, searchBtn, storageBtn, profileBtn);
 
         // 2. Content Area Construction
         contentArea = new StackPane();
@@ -87,14 +93,12 @@ public class DoubleClipsDesktop extends Application {
         contentArea.getChildren().setAll(pane);
     }
 
-    private ToggleButton createNavButton(String text, FontIcon icon, ToggleGroup group) {
+    private ToggleButton createNavButton(String text, ToggleGroup group) {
         ToggleButton btn = new ToggleButton(text);
         btn.setToggleGroup(group);
-        btn.setGraphic(icon);
         btn.setAlignment(Pos.CENTER_LEFT);
         btn.getStyleClass().add("sidebar-button");
         btn.setMaxWidth(Double.MAX_VALUE);
-        btn.setGraphicTextGap(15);
         return btn;
     }
 

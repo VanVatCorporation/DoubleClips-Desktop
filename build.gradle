@@ -1,11 +1,11 @@
 plugins {
     id 'application'
     id 'org.openjfx.javafxplugin' version '0.1.0'
+    id 'org.beryx.runtime' version '1.13.0'
 }
 
 group 'com.vanvatcorporation'
-version '1.0-SNAPSHOT'
-
+version '1.0.0'
 
 dependencies {
     implementation 'io.github.mkpaz:atlantafx-base:2.0.1'
@@ -19,5 +19,44 @@ javafx {
 }
 
 application {
-    mainClass = 'com.vanvatcorporation.doubleclips.DoubleClipsDesktop'
+    mainClass = 'com.vanvatcorporation.doubleclips.Main'
+}
+
+runtime {
+    options = ['--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages']
+    
+    // For non-modular projects, only list standard JDK modules here.
+    // JavaFX modules are automatically handled by the openjfx plugin.
+    modules = [
+        'java.base',
+        'java.desktop',
+        'java.naming',
+        'java.scripting',
+        'java.xml',
+        'jdk.unsupported',
+        'java.sql'
+    ]
+
+    jpackage {
+        imageName = 'DoubleClips'
+        appVersion = '1.0.0'
+
+        if (org.gradle.internal.os.OperatingSystem.current().macOsX) {
+            installerOptions = [
+                '--icon', 'src/main/resources/icons/app.icns',
+                '--vendor', 'VanVat Corporation'
+            ]
+            installerType = 'dmg'
+        } else if (org.gradle.internal.os.OperatingSystem.current().windows) {
+            installerOptions = [
+                '--icon', 'src/main/resources/icons/app.ico',
+                '--vendor', 'VanVat Corporation',
+                '--win-dir-chooser',
+                '--win-shortcut',
+                '--win-menu',
+                '--type', 'exe'
+            ]
+            installerType = 'exe'
+        }
+    }
 }
