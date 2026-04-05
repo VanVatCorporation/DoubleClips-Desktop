@@ -42,8 +42,11 @@ runtime {
         appVersion = '1.0.0'
 
         if (org.gradle.internal.os.OperatingSystem.current().macOsX) {
-            jvmArgs = ['-Xdock:icon=' + project.file('src/main/resources/icons/app.icns').absolutePath]
-            imageOptions = ['--icon', project.file('src/main/resources/icons/app.icns').absolutePath]
+            imageOptions = [
+                '--icon', project.file('src/main/resources/icons/AppIcon.icns').absolutePath,
+                '--mac-package-identifier', 'com.vanvatcorporation.doubleclips',
+                '--mac-package-name', 'DoubleClips'
+            ]
             installerOptions = [
                 '--icon', project.file('src/main/resources/icons/app.icns'),
                 '--vendor', 'VanVat Corporation'

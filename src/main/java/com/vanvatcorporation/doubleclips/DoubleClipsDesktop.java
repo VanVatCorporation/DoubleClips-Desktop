@@ -43,7 +43,7 @@ public class DoubleClipsDesktop extends Application {
         stage.setTitle("DoubleClips Desktop");
 
         // Set window icon
-        stage.getIcons().add(new Image(getClass().getResourceAsStream("/icons/app.png")));
+            stage.getIcons().add(new Image(getClass().getResourceAsStream("/icons/app.png")));
 
         stage.show();
     }
