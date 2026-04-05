@@ -43,7 +43,7 @@ runtime {
 
         if (org.gradle.internal.os.OperatingSystem.current().macOsX) {
             imageOptions = [
-                '--icon', project.file('src/main/resources/icons/AppIcon.icns').absolutePath,
+                '--icon', project.file('src/main/resources/icons/app.icns').absolutePath,
                 '--mac-package-identifier', 'com.vanvatcorporation.doubleclips',
                 '--mac-package-name', 'DoubleClips'
             ]
