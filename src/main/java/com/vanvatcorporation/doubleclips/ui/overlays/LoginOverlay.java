@@ -1,6 +1,6 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
-import atlantafx.base.controls.PasswordTextField;
+import javafx.scene.control.PasswordField;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
 import com.vanvatcorporation.doubleclips.auth.User;
@@ -25,7 +25,7 @@ public class LoginOverlay extends StackPane {
     
     // UI Components
     private final TextField emailField;
-    private final PasswordTextField passwordField;
+    private final PasswordField passwordField;
     private final CheckBox rememberMeCheckbox;
     private final Button loginButton;
     private final Label errorLabel;
@@ -76,7 +76,7 @@ public class LoginOverlay extends StackPane {
         emailField.setPrefHeight(45);
         
         Label passwordLabel = new Label("Password");
-        passwordField = new PasswordTextField();
+        passwordField = new PasswordField();
         passwordField.setPromptText("Enter your password");
         passwordField.setPrefHeight(45);
         

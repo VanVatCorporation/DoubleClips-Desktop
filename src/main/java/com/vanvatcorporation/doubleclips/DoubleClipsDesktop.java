@@ -29,10 +29,12 @@ public class DoubleClipsDesktop extends Application {
     @Override
     public void start(Stage stage) {
         instance = this;
+        
+        // Use the AtlantaFX theme - set this early
         Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
 
-        // The root layer allows us to show overlays (like Template Preview) on top of everything
-        rootLayer = new StackPane(createMainLayout());
+        // Initialize with an empty root layer so we can show the window instantly
+        rootLayer = new StackPane();
         Scene scene = new Scene(rootLayer, 1200, 800);
         
         // Add custom styles
@@ -41,11 +43,20 @@ public class DoubleClipsDesktop extends Application {
 
         stage.setScene(scene);
         stage.setTitle("DoubleClips Desktop");
-
-        // Set window icon
-            stage.getIcons().add(new Image(getClass().getResourceAsStream("/icons/app.png")));
-
+        
+        // Critical: Show the stage BEFORE building the complex layout to prevent OS timeouts
         stage.show();
+
+        // Defer heavy UI construction and asset loading to the next pulse
+        javafx.application.Platform.runLater(() -> {
+            // Build and show the real layout
+            rootLayer.getChildren().setAll(createMainLayout());
+            
+            // Large assets like icons can be loaded last
+            try {
+                stage.getIcons().add(new Image(getClass().getResourceAsStream("/icons/app.png")));
+            } catch (Exception ignored) {}
+        });
     }
 
     private Region createMainLayout() {

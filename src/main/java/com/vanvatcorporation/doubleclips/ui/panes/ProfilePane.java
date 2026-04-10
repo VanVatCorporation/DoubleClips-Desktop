@@ -44,7 +44,7 @@ public class ProfilePane extends VBox {
 
         avatarCircle = new Circle(60);
         avatarCircle.setFill(Color.web("#333"));
-        avatarCircle.setStroke(Color.web("-color-border-subtle"));
+        avatarCircle.setStyle("-fx-stroke: -color-border-subtle;");
         avatarCircle.setStrokeWidth(2);
 
         nameLabel = new Label("User Name");
