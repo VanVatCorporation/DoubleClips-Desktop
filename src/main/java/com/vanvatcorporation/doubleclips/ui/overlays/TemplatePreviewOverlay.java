@@ -26,6 +26,7 @@ public class TemplatePreviewOverlay extends StackPane {
     private final StackPane statusLayer;
     private final ProgressIndicator loadingIndicator;
     private final FontIcon playPauseIcon;
+    private Label durationLabel;
 
     public TemplatePreviewOverlay(TemplateData data, Consumer<Void> onClose) {
         this.onClose = onClose;
@@ -81,6 +82,13 @@ public class TemplatePreviewOverlay extends StackPane {
                         } else if (status == MediaPlayer.Status.PAUSED) {
                             showStatusIcon(MaterialDesignP.PAUSE);
                         }
+                        
+                        // Update duration once metadata is ready
+                        if (status == MediaPlayer.Status.READY && mediaPlayer.getTotalDuration() != null) {
+                            // long totalMs = (long) mediaPlayer.getTotalDuration().toMillis();
+                            long totalMs = (long) mediaPlayer.getMedia().getDuration().toMillis();
+                            durationLabel.setText(formatDuration(totalMs));
+                        }
                     });
                 });
             });
@@ -109,13 +117,14 @@ public class TemplatePreviewOverlay extends StackPane {
         Label authorLabel = new Label("@" + data.getTemplateAuthor());
         authorLabel.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 18px;");
         
-        // Metadata Row
         HBox metaRow = new HBox(15);
         metaRow.setAlignment(Pos.CENTER_LEFT);
-        metaRow.getChildren().addAll(
-            createMetaLabel(MaterialDesignM.MOVIE, data.getTemplateClipCount() + " clips"),
-            createMetaLabel(MaterialDesignC.CLOCK_OUTLINE, formatDuration(data.getTemplateDuration()))
-        );
+        
+        HBox clipMeta = createMetaLabel(MaterialDesignM.MOVIE, data.getTemplateClipCount() + " clips");
+        HBox durationMeta = createMetaLabel(MaterialDesignC.CLOCK_OUTLINE, formatDuration(data.getTemplateDuration()));
+        durationLabel = (Label) durationMeta.getChildren().get(1); // The second child is the label
+
+        metaRow.getChildren().addAll(clipMeta, durationMeta);
 
         Label titleLabel = new Label(data.getTemplateTitle());
         titleLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14px; -fx-opacity: 0.9;");
