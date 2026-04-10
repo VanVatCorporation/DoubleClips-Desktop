@@ -33,16 +33,11 @@ public class HomePane extends VBox {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        Button addButton = new Button("New Project");
-        addButton.getStyleClass().addAll("button-primary");
-        addButton.setGraphic(new FontIcon(MaterialDesignP.PLUS));
-        addButton.setOnAction(e -> showCreateProjectDialog());
-
         Button sortButton = new Button();
         sortButton.setGraphic(new FontIcon(MaterialDesignS.SORT_VARIANT));
         sortButton.getStyleClass().addAll("button-transparent");
 
-        HBox header = new HBox(titleLabel, spacer, addButton, sortButton);
+        HBox header = new HBox(titleLabel, spacer, sortButton);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setSpacing(10);
         header.setPadding(new Insets(0, 0, 8, 0));
@@ -121,7 +116,7 @@ public class HomePane extends VBox {
         Button startButton = new Button("Create Your First Project");
         startButton.getStyleClass().addAll("button-primary", "button-large");
         startButton.setStyle("-fx-padding: 12 24; -fx-font-size: 16px;");
-        startButton.setOnAction(e -> showCreateProjectDialog());
+        startButton.setOnAction(e -> com.vanvatcorporation.doubleclips.DoubleClipsDesktop.getInstance().showOverlay(new com.vanvatcorporation.doubleclips.ui.overlays.CreateProjectOverlay()));
         
         pane.getChildren().addAll(welcomeLabel, subtitleLabel, startButton);
         return pane;
@@ -147,12 +142,12 @@ public class HomePane extends VBox {
         titleLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 16px;");
 
         Label dateLabel = new Label(DateHelper.convertTimestampToDateTimeStringFormat(project.getProjectTimestamp()));
-        dateLabel.setStyle("-fx-font-size: 12px; -fx-opacity: 0.6;");
+        dateLabel.getStyleClass().add("text-muted");
 
         String stats = DateHelper.convertTimestampToHHMMSSFormat(project.getProjectDuration()) + " • " + 
                        String.format("%.2f MB", project.getProjectSize() / (1024.0 * 1024.0));
         Label statsLabel = new Label(stats);
-        statsLabel.setStyle("-fx-font-size: 12px; -fx-opacity: 0.6;");
+        statsLabel.getStyleClass().add("text-muted");
 
         textContainer.getChildren().addAll(titleLabel, dateLabel, statsLabel);
         textContainer.setAlignment(Pos.CENTER_LEFT);
@@ -163,19 +158,5 @@ public class HomePane extends VBox {
 
         card.getChildren().addAll(thumbnail, textContainer, menuBtn);
         return card;
-    }
-
-    private void showCreateProjectDialog() {
-        TextInputDialog dialog = new TextInputDialog("My Awesome Clip");
-        dialog.setTitle("New Project");
-        dialog.setHeaderText("Create a new masterpiece");
-        dialog.setContentText("Project Name:");
-
-        Optional<String> result = dialog.showAndWait();
-        result.ifPresent(name -> {
-            if (!name.trim().isEmpty()) {
-                ProjectRepository.getInstance().createNewProject(name.trim());
-            }
-        });
     }
 }

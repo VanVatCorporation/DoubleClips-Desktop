@@ -98,6 +98,8 @@ public class DoubleClipsDesktop extends Application {
         root.setCenter(contentArea);
 
         // 3. Navigation Switch Logic
+        startCreatingBtn.setOnAction(e -> showOverlay(new com.vanvatcorporation.doubleclips.ui.overlays.CreateProjectOverlay()));
+        
         homeBtn.setOnAction(e -> switchPane("Home"));
         templateBtn.setOnAction(e -> switchPane("Template"));
         searchBtn.setOnAction(e -> switchPane("Search"));
