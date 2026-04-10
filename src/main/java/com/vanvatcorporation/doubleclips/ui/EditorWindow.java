@@ -412,21 +412,19 @@ public class EditorWindow extends Stage {
         Pane ruler = new Pane();
         ruler.setPrefWidth(8000);
         ruler.setPrefHeight(30);
-        ruler.setStyle("-fx-background-color: #1A1A2E;");
+        ruler.getStyleClass().add("timeline-ruler-pane");
 
         // Draw tick marks
         for (int i = 0; i <= 240; i++) {
             double x = i * 33.0;
             boolean isMajor = (i % 5 == 0);
             Line tick = new Line(x, isMajor ? 10 : 18, x, 30);
-            tick.setStroke(Color.web(isMajor ? "#888" : "#444"));
-            tick.setStrokeWidth(isMajor ? 1.5 : 0.8);
+            tick.getStyleClass().add(isMajor ? "ruler-tick-major" : "ruler-tick-minor");
             ruler.getChildren().add(tick);
 
             if (isMajor) {
                 javafx.scene.text.Text label = new javafx.scene.text.Text(x + 2, 9, formatSeconds(i * 5));
-                label.setFill(Color.web("#888"));
-                label.setStyle("-fx-font-size: 9px;");
+                label.getStyleClass().add("ruler-text");
                 ruler.getChildren().add(label);
             }
         }
@@ -438,14 +436,13 @@ public class EditorWindow extends Stage {
         Pane tracks = new Pane();
         tracks.setPrefWidth(8000);
         tracks.setPrefHeight(300);
-        tracks.setStyle("-fx-background-color: #0D0D1A;");
+        tracks.getStyleClass().add("timeline-tracks-pane");
 
         // Draw alternating row bands (2 tracks by default)
         int[] trackYs = {0, 80};
-        String[] trackColors = {"#141422", "#0F0F1E"};
         for (int i = 0; i < trackYs.length; i++) {
             Rectangle band = new Rectangle(0, trackYs[i], 8000, 75);
-            band.setFill(Color.web(trackColors[i]));
+            band.getStyleClass().add(i % 2 == 0 ? "track-band-even" : "track-band-odd");
             tracks.getChildren().add(band);
         }
 
@@ -453,12 +450,10 @@ public class EditorWindow extends Stage {
         Rectangle sampleClip = new Rectangle(120, 5, 500, 65);
         sampleClip.setArcWidth(8);
         sampleClip.setArcHeight(8);
-        sampleClip.setFill(Color.web("#006D77"));
-        sampleClip.setStroke(Color.web("#00A5B5"));
-        sampleClip.setStrokeWidth(1);
+        sampleClip.getStyleClass().add("timeline-clip");
 
         Label clipLabel = new Label("Clip");
-        clipLabel.setStyle("-fx-text-fill: white; -fx-font-size: 11px; -fx-font-weight: bold;");
+        clipLabel.getStyleClass().add("timeline-clip-label");
         clipLabel.setLayoutX(128);
         clipLabel.setLayoutY(12);
 

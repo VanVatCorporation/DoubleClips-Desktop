@@ -234,6 +234,10 @@
     -fx-padding: 8 16;
 }
 
+.editor-left-panel, .editor-right-panel {
+    -fx-background-color: -color-bg-inset;
+}
+
 /* ---- Tab Strip (shared) ---- */
 .editor-tab-strip {
     -fx-background-color: -color-bg-subtle;
@@ -266,7 +270,7 @@
 /* ---- Left Panel ---- */
 .editor-left-panel {
     -fx-background-color: -color-bg-subtle;
-    -fx-border-color: transparent -color-border-subtle transparent transparent;
+    -fx-border-color: transparent -color-border-default transparent transparent;
     -fx-border-width: 0 1 0 0;
 }
 
@@ -333,7 +337,7 @@
 /* ---- Right Panel ---- */
 .editor-right-panel {
     -fx-background-color: -color-bg-subtle;
-    -fx-border-color: transparent transparent transparent -color-border-subtle;
+    -fx-border-color: transparent transparent transparent -color-border-default;
     -fx-border-width: 0 0 0 1;
 }
 
@@ -438,7 +442,7 @@
 }
 
 .track-header:hover {
-    -fx-background-color: -color-bg-subtle;
+    -fx-background-color: -color-bg-inset;
 }
 
 .ruler-scroll {
@@ -477,5 +481,52 @@
 
 .export-button .ikonli-font-icon {
     -fx-icon-color: white;
+}
+
+/* ---- New Timeline Detail Styles ---- */
+.timeline-ruler-pane {
+    -fx-background-color: -color-bg-inset;
+}
+
+.timeline-tracks-pane {
+    -fx-background-color: -color-bg-default;
+}
+
+.track-band-even {
+    -fx-fill: -color-bg-subtle;
+    -fx-opacity: 0.3;
+}
+
+.track-band-odd {
+    -fx-fill: -color-bg-default;
+    -fx-opacity: 0.3;
+}
+
+.timeline-clip {
+    /* Premium teal look using a variable if possible, or a well-known theme color */
+    -fx-fill: -color-accent-subtle;
+    -fx-stroke: -color-accent-emphasis;
+    -fx-stroke-width: 1;
+}
+
+.timeline-clip-label {
+    -fx-text-fill: -color-fg-default;
+    -fx-font-weight: bold;
+    -fx-font-size: 11px;
+}
+
+.ruler-tick-major {
+    -fx-stroke: -color-fg-default;
+    -fx-opacity: 0.4;
+}
+
+.ruler-tick-minor {
+    -fx-stroke: -color-fg-muted;
+    -fx-opacity: 0.2;
+}
+
+.ruler-text {
+    -fx-fill: -color-fg-muted;
+    -fx-font-size: 9px;
 }
 
