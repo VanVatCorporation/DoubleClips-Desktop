@@ -8,7 +8,11 @@ import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import java.io.File;
 import javafx.scene.layout.*;
+import javafx.scene.shape.Rectangle;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignD;
@@ -134,10 +138,27 @@ public class HomePane extends VBox {
         card.setMaxWidth(Double.MAX_VALUE);
 
         // Thumbnail
-        Region thumbnail = new Region();
-        thumbnail.getStyleClass().add("project-thumbnail");
-        thumbnail.setPrefSize(80, 80);
-        thumbnail.setMinSize(80, 80);
+        File previewFile = new File(project.getProjectPath(), "preview.png");
+        if (!previewFile.exists()) {
+            FileHelper.saveResourceToFile("/icons/app.png", previewFile);
+        }
+
+        ImageView thumbnail = new ImageView();
+        try {
+            Image img = new Image(previewFile.toURI().toString(), 80, 80, true, true);
+            thumbnail.setImage(img);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+        thumbnail.setFitWidth(80);
+        thumbnail.setFitHeight(80);
+        
+        // Rounded corners for the image
+        Rectangle clip = new Rectangle(80, 80);
+        clip.setArcWidth(20);
+        clip.setArcHeight(20);
+        thumbnail.setClip(clip);
 
         // Text block
         VBox textContainer = new VBox(3);
@@ -167,7 +188,12 @@ public class HomePane extends VBox {
             contextMenu.show(menuBtn, javafx.geometry.Side.BOTTOM, 0, 0);
         });
 
-        card.getChildren().addAll(thumbnail, textContainer, menuBtn);
+        StackPane thumbnailContainer = new StackPane(thumbnail);
+        thumbnailContainer.getStyleClass().add("project-thumbnail");
+        thumbnailContainer.setPrefSize(80, 80);
+        thumbnailContainer.setMinSize(80, 80);
+
+        card.getChildren().addAll(thumbnailContainer, textContainer, menuBtn);
         return card;
     }
 

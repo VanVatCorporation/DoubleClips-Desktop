@@ -209,22 +209,17 @@ public class CreateProjectOverlay extends StackPane {
         setProcessing(true);
         goToStep(step1, step3);
 
-        String folderName = zipFile.getName().replace(".zip", "");
-        File destDir = new File(Constants.getProjectsDirectory(), folderName);
-        
-        // Ensure unique folder
-        int count = 1;
-        while (destDir.exists()) {
-            destDir = new File(Constants.getProjectsDirectory(), folderName + " (" + count + ")");
-            count++;
+        File projectsDir = Constants.getProjectsDirectory();
+        final java.util.Set<String> folderNamesBefore = new java.util.HashSet<>();
+        File[] exitingFolders = projectsDir.listFiles(File::isDirectory);
+        if (exitingFolders != null) {
+            for (File f : exitingFolders) folderNamesBefore.add(f.getName());
         }
-        lastExtractedFolder = destDir;
-        final File finalDest = destDir;
 
         Task<Boolean> task = new Task<>() {
             @Override
             protected Boolean call() throws Exception {
-                CompressionHelper.unzipFolder(zipFile, finalDest, new CompressionHelper.UnzipProgressListener() {
+                CompressionHelper.unzipFolder(zipFile, projectsDir, new CompressionHelper.UnzipProgressListener() {
                     @Override
                     public void onProgress(long bytesExtracted, long totalBytes, String name) {
                         Platform.runLater(() -> {
@@ -248,12 +243,31 @@ public class CreateProjectOverlay extends StackPane {
 
         task.setOnSucceeded(e -> {
             setProcessing(false);
-            File props = new File(finalDest, Constants.DEFAULT_PROJECT_PROPERTIES_FILENAME);
-            if (props.exists()) {
-                ProjectRepository.getInstance().refreshProjects();
-                close();
+            ProjectRepository.getInstance().refreshProjects();
+            
+            // Find the new folder to check for properties
+            File[] foldersAfter = projectsDir.listFiles(File::isDirectory);
+            File newFolder = null;
+            if (foldersAfter != null) {
+                for (File f : foldersAfter) {
+                    if (!folderNamesBefore.contains(f.getName())) {
+                        newFolder = f;
+                        break;
+                    }
+                }
+            }
+
+            if (newFolder != null) {
+                lastExtractedFolder = newFolder;
+                File props = new File(newFolder, Constants.DEFAULT_PROJECT_PROPERTIES_FILENAME);
+                if (props.exists()) {
+                    close();
+                } else {
+                    goToStep(step3, step4);
+                }
             } else {
-                goToStep(step3, step4);
+                // If no folder was created (e.g. all files at root), or something went wrong
+                close();
             }
         });
 

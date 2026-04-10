@@ -3,6 +3,10 @@ package com.vanvatcorporation.doubleclips.helper;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.io.File;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.FileOutputStream;
 
 public class FileHelper {
 
@@ -61,6 +65,23 @@ public class FileHelper {
             } else {
                 // TODO: Generic fallback for Linux (opens directory, doesn't always select)
                 java.awt.Desktop.getDesktop().open(path.getParent().toFile());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Saves a resource from the classpath to a physical file on disk.
+     */
+    public static void saveResourceToFile(String resourcePath, File destination) {
+        try (java.io.InputStream in = FileHelper.class.getResourceAsStream(resourcePath);
+             java.io.OutputStream out = new java.io.FileOutputStream(destination)) {
+            if (in == null) throw new IOException("Resource not found: " + resourcePath);
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = in.read(buffer)) != -1) {
+                out.write(buffer, 0, bytesRead);
             }
         } catch (IOException e) {
             e.printStackTrace();
