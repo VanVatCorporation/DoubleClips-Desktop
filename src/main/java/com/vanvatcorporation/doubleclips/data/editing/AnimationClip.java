@@ -1,4 +1,4 @@
-package com.vanvatcorporation.doubleclips.data;
+package com.vanvatcorporation.doubleclips.data.editing;
 
 import com.google.gson.annotations.Expose;
 import java.io.Serializable;

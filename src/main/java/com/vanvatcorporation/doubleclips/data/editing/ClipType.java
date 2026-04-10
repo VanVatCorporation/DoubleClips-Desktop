@@ -1,4 +1,4 @@
-package com.vanvatcorporation.doubleclips.data;
+package com.vanvatcorporation.doubleclips.data.editing;
 
 public enum ClipType {
     VIDEO,

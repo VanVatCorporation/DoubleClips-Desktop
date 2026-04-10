@@ -1,4 +1,4 @@
-package com.vanvatcorporation.doubleclips.data;
+package com.vanvatcorporation.doubleclips.data.editing;
 
 public enum EasingType {
     NONE, LINEAR, EASE_IN_SINE, EASE_OUT_SINE, EASE_IN_OUT_SINE,

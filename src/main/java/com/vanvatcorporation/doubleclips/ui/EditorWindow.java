@@ -2,6 +2,9 @@ package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.*;
+import com.vanvatcorporation.doubleclips.data.editing.*;
+import java.util.ArrayList;
+import java.util.List;
 import javafx.animation.AnimationTimer;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -30,6 +33,9 @@ public class EditorWindow extends Stage {
     private final float TRACK_HEIGHT = 70f;
     private final float TRACK_SPACING = 5f;
 
+    private Clip selectedClip;
+    private Track selectedTrack;
+
     // Playback engine
     private AnimationTimer playbackTimer;
     private long lastTimerUpdate = 0;
@@ -39,6 +45,7 @@ public class EditorWindow extends Stage {
     private final Label durationLabel = new Label("00:00:00:00");
     private final Pane tracksPane = new Pane();
     private final VBox trackHeadersContainer = new VBox(0);
+    private final VBox propertiesContent = new VBox(15);
     private Line playheadLine;
     private Slider zoomSlider;
 
@@ -392,13 +399,74 @@ public class EditorWindow extends Stage {
             globalEdits.getChildren().add(row);
         }
 
-        ScrollPane rightScroll = new ScrollPane(new VBox(suggestionsCard, globalEdits));
+        ScrollPane rightScroll = new ScrollPane(propertiesContent);
         rightScroll.setFitToWidth(true);
         VBox.setVgrow(rightScroll, Priority.ALWAYS);
         rightScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
         panel.getChildren().addAll(tabs, rightScroll);
+        
+        // Setup initial properties view
+        updatePropertiesPane();
+        
         return panel;
+    }
+
+    private void updatePropertiesPane() {
+        propertiesContent.getChildren().clear();
+        propertiesContent.setPadding(new Insets(16));
+        
+        if (selectedClip == null) {
+            Label placeholder = new Label("Select a clip to view properties");
+            placeholder.getStyleClass().add("text-muted");
+            propertiesContent.getChildren().add(placeholder);
+            return;
+        }
+
+        Label sectionTitle = new Label("Clip Properties");
+        sectionTitle.getStyleClass().add("text-bold");
+        sectionTitle.setStyle("-fx-font-size: 16px;");
+
+        VBox fields = new VBox(10);
+
+        fields.getChildren().add(buildPropertyField("Name", selectedClip.getClipName(), newValue -> {
+            selectedClip.setClipName(newValue);
+            refreshTimelineUI();
+        }));
+
+        fields.getChildren().add(buildPropertyField("Start Time", String.valueOf(selectedClip.startTime), newValue -> {
+            try {
+                selectedClip.startTime = Float.parseFloat(newValue);
+                refreshTimelineUI();
+            } catch (Exception ignored) {}
+        }));
+
+        fields.getChildren().add(buildPropertyField("Duration", String.valueOf(selectedClip.duration), newValue -> {
+            try {
+                selectedClip.duration = Float.parseFloat(newValue);
+                refreshTimelineUI();
+            } catch (Exception ignored) {}
+        }));
+
+        propertiesContent.getChildren().addAll(sectionTitle, fields);
+    }
+
+    private VBox buildPropertyField(String label, String value, java.util.function.Consumer<String> onUpdate) {
+        VBox box = new VBox(4);
+        Label lbl = new Label(label);
+        lbl.getStyleClass().add("text-muted");
+        lbl.setStyle("-fx-font-size: 11px;");
+
+        TextField tf = new TextField(value);
+        tf.getStyleClass().add("editor-textfield");
+        tf.setOnAction(e -> onUpdate.accept(tf.getText()));
+        // Also update on focus loss
+        tf.focusedProperty().addListener((obs, oldVal, newVal) -> {
+            if (!newVal) onUpdate.accept(tf.getText());
+        });
+
+        box.getChildren().addAll(lbl, tf);
+        return box;
     }
 
     // ====================================================================
@@ -419,9 +487,12 @@ public class EditorWindow extends Stage {
         // Selection / trim tools (left cluster)
         Button selectTool = buildToolBtn(MaterialDesignC.CURSOR_DEFAULT_OUTLINE);
         Button sliceTool  = buildToolBtn(MaterialDesignS.SCISSORS_CUTTING);
+        sliceTool.setOnAction(e -> handleSplit());
+        
         Button trimLeft   = buildToolBtn(MaterialDesignF.FORMAT_INDENT_DECREASE);
         Button trimRight  = buildToolBtn(MaterialDesignF.FORMAT_INDENT_INCREASE);
-        Button deleteClip = buildToolBtn(MaterialDesignT.TRASH_CAN_OUTLINE);
+        Button deleteTool = buildToolBtn(MaterialDesignT.TRASH_CAN_OUTLINE);
+        deleteTool.setOnAction(e -> handleDelete());
 
         Region toolSpacer = new Region();
         HBox.setHgrow(toolSpacer, Priority.ALWAYS);
@@ -437,7 +508,7 @@ public class EditorWindow extends Stage {
             refreshTimelineUI();
         });
 
-        toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteClip, toolSpacer, zoomLabel, zoomSlider);
+        toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, toolSpacer, zoomLabel, zoomSlider);
 
         // --- Ruler + Track content ---
         HBox trackLayout = new HBox(0);
@@ -493,6 +564,7 @@ public class EditorWindow extends Stage {
         tracksPane.getStyleClass().add("timeline-tracks-pane");
         tracksPane.setPrefWidth(8000);
         tracksPane.setPrefHeight(300);
+        tracksPane.setOnMouseClicked(e -> deselectAll());
         tracksScrollPane.setContent(tracksPane);
 
         // Playhead overlay
@@ -615,10 +687,16 @@ public class EditorWindow extends Stage {
         
         Rectangle clipRect = new Rectangle(x, y + 5, w, h);
         clipRect.getStyleClass().add("timeline-clip");
+        if (selectedClip == clip) {
+            clipRect.getStyleClass().add("timeline-clip-selected");
+        }
         clipRect.setArcWidth(8);
         clipRect.setArcHeight(8);
         
-        clipRect.setOnMouseClicked(e -> selectClip(clip));
+        clipRect.setOnMouseClicked(e -> {
+            selectClip(clip);
+            e.consume(); // prevent deselectAll from container
+        });
         
         Label label = new Label(clip.getClipName());
         label.getStyleClass().add("ruler-text");
@@ -631,9 +709,83 @@ public class EditorWindow extends Stage {
     }
 
     private void selectClip(Clip clip) {
-        // Placeholder for selection logic
+        if (selectedClip != null && selectedClip.viewRef instanceof Rectangle) {
+            ((Rectangle) selectedClip.viewRef).getStyleClass().remove("timeline-clip-selected");
+        }
+        
+        selectedClip = clip;
+        selectedTrack = timeline.tracks.get(clip.trackIndex);
+        
+        if (clip.viewRef instanceof Rectangle) {
+            ((Rectangle) clip.viewRef).getStyleClass().add("timeline-clip-selected");
+        }
+        
         System.out.println("Selected clip: " + clip.getClipName());
+        updatePropertiesPane();
     }
+
+    private void deselectAll() {
+        if (selectedClip != null && selectedClip.viewRef instanceof Rectangle) {
+            ((Rectangle) selectedClip.viewRef).getStyleClass().remove("timeline-clip-selected");
+        }
+        selectedClip = null;
+        selectedTrack = null;
+        updatePropertiesPane();
+    }
+
+    private void handleSplit() {
+        if (selectedTrack != null) {
+            // Split only clips in the selected track
+            List<Clip> clipsToSplit = new ArrayList<>();
+            for (Clip c : selectedTrack.clips) {
+                if (currentTime > c.startTime && currentTime < c.startTime + c.duration) {
+                    clipsToSplit.add(c);
+                }
+            }
+            for (Clip c : clipsToSplit) {
+                splitClipProxy(c);
+            }
+        } else {
+            // Split all clips at current time
+            List<Clip> allClipsAtTime = timeline.getClipsAtTime(currentTime);
+            for (Clip c : allClipsAtTime) {
+                splitClipProxy(c);
+            }
+        }
+        refreshTimelineUI();
+    }
+
+    private void splitClipProxy(Clip clip) {
+        // Model logic
+        Track track = timeline.tracks.get(clip.trackIndex);
+        float localSplitTime = currentTime - clip.startTime;
+        
+        Clip secondPart = new Clip(clip);
+        secondPart.startTime = currentTime;
+        secondPart.duration = clip.duration - localSplitTime;
+        clip.duration = localSplitTime;
+        
+        track.addClip(secondPart);
+        track.sortClips();
+    }
+
+    private void handleDelete() {
+        if (selectedClip != null) {
+            Track t = timeline.tracks.get(selectedClip.trackIndex);
+            t.removeClip(selectedClip);
+            selectedClip = null;
+        } else if (selectedTrack != null) {
+            timeline.removeTrack(selectedTrack);
+            selectedTrack = null;
+            // update headers
+            trackHeadersContainer.getChildren().clear();
+            for (Track t : timeline.tracks) {
+                trackHeadersContainer.getChildren().add(buildTrackHeader("Track " + (t.timelineIndex + 1)));
+            }
+        }
+        refreshTimelineUI();
+    }
+
 
     private HBox buildTrackHeader(String name) {
         HBox header = new HBox(6);
