@@ -1,5 +1,6 @@
 package com.vanvatcorporation.doubleclips.ui.panes;
 
+import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
 import com.vanvatcorporation.doubleclips.auth.User;
 import javafx.application.Platform;
@@ -18,6 +19,8 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignH;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignL;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
+import com.vanvatcorporation.doubleclips.ui.overlays.LoginOverlay;
+import javafx.scene.Node;
 
 public class ProfilePane extends VBox {
 
@@ -70,8 +73,12 @@ public class ProfilePane extends VBox {
         signInButton.getStyleClass().addAll("button-primary", "button-large");
         signInButton.setPrefWidth(200);
         signInButton.setOnAction(e -> {
-            // Placeholder for Login Modal
-            System.out.println("Opening Login Modal...");
+            // We use an array for the reference so we can use it inside the lambda
+            final LoginOverlay[] overlayRef = new LoginOverlay[1];
+            overlayRef[0] = new LoginOverlay(v -> {
+                DoubleClipsDesktop.getInstance().hideOverlay(overlayRef[0]);
+            });
+            DoubleClipsDesktop.getInstance().showOverlay(overlayRef[0]);
         });
 
         signInPrompt.getChildren().addAll(promptTitle, promptDesc, signInButton);
