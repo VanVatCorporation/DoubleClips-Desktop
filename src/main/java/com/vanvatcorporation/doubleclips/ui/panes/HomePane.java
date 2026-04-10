@@ -9,9 +9,12 @@ import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import org.kordamp.ikonli.javafx.FontIcon;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignD;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignE;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignS;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignU;
 
 import java.util.Optional;
 
@@ -155,8 +158,63 @@ public class HomePane extends VBox {
         Button menuBtn = new Button();
         menuBtn.setGraphic(new FontIcon(MaterialDesignD.DOTS_HORIZONTAL));
         menuBtn.getStyleClass().addAll("button-transparent");
+        
+        // Context Menu Setup
+        ContextMenu contextMenu = createContextMenu(project);
+        menuBtn.setOnAction(e -> {
+            contextMenu.show(menuBtn, javafx.geometry.Side.BOTTOM, 0, 0);
+        });
 
         card.getChildren().addAll(thumbnail, textContainer, menuBtn);
         return card;
+    }
+
+    private ContextMenu createContextMenu(ProjectData project) {
+        ContextMenu menu = new ContextMenu();
+        
+        MenuItem editItem = new MenuItem("Edit Title", new FontIcon(MaterialDesignP.PENCIL_OUTLINE));
+        editItem.setOnAction(e -> showRenameDialog(project));
+        
+        MenuItem shareItem = new MenuItem("Share", new FontIcon(MaterialDesignS.SHARE_VARIANT));
+        shareItem.setDisable(true); // Placeholder as requested
+        
+        MenuItem uploadItem = new MenuItem("Upload", new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
+        uploadItem.setDisable(true); // Placeholder
+        
+        MenuItem cloneItem = new MenuItem("Clone", new FontIcon(MaterialDesignC.CONTENT_COPY));
+        cloneItem.setOnAction(e -> ProjectRepository.getInstance().cloneProject(project));
+        
+        MenuItem deleteItem = new MenuItem("Delete", new FontIcon(MaterialDesignD.DELETE_OUTLINE));
+        deleteItem.getStyleClass().add("danger"); // Assumes some CSS support or just visual distinction
+        deleteItem.setOnAction(e -> showDeleteConfirmation(project));
+        
+        menu.getItems().addAll(editItem, shareItem, uploadItem, new SeparatorMenuItem(), cloneItem, deleteItem);
+        return menu;
+    }
+
+    private void showRenameDialog(ProjectData project) {
+        TextInputDialog dialog = new TextInputDialog(project.getProjectTitle());
+        dialog.setTitle("Rename Project");
+        dialog.setHeaderText("Change title for " + project.getProjectTitle());
+        dialog.setContentText("New Title:");
+        
+        dialog.showAndWait().ifPresent(newName -> {
+            if (!newName.trim().isEmpty()) {
+                ProjectRepository.getInstance().renameProject(project, newName.trim());
+            }
+        });
+    }
+
+    private void showDeleteConfirmation(ProjectData project) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Delete Project");
+        alert.setHeaderText("Delete '" + project.getProjectTitle() + "'?");
+        alert.setContentText("This will permanently remove the project folder and all its contents.");
+        
+        alert.showAndWait().ifPresent(response -> {
+            if (response == ButtonType.OK) {
+                ProjectRepository.getInstance().deleteProject(project);
+            }
+        });
     }
 }

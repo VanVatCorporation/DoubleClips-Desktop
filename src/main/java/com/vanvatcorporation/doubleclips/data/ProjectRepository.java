@@ -11,9 +11,13 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import com.vanvatcorporation.doubleclips.helper.FileHelper;
 
 public class ProjectRepository {
     private static ProjectRepository instance;
@@ -83,6 +87,61 @@ public class ProjectRepository {
 
             saveProjectProperties(data);
             refreshProjects();
+        }
+    }
+
+    public void deleteProject(ProjectData project) {
+        try {
+            FileHelper.deleteDirectory(Paths.get(project.getProjectPath()));
+            refreshProjects();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void cloneProject(ProjectData project) {
+        try {
+            Path source = Paths.get(project.getProjectPath());
+            String cloneTitle = project.getProjectTitle() + "_clone";
+            Path target = Paths.get(Constants.getProjectsDirectory().getAbsolutePath(), cloneTitle);
+
+            // Unique target path
+            int count = 1;
+            while (Files.exists(target)) {
+                target = Paths.get(Constants.getProjectsDirectory().getAbsolutePath(), cloneTitle + " (" + count + ")");
+                count++;
+            }
+
+            FileHelper.copyDirectory(source, target);
+
+            // Update metadata for the clone
+            ProjectData cloneData = loadProjectProperties(target.toFile());
+            if (cloneData != null) {
+                cloneData.setProjectTitle(target.getFileName().toString());
+                cloneData.setProjectTimestamp(new Date().getTime());
+                cloneData.setProjectPath(target.toAbsolutePath().toString());
+                saveProjectProperties(cloneData);
+            }
+
+            refreshProjects();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void renameProject(ProjectData project, String newTitle) {
+        try {
+            File oldDir = new File(project.getProjectPath());
+            File newDir = new File(oldDir.getParent(), newTitle);
+
+            if (oldDir.renameTo(newDir)) {
+                project.setProjectPath(newDir.getAbsolutePath());
+                project.setProjectTitle(newTitle);
+                saveProjectProperties(project);
+                refreshProjects();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
