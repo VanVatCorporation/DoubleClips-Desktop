@@ -1,0 +1,39 @@
+package com.vanvatcorporation.doubleclips.data;
+
+import com.google.gson.annotations.Expose;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+
+public class Track implements Serializable {
+    @Expose
+    public int timelineIndex;
+    @Expose
+    public List<Clip> clips = new ArrayList<>();
+
+    public transient Object viewRef;
+
+    public Track() {}
+
+    public void addClip(Clip clip) {
+        clip.trackIndex = timelineIndex;
+        clips.add(clip);
+    }
+
+    public void removeClip(Clip clip) {
+        clips.remove(clip);
+    }
+
+    public void sortClips() {
+        clips.sort((o1, o2) -> (Float.compare(o1.startTime, o2.startTime)));
+    }
+
+    public float getTrackEndTime() {
+        float max = 0f;
+        for (Clip clip : clips) {
+            float end = clip.startTime + clip.duration;
+            if (end > max) max = end;
+        }
+        return max;
+    }
+}

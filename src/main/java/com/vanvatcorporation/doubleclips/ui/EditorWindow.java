@@ -1,7 +1,8 @@
 package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
-import com.vanvatcorporation.doubleclips.data.ProjectData;
+import com.vanvatcorporation.doubleclips.data.*;
+import javafx.animation.AnimationTimer;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
@@ -20,6 +21,26 @@ import org.kordamp.ikonli.materialdesign2.*;
 public class EditorWindow extends Stage {
 
     private final ProjectData project;
+    private final Timeline timeline = new Timeline();
+
+    // Editor State
+    private float currentTime = 0f;
+    private boolean isPlaying = false;
+    private float pixelsPerSecond = 100f; // 100px = 1s
+    private final float TRACK_HEIGHT = 70f;
+    private final float TRACK_SPACING = 5f;
+
+    // Playback engine
+    private AnimationTimer playbackTimer;
+    private long lastTimerUpdate = 0;
+
+    // UI Components for logic access
+    private final Label currentTimeLabel = new Label("00:00:00:00");
+    private final Label durationLabel = new Label("00:00:00:00");
+    private final Pane tracksPane = new Pane();
+    private final VBox trackHeadersContainer = new VBox(0);
+    private Line playheadLine;
+    private Slider zoomSlider;
 
     // --- Scroll sync ---
     private final ScrollPane rulerScrollPane = new ScrollPane();
@@ -58,7 +79,75 @@ public class EditorWindow extends Stage {
         scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
 
         this.setScene(scene);
-        this.setOnCloseRequest(e -> DoubleClipsDesktop.getInstance().closeEditor(this));
+        this.setOnCloseRequest(e -> {
+            stopPlayback();
+            DoubleClipsDesktop.getInstance().closeEditor(this);
+        });
+
+        initPlaybackTimer();
+        
+        // Initial tracks
+        addNewTrack("Video 1");
+        addNewTrack("Audio 1");
+    }
+
+    private void initPlaybackTimer() {
+        playbackTimer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                if (lastTimerUpdate > 0) {
+                    long deltaNs = now - lastTimerUpdate;
+                    float deltaSec = deltaNs / 1_000_000_000f;
+                    updateCurrentTime(currentTime + deltaSec);
+                }
+                lastTimerUpdate = now;
+            }
+        };
+    }
+
+    private void startPlayback() {
+        if (isPlaying) return;
+        isPlaying = true;
+        lastTimerUpdate = System.nanoTime();
+        playbackTimer.start();
+        // Update play/pause button icon if needed
+    }
+
+    private void stopPlayback() {
+        if (!isPlaying) return;
+        isPlaying = false;
+        playbackTimer.stop();
+        lastTimerUpdate = 0;
+    }
+
+    private void updateCurrentTime(float newTime) {
+        this.currentTime = Math.max(0, newTime);
+        currentTimeLabel.setText(formatTimecode(currentTime));
+        
+        // Update playhead position
+        if (playheadLine != null) {
+            playheadLine.setTranslateX(currentTime * pixelsPerSecond);
+        }
+
+        // Auto-scroll if playing
+        if (isPlaying) {
+            double playheadX = currentTime * pixelsPerSecond;
+            double scrollWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
+            double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+            
+            if (playheadX > viewportWidth * 0.8) {
+                // Simple auto-scroll logic
+                tracksScrollPane.setHvalue(playheadX / scrollWidth);
+            }
+        }
+    }
+
+    private String formatTimecode(float seconds) {
+        int h = (int)(seconds / 3600);
+        int m = (int)((seconds % 3600) / 60);
+        int s = (int)(seconds % 60);
+        int f = (int)((seconds % 1) * 30); // 30fps assumption for display
+        return String.format("%02d:%02d:%02d:%02d", h, m, s, f);
     }
 
     // ====================================================================
@@ -189,19 +278,29 @@ public class EditorWindow extends Stage {
         controls.getStyleClass().add("playback-controls");
 
         // Time display
-        Label timeCurrent = new Label("00:00:00:00");
-        timeCurrent.getStyleClass().add("timecode-label");
+        currentTimeLabel.getStyleClass().add("timecode-label");
         Label timeSep = new Label("/");
         timeSep.setStyle("-fx-text-fill: -color-fg-muted;");
-        Label timeDuration = new Label("00:00:04:22");
-        timeDuration.getStyleClass().add("timecode-label");
+        durationLabel.getStyleClass().add("timecode-label");
+        durationLabel.setText("00:00:10:00"); // Mock duration
 
         Region pbLeft = new Region();
         HBox.setHgrow(pbLeft, Priority.ALWAYS);
 
         Button playBtn = new Button();
-        playBtn.setGraphic(new FontIcon(MaterialDesignP.PLAY_CIRCLE_OUTLINE));
+        FontIcon playIcon = new FontIcon(MaterialDesignP.PLAY_CIRCLE_OUTLINE);
+        FontIcon pauseIcon = new FontIcon(MaterialDesignP.PAUSE_CIRCLE_OUTLINE);
+        playBtn.setGraphic(playIcon);
         playBtn.getStyleClass().addAll("button-transparent", "play-button-main");
+        playBtn.setOnAction(e -> {
+            if (isPlaying) {
+                stopPlayback();
+                playBtn.setGraphic(playIcon);
+            } else {
+                startPlayback();
+                playBtn.setGraphic(pauseIcon);
+            }
+        });
 
         Region pbRight = new Region();
         HBox.setHgrow(pbRight, Priority.ALWAYS);
@@ -216,7 +315,7 @@ public class EditorWindow extends Stage {
         fullScreenBtn.getStyleClass().add("button-transparent");
 
         controls.getChildren().addAll(
-            timeCurrent, timeSep, timeDuration,
+            currentTimeLabel, timeSep, durationLabel,
             pbLeft, playBtn, pbRight,
             fpsLabel, resLabel, hdrLabel, fullScreenBtn
         );
@@ -330,9 +429,13 @@ public class EditorWindow extends Stage {
         // Right cluster (zoom, waveform toggle, snap)
         Label zoomLabel = new Label("Zoom");
         zoomLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");
-        Slider zoomSlider = new Slider(0.5, 4.0, 1.0);
+        zoomSlider = new Slider(50, 500, 100); // 50px to 500px per second
         zoomSlider.setPrefWidth(100);
         zoomSlider.getStyleClass().add("timeline-zoom-slider");
+        zoomSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
+            pixelsPerSecond = newVal.floatValue();
+            refreshTimelineUI();
+        });
 
         toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteClip, toolSpacer, zoomLabel, zoomSlider);
 
@@ -357,14 +460,11 @@ public class EditorWindow extends Stage {
         addTrackBtn.setGraphic(new FontIcon(MaterialDesignP.PLUS));
         addTrackBtn.getStyleClass().add("button-transparent");
         addTrackBtn.setStyle("-fx-padding: 2px;");
+        addTrackBtn.setOnAction(e -> addNewTrack("New Track"));
         sidebarTop.getChildren().add(addTrackBtn);
 
-        // Sample track header
-        VBox trackHeadersContainer = new VBox(0);
+        // Tracks sidebar container
         VBox.setVgrow(trackHeadersContainer, Priority.ALWAYS);
-        trackHeadersContainer.getChildren().add(buildTrackHeader("Video 1"));
-        trackHeadersContainer.getChildren().add(buildTrackHeader("Audio 1"));
-
         trackSidebar.getChildren().addAll(sidebarTop, trackHeadersContainer);
 
         // Right: ruler + scrollable tracks
@@ -381,7 +481,6 @@ public class EditorWindow extends Stage {
         rulerScrollPane.setMaxHeight(30);
 
         // Tracks area
-        buildTracksArea();
         tracksScrollPane.getStyleClass().add("tracks-scroll");
         tracksScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         tracksScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
@@ -390,16 +489,25 @@ public class EditorWindow extends Stage {
         // Sync horizontal scroll
         rulerScrollPane.hvalueProperty().bindBidirectional(tracksScrollPane.hvalueProperty());
 
-        // Playhead overlay on top of rulerAndTracks
+        // Tracks content container
+        tracksPane.getStyleClass().add("timeline-tracks-pane");
+        tracksPane.setPrefWidth(8000);
+        tracksPane.setPrefHeight(300);
+        tracksScrollPane.setContent(tracksPane);
+
+        // Playhead overlay
         StackPane tracksWithPlayhead = new StackPane();
         VBox.setVgrow(tracksWithPlayhead, Priority.ALWAYS);
         tracksWithPlayhead.getChildren().add(tracksScrollPane);
 
-        Line playhead = new Line(0, 0, 0, 600);
-        playhead.setStroke(Color.web("#FF3B30"));
-        playhead.setStrokeWidth(2);
-        StackPane.setAlignment(playhead, Pos.TOP_CENTER);
-        tracksWithPlayhead.getChildren().add(playhead);
+        playheadLine = new Line(0, 0, 0, 1000);
+        playheadLine.setStroke(Color.web("#FF3B30"));
+        playheadLine.setStrokeWidth(2);
+        playheadLine.setManaged(false); // We handle position via setTranslateX
+        
+        Pane playheadOverlay = new Pane(playheadLine);
+        playheadOverlay.setMouseTransparent(true);
+        tracksWithPlayhead.getChildren().add(playheadOverlay);
 
         rulerAndTracks.getChildren().addAll(rulerScrollPane, tracksWithPlayhead);
 
@@ -432,33 +540,99 @@ public class EditorWindow extends Stage {
         rulerScrollPane.setContent(ruler);
     }
 
-    private void buildTracksArea() {
-        Pane tracks = new Pane();
-        tracks.setPrefWidth(8000);
-        tracks.setPrefHeight(300);
-        tracks.getStyleClass().add("timeline-tracks-pane");
+    private void addNewTrack(String name) {
+        Track track = new Track();
+        timeline.addTrack(track);
 
-        // Draw alternating row bands (2 tracks by default)
-        int[] trackYs = {0, 80};
-        for (int i = 0; i < trackYs.length; i++) {
-            Rectangle band = new Rectangle(0, trackYs[i], 8000, 75);
-            band.getStyleClass().add(i % 2 == 0 ? "track-band-even" : "track-band-odd");
-            tracks.getChildren().add(band);
+        // UI: Sidebar Header
+        trackHeadersContainer.getChildren().add(buildTrackHeader(name));
+
+        // UI: Track Band (alternating colors)
+        double y = (timeline.tracks.size() - 1) * (TRACK_HEIGHT + TRACK_SPACING);
+        Rectangle band = new Rectangle(0, y, 8000, TRACK_HEIGHT);
+        band.getStyleClass().add((timeline.tracks.size() - 1) % 2 == 0 ? "track-band-even" : "track-band-odd");
+        tracksPane.getChildren().add(band);
+        
+        track.viewRef = band; // Keep reference if needed
+
+        // Add a sample clip to the first track for visualization
+        if (timeline.tracks.size() == 1) {
+            addClipToTrack(track, new Clip("Sample Video", 1.2f, 5.0f, 0, ClipType.VIDEO, true, 1920, 1080));
         }
+    }
 
-        // Add a sample placeholder clip on the first track
-        Rectangle sampleClip = new Rectangle(120, 5, 500, 65);
-        sampleClip.setArcWidth(8);
-        sampleClip.setArcHeight(8);
-        sampleClip.getStyleClass().add("timeline-clip");
+    private void addClipToTrack(Track track, Clip clip) {
+        track.addClip(clip);
+        
+        double x = clip.startTime * pixelsPerSecond;
+        double y = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
+        double w = clip.duration * pixelsPerSecond;
+        double h = TRACK_HEIGHT - 10; // slightly smaller than track height
+        
+        Rectangle clipRect = new Rectangle(x, y + 5, w, h);
+        clipRect.getStyleClass().add("timeline-clip");
+        clipRect.setArcWidth(8);
+        clipRect.setArcHeight(8);
+        
+        Label label = new Label(clip.getClipName());
+        label.getStyleClass().add("ruler-text"); // reusing font style
+        label.setLayoutX(x + 5);
+        label.setLayoutY(y + 8);
+        
+        tracksPane.getChildren().addAll(clipRect, label);
+        clip.viewRef = clipRect;
+    }
 
-        Label clipLabel = new Label("Clip");
-        clipLabel.getStyleClass().add("timeline-clip-label");
-        clipLabel.setLayoutX(128);
-        clipLabel.setLayoutY(12);
+    private void refreshTimelineUI() {
+        // Refresh Ruler
+        buildRuler();
+        
+        // Refresh Clips and Tracks
+        tracksPane.getChildren().clear();
+        for (Track track : timeline.tracks) {
+            // Add track band
+            double y = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
+            Rectangle band = new Rectangle(0, y, 8000, TRACK_HEIGHT);
+            band.getStyleClass().add(track.timelineIndex % 2 == 0 ? "track-band-even" : "track-band-odd");
+            tracksPane.getChildren().add(band);
 
-        tracks.getChildren().addAll(sampleClip, clipLabel);
-        tracksScrollPane.setContent(tracks);
+            // Re-add clips (they will be reconstructed for simplicity in this refresh)
+            // In a more optimized version, we'd just update their X/Width.
+            for (Clip clip : track.clips) {
+                renderClipUI(track, clip);
+            }
+        }
+        
+        // Update playhead
+        updateCurrentTime(currentTime);
+    }
+
+    private void renderClipUI(Track track, Clip clip) {
+        double x = clip.startTime * pixelsPerSecond;
+        double y = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
+        double w = clip.duration * pixelsPerSecond;
+        double h = TRACK_HEIGHT - 10;
+        
+        Rectangle clipRect = new Rectangle(x, y + 5, w, h);
+        clipRect.getStyleClass().add("timeline-clip");
+        clipRect.setArcWidth(8);
+        clipRect.setArcHeight(8);
+        
+        clipRect.setOnMouseClicked(e -> selectClip(clip));
+        
+        Label label = new Label(clip.getClipName());
+        label.getStyleClass().add("ruler-text");
+        label.setLayoutX(x + 5);
+        label.setLayoutY(y + 8);
+        label.setMouseTransparent(true);
+        
+        tracksPane.getChildren().addAll(clipRect, label);
+        clip.viewRef = clipRect;
+    }
+
+    private void selectClip(Clip clip) {
+        // Placeholder for selection logic
+        System.out.println("Selected clip: " + clip.getClipName());
     }
 
     private HBox buildTrackHeader(String name) {
