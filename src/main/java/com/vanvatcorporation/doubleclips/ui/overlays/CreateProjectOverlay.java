@@ -5,6 +5,7 @@ import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.data.ProjectRepository;
 import com.vanvatcorporation.doubleclips.helper.CompressionHelper;
 import com.vanvatcorporation.doubleclips.helper.FileHelper;
+import com.vanvatcorporation.doubleclips.helper.TaskbarHelper;
 import javafx.animation.Interpolator;
 import javafx.animation.TranslateTransition;
 import javafx.application.Platform;
@@ -222,11 +223,12 @@ public class CreateProjectOverlay extends StackPane {
                 CompressionHelper.unzipFolder(zipFile, projectsDir, new CompressionHelper.UnzipProgressListener() {
                     @Override
                     public void onProgress(long bytesExtracted, long totalBytes, String name) {
+                        double progress = (double) bytesExtracted / totalBytes;
                         Platform.runLater(() -> {
-                            double progress = (double) bytesExtracted / totalBytes;
                             progressBar.setProgress(progress);
                             progressLabel.setText(String.format("Extracting: %s (%.0f%%)", name, progress * 100));
                         });
+                        TaskbarHelper.updateProgress(progress);
                     }
 
                     @Override
@@ -243,6 +245,7 @@ public class CreateProjectOverlay extends StackPane {
 
         task.setOnSucceeded(e -> {
             setProcessing(false);
+            TaskbarHelper.stopProgress();
             ProjectRepository.getInstance().refreshProjects();
             
             // Find the new folder to check for properties
@@ -273,6 +276,7 @@ public class CreateProjectOverlay extends StackPane {
 
         task.setOnFailed(e -> {
             setProcessing(false);
+            TaskbarHelper.setState(java.awt.Taskbar.State.ERROR);
             progressLabel.setText("Failed to extract project.");
             progressLabel.setStyle("-fx-text-fill: -color-danger-fg;");
         });
