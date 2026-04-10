@@ -221,15 +221,82 @@
 }
 
 /* ============================================
-   VIDEO EDITOR (EditingWindow)
+   VIDEO EDITOR — CapCut Style
    ============================================ */
-.editor-preview-container {
-    -fx-background-color: -color-bg-default;
+.editor-root {
+    -fx-background-color: #0D0D1A;
 }
 
-.editor-top-bar {
-    -fx-border-color: transparent transparent -color-border-subtle transparent;
+.editor-topbar {
+    -fx-background-color: #151527;
+    -fx-border-color: transparent transparent #2a2a45 transparent;
     -fx-border-width: 0 0 1 0;
+    -fx-padding: 8 16;
+}
+
+/* ---- Tab Strip (shared) ---- */
+.editor-tab-strip {
+    -fx-background-color: #0D0D1A;
+    -fx-border-color: transparent transparent #2a2a45 transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.editor-tab {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-text-fill: rgba(255,255,255,0.5);
+    -fx-font-size: 11px;
+    -fx-padding: 8 6;
+    -fx-alignment: center;
+    -fx-min-width: 0;
+}
+
+.editor-tab:hover {
+    -fx-text-fill: rgba(255,255,255,0.85);
+    -fx-background-color: rgba(255,255,255,0.04);
+}
+
+.editor-tab:selected {
+    -fx-text-fill: white;
+    -fx-border-color: transparent transparent #007AFF transparent;
+    -fx-border-width: 0 0 2 0;
+    -fx-background-color: transparent;
+}
+
+/* ---- Left Panel ---- */
+.editor-left-panel {
+    -fx-background-color: #111122;
+    -fx-border-color: transparent #2a2a45 transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+.editor-import-bar {
+    -fx-background-color: #111122;
+    -fx-border-color: transparent transparent #2a2a45 transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.import-media-button {
+    -fx-background-color: #007AFF;
+    -fx-text-fill: white;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 5 12;
+    -fx-font-size: 12px;
+    -fx-cursor: hand;
+}
+
+.import-media-button:hover {
+    -fx-background-color: #0062CC;
+}
+
+.media-grid {
+    -fx-background-color: #111122;
+}
+
+/* ---- Preview Panel ---- */
+.editor-preview-panel {
+    -fx-background-color: #0A0A18;
 }
 
 .canvas-wrapper {
@@ -238,47 +305,176 @@
 }
 
 .playback-controls {
-    -fx-background-color: -color-bg-subtle;
-    -fx-border-color: -color-border-subtle transparent transparent transparent;
+    -fx-background-color: #111122;
+    -fx-border-color: #2a2a45 transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 8 16;
+}
+
+.play-button-main .ikonli-font-icon {
+    -fx-icon-color: white;
+    -fx-icon-size: 36px;
+}
+
+.timecode-label {
+    -fx-text-fill: rgba(255,255,255,0.85);
+    -fx-font-size: 13px;
+    -fx-font-family: "Menlo", "Courier New", monospace;
+}
+
+.stat-badge {
+    -fx-background-color: rgba(255,255,255,0.1);
+    -fx-background-radius: 4;
+    -fx-text-fill: rgba(255,255,255,0.65);
+    -fx-font-size: 11px;
+    -fx-padding: 2 6;
+}
+
+/* ---- Right Panel ---- */
+.editor-right-panel {
+    -fx-background-color: #111122;
+    -fx-border-color: transparent transparent transparent #2a2a45;
+    -fx-border-width: 0 0 0 1;
+}
+
+.suggestions-card {
+    -fx-background-color: rgba(88, 86, 214, 0.12);
+    -fx-border-color: rgba(88, 86, 214, 0.3);
+    -fx-border-radius: 12;
+    -fx-background-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 16;
+}
+
+.analyze-button {
+    -fx-background-color: rgba(88, 86, 214, 0.8);
+    -fx-text-fill: white;
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+    -fx-font-size: 12px;
+}
+
+.analyze-button:hover {
+    -fx-background-color: rgba(88, 86, 214, 1.0);
+}
+
+.global-edit-row {
+    -fx-background-color: rgba(255,255,255,0.04);
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-cursor: hand;
+}
+
+.global-edit-row:hover {
+    -fx-background-color: rgba(255,255,255,0.08);
+}
+
+.pill-toggle {
+    -fx-background-color: rgba(255,255,255,0.15);
+    -fx-background-radius: 20;
+    -fx-border-radius: 20;
+    -fx-padding: 2 10;
+    -fx-text-fill: transparent;
+    -fx-min-width: 38;
+    -fx-pref-width: 38;
+    -fx-min-height: 20;
+}
+
+.pill-toggle:selected {
+    -fx-background-color: #34C759;
+}
+
+/* ---- Timeline ---- */
+.editor-timeline {
+    -fx-background-color: #0D0D1A;
+    -fx-border-color: #2a2a45 transparent transparent transparent;
     -fx-border-width: 1 0 0 0;
 }
 
-.play-button .ikonli-font-icon {
-    -fx-icon-color: #007AFF;
+.timeline-toolbar {
+    -fx-background-color: #151527;
+    -fx-border-color: transparent transparent #2a2a45 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 6 12;
 }
 
-.editor-timeline-container {
-    -fx-background-color: -color-bg-default;
-    -fx-border-color: -color-border-subtle transparent transparent transparent;
-    -fx-border-width: 1 0 0 0;
+.tool-button {
+    -fx-background-color: rgba(255,255,255,0.06);
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 5 8;
+    -fx-cursor: hand;
 }
 
-.timeline-sidebar {
-    -fx-background-color: -color-bg-inset;
-    -fx-border-color: transparent -color-border-subtle transparent transparent;
+.tool-button:hover {
+    -fx-background-color: rgba(255,255,255,0.12);
+}
+
+.timeline-zoom-slider .track {
+    -fx-background-color: rgba(255,255,255,0.15);
+}
+
+.timeline-zoom-slider .thumb {
+    -fx-background-color: #007AFF;
+}
+
+.track-sidebar {
+    -fx-background-color: #111122;
+    -fx-border-color: transparent #2a2a45 transparent transparent;
     -fx-border-width: 0 1 0 0;
-    -fx-padding: 10;
 }
 
-.timeline-ruler-scroll {
-    -fx-background-color: #1A1A1A;
+.sidebar-top-row {
+    -fx-background-color: #1A1A2E;
+    -fx-border-color: transparent transparent #2a2a45 transparent;
+    -fx-border-width: 0 0 1 0;
 }
 
-.timeline-ruler-scroll .viewport,
-.timeline-tracks-scroll .viewport {
+.track-header {
+    -fx-background-color: #0F0F1E;
+    -fx-border-color: transparent transparent #2a2a45 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 8;
+}
+
+.track-header:hover {
+    -fx-background-color: #161630;
+}
+
+.ruler-scroll {
+    -fx-background-color: #1A1A2E;
+    -fx-background: #1A1A2E;
+    -fx-padding: 0;
+}
+
+.ruler-scroll .viewport {
     -fx-background-color: transparent;
 }
 
-.timeline-tracks-scroll {
-    -fx-background-color: #111111;
+.tracks-scroll {
+    -fx-background-color: #0D0D1A;
+    -fx-background: #0D0D1A;
 }
 
+.tracks-scroll .viewport {
+    -fx-background-color: transparent;
+}
+
+/* ---- Export Button ---- */
 .export-button {
     -fx-background-color: #34C759;
     -fx-text-fill: white;
     -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-padding: 6 18;
+    -fx-cursor: hand;
 }
 
 .export-button:hover {
     -fx-background-color: #28a745;
+}
+
+.export-button .ikonli-font-icon {
+    -fx-icon-color: white;
 }
