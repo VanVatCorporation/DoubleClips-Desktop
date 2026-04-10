@@ -48,4 +48,22 @@ public class FileHelper {
             }
         });
     }
+    /**
+     * Reveals the specified file or directory in the system's file browser.
+     */
+    public static void revealInFileBrowser(Path path) {
+        String os = System.getProperty("os.name").toLowerCase();
+        try {
+            if (os.contains("win")) {
+                new ProcessBuilder("explorer.exe", "/select," + path.toAbsolutePath()).start();
+            } else if (os.contains("mac")) {
+                new ProcessBuilder("open", "-R", path.toAbsolutePath().toString()).start();
+            } else {
+                // TODO: Generic fallback for Linux (opens directory, doesn't always select)
+                java.awt.Desktop.getDesktop().open(path.getParent().toFile());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }

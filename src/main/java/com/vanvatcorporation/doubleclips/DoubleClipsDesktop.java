@@ -13,14 +13,25 @@ import javafx.scene.control.ToggleGroup;
 import javafx.scene.image.Image;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 
 public class DoubleClipsDesktop extends Application {
 
     private static DoubleClipsDesktop instance;
+    private static boolean isGlobalProcessing = false;
     private StackPane rootLayer;
     private StackPane contentArea;
+
+    public static boolean isGlobalProcessing() {
+        return isGlobalProcessing;
+    }
+
+    public static void setGlobalProcessing(boolean processing) {
+        isGlobalProcessing = processing;
+    }
 
     public static DoubleClipsDesktop getInstance() {
         return instance;
@@ -43,6 +54,19 @@ public class DoubleClipsDesktop extends Application {
 
         stage.setScene(scene);
         stage.setTitle("DoubleClips Desktop");
+
+        stage.setOnCloseRequest(event -> {
+            if (isGlobalProcessing) {
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+                alert.setTitle("Processing in progress");
+                alert.setHeaderText("A task is currently running.");
+                alert.setContentText("Closing the app now may cause data loss or corruption. Are you sure you want to exit?");
+                
+                if (alert.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
+                    event.consume();
+                }
+            }
+        });
         
         // Critical: Show the stage BEFORE building the complex layout to prevent OS timeouts
         stage.show();

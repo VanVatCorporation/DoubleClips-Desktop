@@ -145,6 +145,22 @@ public class ProjectRepository {
         }
     }
 
+    public void recoverLegacyProject(File folder) {
+        String baseName = folder.getName();
+        String recoveredTitle = baseName + " [Recovered]";
+        
+        ProjectData data = new ProjectData(
+            folder.getAbsolutePath(),
+            recoveredTitle,
+            new Date().getTime(),
+            0, // size - will be updated later
+            0  // duration - will be updated later
+        );
+
+        saveProjectProperties(data);
+        refreshProjects();
+    }
+
     private ProjectData loadProjectProperties(File projectFolder) {
         File propsFile = new File(projectFolder, Constants.DEFAULT_PROJECT_PROPERTIES_FILENAME);
         if (!propsFile.exists()) return null;

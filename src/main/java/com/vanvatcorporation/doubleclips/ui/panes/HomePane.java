@@ -3,6 +3,7 @@ package com.vanvatcorporation.doubleclips.ui.panes;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.ProjectRepository;
 import com.vanvatcorporation.doubleclips.helper.DateHelper;
+import com.vanvatcorporation.doubleclips.helper.FileHelper;
 import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -12,6 +13,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignD;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignE;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignF;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignS;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignU;
@@ -180,6 +182,9 @@ public class HomePane extends VBox {
         
         MenuItem uploadItem = new MenuItem("Upload", new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
         uploadItem.setDisable(true); // Placeholder
+
+        MenuItem revealItem = new MenuItem(getRevealLabel(), new FontIcon(MaterialDesignF.FOLDER_OUTLINE));
+        revealItem.setOnAction(e -> FileHelper.revealInFileBrowser(java.nio.file.Paths.get(project.getProjectPath())));
         
         MenuItem cloneItem = new MenuItem("Clone", new FontIcon(MaterialDesignC.CONTENT_COPY));
         cloneItem.setOnAction(e -> ProjectRepository.getInstance().cloneProject(project));
@@ -188,7 +193,7 @@ public class HomePane extends VBox {
         deleteItem.getStyleClass().add("danger"); // Assumes some CSS support or just visual distinction
         deleteItem.setOnAction(e -> showDeleteConfirmation(project));
         
-        menu.getItems().addAll(editItem, shareItem, uploadItem, new SeparatorMenuItem(), cloneItem, deleteItem);
+        menu.getItems().addAll(editItem, shareItem, uploadItem, new SeparatorMenuItem(), revealItem, new SeparatorMenuItem(), cloneItem, deleteItem);
         return menu;
     }
 
@@ -216,5 +221,12 @@ public class HomePane extends VBox {
                 ProjectRepository.getInstance().deleteProject(project);
             }
         });
+    }
+
+    private String getRevealLabel() {
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("win")) return "Show in Explorer";
+        if (os.contains("mac")) return "Reveal in Finder";
+        return "Open in File Manager";
     }
 }
