@@ -39,22 +39,24 @@ public class TemplatePreviewOverlay extends StackPane {
 
         if (data.getTemplateVideoLink() != null && !data.getTemplateVideoLink().isEmpty()) {
             try {
-                Media media = new Media(data.getTemplateVideoLink());
-                mediaPlayer = new MediaPlayer(media);
-                mediaView = new MediaView(mediaPlayer);
-                
-                // Binding width to container while preserving ratio
-                mediaView.setFitWidth(420);
-                mediaView.setPreserveRatio(true);
+                com.vanvatcorporation.doubleclips.helper.VideoCacheManager.getCachedVideoPath(data.getTemplateVideoLink(), cachedUrl -> {
+                    javafx.application.Platform.runLater(() -> {
+                        Media media = new Media(cachedUrl);
+                        mediaPlayer = new MediaPlayer(media);
+                        mediaView = new MediaView(mediaPlayer);
+                        
+                        mediaView.setFitWidth(420);
+                        mediaView.setPreserveRatio(true);
 
-                videoWrapper.getChildren().add(mediaView);
-                mediaPlayer.setAutoPlay(true);
-                mediaPlayer.setCycleCount(MediaPlayer.INDEFINITE);
-                
-                // Play/Pause on click
-                videoWrapper.setOnMouseClicked(e -> {
-                    if (mediaPlayer.getStatus() == MediaPlayer.Status.PLAYING) mediaPlayer.pause();
-                    else mediaPlayer.play();
+                        videoWrapper.getChildren().add(mediaView);
+                        mediaPlayer.setAutoPlay(true);
+                        mediaPlayer.setCycleCount(MediaPlayer.INDEFINITE);
+                        
+                        videoWrapper.setOnMouseClicked(e -> {
+                            if (mediaPlayer.getStatus() == MediaPlayer.Status.PLAYING) mediaPlayer.pause();
+                            else mediaPlayer.play();
+                        });
+                    });
                 });
             } catch (Exception e) {
                 Label errorLabel = new Label("Preview Unavailable");

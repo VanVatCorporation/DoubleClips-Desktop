@@ -25,8 +25,10 @@ import java.util.concurrent.TimeUnit;
 public class RetrofitClient {
 
     private static final String BASE_URL = "https://account.vanvatcorp.com";
+    private static final String APP_BASE_URL = "https://app.vanvatcorp.com";
     private static RetrofitClient instance;
-    private Retrofit retrofit;
+    private Retrofit authRetrofit;
+    private Retrofit appRetrofit;
 
     private RetrofitClient() {
         FileCookieJar cookieJar = new FileCookieJar(StorageHelper.getAuthFile());
@@ -42,8 +44,14 @@ public class RetrofitClient {
                 .writeTimeout(30, TimeUnit.SECONDS)
                 .build();
 
-        retrofit = new Retrofit.Builder()
+        authRetrofit = new Retrofit.Builder()
                 .baseUrl(BASE_URL)
+                .addConverterFactory(GsonConverterFactory.create())
+                .client(client)
+                .build();
+
+        appRetrofit = new Retrofit.Builder()
+                .baseUrl(APP_BASE_URL)
                 .addConverterFactory(GsonConverterFactory.create())
                 .client(client)
                 .build();
@@ -57,12 +65,16 @@ public class RetrofitClient {
     }
 
     public ApiService getApi() {
-        return retrofit.create(ApiService.class);
+        return authRetrofit.create(ApiService.class);
+    }
+
+    public TemplateApiService getTemplateApi() {
+        return appRetrofit.create(TemplateApiService.class);
     }
 
     public void clearCookies() {
-        if (retrofit.callFactory() instanceof OkHttpClient) {
-            CookieJar jar = ((OkHttpClient) retrofit.callFactory()).cookieJar();
+        if (authRetrofit.callFactory() instanceof OkHttpClient) {
+            CookieJar jar = ((OkHttpClient) authRetrofit.callFactory()).cookieJar();
             if (jar instanceof FileCookieJar) {
                 ((FileCookieJar) jar).clear();
             }

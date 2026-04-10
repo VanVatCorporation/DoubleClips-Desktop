@@ -22,6 +22,7 @@ public class TemplateData implements Serializable {
     private int bookmarkCount;
     public boolean isLiked;
     public boolean isBookmarked;
+    private ArrayList<TemplateComment> comments = new ArrayList<>();
 
     public TemplateData() {}
 
@@ -41,12 +42,23 @@ public class TemplateData implements Serializable {
     public int getUseCount() { return useCount; }
     public int getHeartCount() { return heartCount; }
     public int getBookmarkCount() { return bookmarkCount; }
+    public ArrayList<TemplateComment> getComments() { 
+        if (comments == null) comments = new ArrayList<>();
+        return comments; 
+    }
 
-    // Setters for mocking
+    // Setters
     public void setTemplateAuthor(String templateAuthor) { this.templateAuthor = templateAuthor; }
     public void setTemplateId(String templateId) { this.templateId = templateId; }
     public void setTemplateTitle(String templateTitle) { this.templateTitle = templateTitle; }
     public void setTemplateVideoLink(String templateVideoLink) { this.templateVideoLink = templateVideoLink; }
     public void setHeartCount(int heartCount) { this.heartCount = heartCount; }
     public void setBookmarkCount(int bookmarkCount) { this.bookmarkCount = bookmarkCount; }
+
+    public static class TemplateComment implements Serializable {
+        public String username;
+        public String content;
+        public long commentTimestamp;
+        public int heartCount;
+    }
 }
