@@ -219,3 +219,66 @@
     -fx-text-fill: -color-fg-muted;
     -fx-opacity: 0.6;
 }
+
+/* ============================================
+   VIDEO EDITOR (EditingWindow)
+   ============================================ */
+.editor-preview-container {
+    -fx-background-color: -color-bg-default;
+}
+
+.editor-top-bar {
+    -fx-border-color: transparent transparent -color-border-subtle transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.canvas-wrapper {
+    -fx-background-color: black;
+    -fx-alignment: center;
+}
+
+.playback-controls {
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: -color-border-subtle transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.play-button .ikonli-font-icon {
+    -fx-icon-color: #007AFF;
+}
+
+.editor-timeline-container {
+    -fx-background-color: -color-bg-default;
+    -fx-border-color: -color-border-subtle transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.timeline-sidebar {
+    -fx-background-color: -color-bg-inset;
+    -fx-border-color: transparent -color-border-subtle transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 10;
+}
+
+.timeline-ruler-scroll {
+    -fx-background-color: #1A1A1A;
+}
+
+.timeline-ruler-scroll .viewport,
+.timeline-tracks-scroll .viewport {
+    -fx-background-color: transparent;
+}
+
+.timeline-tracks-scroll {
+    -fx-background-color: #111111;
+}
+
+.export-button {
+    -fx-background-color: #34C759;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+.export-button:hover {
+    -fx-background-color: #28a745;
+}

@@ -1,5 +1,6 @@
 package com.vanvatcorporation.doubleclips.ui.panes;
 
+import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.ProjectRepository;
 import com.vanvatcorporation.doubleclips.helper.DateHelper;
@@ -194,6 +195,14 @@ public class HomePane extends VBox {
         thumbnailContainer.setMinSize(80, 80);
 
         card.getChildren().addAll(thumbnailContainer, textContainer, menuBtn);
+
+        // Enter Editor on click
+        card.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 1 && e.getTarget() != menuBtn && !(e.getTarget() instanceof FontIcon)) {
+                DoubleClipsDesktop.getInstance().openEditor(project);
+            }
+        });
+
         return card;
     }
 

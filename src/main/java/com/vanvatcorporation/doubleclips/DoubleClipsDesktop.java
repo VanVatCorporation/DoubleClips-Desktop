@@ -22,6 +22,7 @@ public class DoubleClipsDesktop extends Application {
 
     private static DoubleClipsDesktop instance;
     private static boolean isGlobalProcessing = false;
+    private Stage primaryStage;
     private StackPane rootLayer;
     private StackPane contentArea;
 
@@ -40,6 +41,7 @@ public class DoubleClipsDesktop extends Application {
     @Override
     public void start(Stage stage) {
         instance = this;
+        this.primaryStage = stage;
         
         // Use the AtlantaFX theme - set this early
         Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
@@ -81,6 +83,18 @@ public class DoubleClipsDesktop extends Application {
                 stage.getIcons().add(new Image(getClass().getResourceAsStream("/icons/app.png")));
             } catch (Exception ignored) {}
         });
+    }
+
+    public void openEditor(com.vanvatcorporation.doubleclips.data.ProjectData project) {
+        primaryStage.hide();
+        com.vanvatcorporation.doubleclips.ui.EditorWindow editor = new com.vanvatcorporation.doubleclips.ui.EditorWindow(project);
+        editor.show();
+    }
+
+    public void closeEditor(Stage editorStage) {
+        editorStage.close();
+        primaryStage.show();
+        // The ProjectRepository is already synchronized, HomePane uses ObservableList
     }
 
     private final java.util.Map<String, Node> paneCache = new java.util.HashMap<>();
