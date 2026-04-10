@@ -59,6 +59,8 @@ public class DoubleClipsDesktop extends Application {
         });
     }
 
+    private final java.util.Map<String, Node> paneCache = new java.util.HashMap<>();
+
     private Region createMainLayout() {
         BorderPane root = new BorderPane();
 
@@ -90,23 +92,36 @@ public class DoubleClipsDesktop extends Application {
 
         // 2. Content Area Construction
         contentArea = new StackPane();
-        contentArea.getChildren().setAll(new HomePane());
+        contentArea.getChildren().setAll(getOrCreatePane("Home"));
 
         root.setLeft(sidebar);
         root.setCenter(contentArea);
 
         // 3. Navigation Switch Logic
-        homeBtn.setOnAction(e -> switchPane(new HomePane()));
-        templateBtn.setOnAction(e -> switchPane(new TemplatePane()));
-        searchBtn.setOnAction(e -> switchPane(new SearchPane()));
-        storageBtn.setOnAction(e -> switchPane(new StoragePane()));
-        profileBtn.setOnAction(e -> switchPane(new ProfilePane()));
+        homeBtn.setOnAction(e -> switchPane("Home"));
+        templateBtn.setOnAction(e -> switchPane("Template"));
+        searchBtn.setOnAction(e -> switchPane("Search"));
+        storageBtn.setOnAction(e -> switchPane("Storage"));
+        profileBtn.setOnAction(e -> switchPane("Profile"));
 
         return root;
     }
 
-    private void switchPane(Node pane) {
-        contentArea.getChildren().setAll(pane);
+    private void switchPane(String key) {
+        contentArea.getChildren().setAll(getOrCreatePane(key));
+    }
+
+    private Node getOrCreatePane(String key) {
+        return paneCache.computeIfAbsent(key, k -> {
+            switch (k) {
+                case "Home": return new HomePane();
+                case "Template": return new TemplatePane();
+                case "Search": return new SearchPane();
+                case "Storage": return new StoragePane();
+                case "Profile": return new ProfilePane();
+                default: return new HomePane();
+            }
+        });
     }
 
     private ToggleButton createNavButton(String text, ToggleGroup group) {
