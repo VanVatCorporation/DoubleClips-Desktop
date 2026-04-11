@@ -614,18 +614,66 @@ public class EditorWindow extends Stage {
         ruler.setPrefHeight(30);
         ruler.getStyleClass().add("timeline-ruler-pane");
 
-        // Draw tick marks
-        for (int i = 0; i <= 240; i++) {
-            double x = i * 33.0;
-            boolean isMajor = (i % 5 == 0);
-            Line tick = new Line(x, isMajor ? 10 : 18, x, 30);
-            tick.getStyleClass().add(isMajor ? "ruler-tick-major" : "ruler-tick-minor");
+        // Compute step interval based on zoom factor
+        float rulerInterval = 1f;
+        if (pixelsPerSecond >= 400) rulerInterval = 0.1f;
+        else if (pixelsPerSecond >= 200) rulerInterval = 0.2f;
+        else if (pixelsPerSecond >= 100) rulerInterval = 0.5f;
+
+        float majorPixels = pixelsPerSecond * rulerInterval;
+        float visibleDuration = 8000 / pixelsPerSecond;
+        long steps = (long) Math.ceil((visibleDuration + 2f) / rulerInterval);
+        
+        int subCount = 0;
+        if (majorPixels >= 60f) subCount = 4;
+        else if (majorPixels >= 28f) subCount = 1;
+
+        for (long step = 0; step <= steps; step++) {
+            float t = step * rulerInterval;
+            double x = t * pixelsPerSecond;
+
+            // Check if it's near a whole second
+            float frac = t - (float) Math.floor(t);
+            float tol = rulerInterval * 0.02f;
+            boolean isWholeSecond = (frac < tol || frac > (1f - tol));
+
+            Line tick = new Line(x, isWholeSecond ? 10 : 18, x, 30);
+            tick.getStyleClass().add(isWholeSecond ? "ruler-tick-major" : "ruler-tick-minor");
             ruler.getChildren().add(tick);
 
-            if (isMajor) {
-                javafx.scene.text.Text label = new javafx.scene.text.Text(x + 2, 9, formatSeconds(i * 5));
+            if (isWholeSecond) {
+                int sec = Math.round(t);
+                String lbl = sec == 0 ? "0s"
+                        : sec < 60 ? sec + "s"
+                        : (sec / 60) + "m" + (sec % 60) + "s";
+                
+                javafx.scene.text.Text label = new javafx.scene.text.Text(x + 2, 9, lbl);
                 label.getStyleClass().add("ruler-text");
                 ruler.getChildren().add(label);
+            } else {
+                // Frame number within the current second (assume 30fps)
+                int frameInSec = Math.max(1, Math.round(frac * 30));
+                String lbl = frameInSec + "f";
+                
+                if (majorPixels >= 14f) {
+                    javafx.scene.text.Text label = new javafx.scene.text.Text(x + 1.5, 9, lbl);
+                    label.getStyleClass().add("ruler-text");
+                    label.setStyle("-fx-opacity: 0.7;"); // Medium tick fade
+                    ruler.getChildren().add(label);
+                }
+            }
+
+            // Small subticks
+            if (subCount > 0 && step < steps) {
+                float subInterval = rulerInterval / (subCount + 1);
+                for (int s = 1; s <= subCount; s++) {
+                    float subT = t + subInterval * s;
+                    double subX = subT * pixelsPerSecond;
+                    Line subTick = new Line(subX, 22, subX, 30);
+                    subTick.getStyleClass().add("ruler-tick-minor");
+                    subTick.setStyle("-fx-opacity: 0.5;");
+                    ruler.getChildren().add(subTick);
+                }
             }
         }
 
