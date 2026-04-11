@@ -555,8 +555,14 @@ public class EditorWindow extends Stage {
         sidebarTop.getChildren().add(addTrackBtn);
 
         // Tracks sidebar container
-        VBox.setVgrow(trackHeadersContainer, Priority.ALWAYS);
-        trackSidebar.getChildren().addAll(sidebarTop, trackHeadersContainer);
+        ScrollPane trackHeadersScrollPane = new ScrollPane(trackHeadersContainer);
+        trackHeadersScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        trackHeadersScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER); // Hide scrollbars, slaved to tracks
+        trackHeadersScrollPane.setStyle("-fx-background-color: transparent; -fx-padding: 0;");
+        trackHeadersScrollPane.setFitToWidth(true);
+
+        VBox.setVgrow(trackHeadersScrollPane, Priority.ALWAYS);
+        trackSidebar.getChildren().addAll(sidebarTop, trackHeadersScrollPane);
 
         // Right: ruler + scrollable tracks
         VBox rulerAndTracks = new VBox(0);
@@ -577,8 +583,9 @@ public class EditorWindow extends Stage {
         tracksScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         VBox.setVgrow(tracksScrollPane, Priority.ALWAYS);
 
-        // Sync horizontal scroll
+        // Sync scrollers (horizontal for ruler, vertical for headers)
         rulerScrollPane.hvalueProperty().bindBidirectional(tracksScrollPane.hvalueProperty());
+        trackHeadersScrollPane.vvalueProperty().bindBidirectional(tracksScrollPane.vvalueProperty());
 
         // Tracks content container
         tracksPane.getStyleClass().add("timeline-tracks-pane");
@@ -614,11 +621,10 @@ public class EditorWindow extends Stage {
         rulerAndTracks.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
             if (e.isControlDown() || e.isShortcutDown()) {
                 double delta = e.getDeltaY();
-                double zoomFactor = 1.0;
-                if (delta > 0) zoomFactor = 1.1;
-                else if (delta < 0) zoomFactor = 0.9;
+                // Map the delta dynamically (standard mouse notch is +/- 40 = 1.1 scale)
+                double zoomFactor = 1.0 + (delta / 400.0);
                 
-                if (zoomFactor != 1.0) {
+                if (zoomFactor != 1.0 && zoomFactor > 0) {
                     double newZoom = zoomSlider.getValue() * zoomFactor;
                     zoomSlider.setValue(Math.min(zoomSlider.getMax(), Math.max(zoomSlider.getMin(), newZoom)));
                 }
