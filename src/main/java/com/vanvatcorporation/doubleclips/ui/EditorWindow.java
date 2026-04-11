@@ -24,7 +24,8 @@ import org.kordamp.ikonli.materialdesign2.*;
 public class EditorWindow extends Stage {
 
     private final ProjectData project;
-    private final Timeline timeline = new Timeline();
+    private Timeline timeline;
+    private VideoSettings videoSettings;
 
     // Editor State
     private float currentTime = 0f;
@@ -55,6 +56,9 @@ public class EditorWindow extends Stage {
 
     public EditorWindow(ProjectData project) {
         this.project = project;
+        this.timeline = ProjectRepository.getInstance().loadTimeline(project);
+        this.videoSettings = ProjectRepository.getInstance().loadVideoSettings(project);
+
         this.setTitle(project.getProjectTitle() + " — DoubleClips");
         this.setWidth(1440);
         this.setHeight(900);
@@ -88,14 +92,16 @@ public class EditorWindow extends Stage {
         this.setScene(scene);
         this.setOnCloseRequest(e -> {
             stopPlayback();
+            saveProject();
             DoubleClipsDesktop.getInstance().closeEditor(this);
         });
 
         initPlaybackTimer();
-        
-        // Initial tracks
-        addNewTrack("Video 1");
-        addNewTrack("Audio 1");
+        refreshTimelineUI();
+    }
+
+    private void saveProject() {
+        ProjectRepository.getInstance().saveTimeline(project, timeline, videoSettings);
     }
 
     private void initPlaybackTimer() {
@@ -192,6 +198,7 @@ public class EditorWindow extends Stage {
         Button exportBtn = new Button("Export");
         exportBtn.getStyleClass().add("export-button");
         exportBtn.setGraphic(new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
+        exportBtn.setOnAction(e -> saveProject());
 
         bar.getChildren().addAll(backBtn, title, spacer, undoBtn, redoBtn, spacer2, exportBtn);
         return bar;

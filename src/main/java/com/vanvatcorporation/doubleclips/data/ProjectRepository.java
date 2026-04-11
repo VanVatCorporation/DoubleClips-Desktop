@@ -1,7 +1,9 @@
 package com.vanvatcorporation.doubleclips.data;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.vanvatcorporation.doubleclips.constants.Constants;
+import com.vanvatcorporation.doubleclips.data.editing.*;
 import javafx.beans.property.ListProperty;
 import javafx.beans.property.SimpleListProperty;
 import javafx.collections.FXCollections;
@@ -22,7 +24,10 @@ import com.vanvatcorporation.doubleclips.helper.FileHelper;
 public class ProjectRepository {
     private static ProjectRepository instance;
     private final ListProperty<ProjectData> projects = new SimpleListProperty<>(FXCollections.observableArrayList());
-    private final Gson gson = new Gson();
+    private final Gson gson = new GsonBuilder()
+        .excludeFieldsWithoutExposeAnnotation()
+        .setPrettyPrinting()
+        .create();
 
     private ProjectRepository() {
         refreshProjects();
@@ -178,12 +183,85 @@ public class ProjectRepository {
         }
     }
 
-    private void saveProjectProperties(ProjectData data) {
+    public void saveProjectProperties(ProjectData data) {
         File propsFile = new File(data.getProjectPath(), Constants.DEFAULT_PROJECT_PROPERTIES_FILENAME);
         try (FileWriter writer = new FileWriter(propsFile)) {
             gson.toJson(data, writer);
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public void saveTimeline(ProjectData data, Timeline timeline, VideoSettings settings) {
+        // Pre-save logic (sorting and duration)
+        timeline.updateDuration();
+        
+        // Update Project Metadata
+        data.setProjectTimestamp(new Date().getTime());
+        data.setProjectDuration((long) (timeline.duration * 1000));
+        data.setProjectSize(calculateProjectSize(new File(data.getProjectPath())));
+        
+        // Save Metadata properties
+        saveProjectProperties(data);
+        
+        // Save Timeline JSON
+        File timelineFile = new File(data.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
+        try (FileWriter writer = new FileWriter(timelineFile)) {
+            gson.toJson(timeline, writer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        
+        // Save Settings JSON
+        File settingsFile = new File(data.getProjectPath(), Constants.DEFAULT_VIDEO_SETTINGS_FILENAME);
+        try (FileWriter writer = new FileWriter(settingsFile)) {
+            gson.toJson(settings, writer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public Timeline loadTimeline(ProjectData data) {
+        File timelineFile = new File(data.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
+        if (!timelineFile.exists()) return new Timeline();
+
+        try (FileReader reader = new FileReader(timelineFile)) {
+            Timeline timeline = gson.fromJson(reader, Timeline.class);
+            if (timeline != null) {
+                timeline.reloadTrackIndex(); // Ensure runtime indexes are correct
+                return timeline;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return new Timeline();
+    }
+
+    public VideoSettings loadVideoSettings(ProjectData data) {
+        File settingsFile = new File(data.getProjectPath(), Constants.DEFAULT_VIDEO_SETTINGS_FILENAME);
+        if (!settingsFile.exists()) return VideoSettings.createDefault();
+
+        try (FileReader reader = new FileReader(settingsFile)) {
+            VideoSettings settings = gson.fromJson(reader, VideoSettings.class);
+            return (settings != null) ? settings : VideoSettings.createDefault();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return VideoSettings.createDefault();
+        }
+    }
+
+    private long calculateProjectSize(File folder) {
+        long size = 0;
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    size += file.length();
+                } else {
+                    size += calculateProjectSize(file);
+                }
+            }
+        }
+        return size;
     }
 }

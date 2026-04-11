@@ -11,6 +11,22 @@ public class Timeline implements Serializable {
     @Expose
     public float duration;
 
+    public void updateDuration() {
+        float max = 0f;
+        for (Track track : tracks) {
+            float endTime = track.getTrackEndTime();
+            if (endTime > max) max = endTime;
+            track.sortClips();
+        }
+        this.duration = max;
+    }
+
+    public void sortAllTracks() {
+        for (Track track : tracks) {
+            track.sortClips();
+        }
+    }
+
     public void addTrack(Track track) {
         track.timelineIndex = tracks.size();
         tracks.add(track);
