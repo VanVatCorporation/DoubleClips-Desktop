@@ -56,9 +56,6 @@ public class EditorWindow extends Stage {
 
     public EditorWindow(ProjectData project) {
         this.project = project;
-        this.timeline = ProjectRepository.getInstance().loadTimeline(project);
-        this.videoSettings = ProjectRepository.getInstance().loadVideoSettings(project);
-
         this.setTitle(project.getProjectTitle() + " — DoubleClips");
         this.setWidth(1440);
         this.setHeight(900);
@@ -80,11 +77,11 @@ public class EditorWindow extends Stage {
         centerRow.getChildren().addAll(leftPanel, previewPanel, rightPanel);
 
         // === Bottom Timeline ===
-        VBox timeline = buildTimelineArea();
+        VBox timelineArea = buildTimelineArea();
 
         root.setTop(buildTopBar());
         root.setCenter(centerRow);
-        root.setBottom(timeline);
+        root.setBottom(timelineArea);
 
         Scene scene = new Scene(root);
         scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
@@ -97,7 +94,21 @@ public class EditorWindow extends Stage {
         });
 
         initPlaybackTimer();
-        refreshTimelineUI();
+        
+        // Load persistences
+        this.timeline = ProjectRepository.getInstance().loadTimeline(project);
+        this.videoSettings = ProjectRepository.getInstance().loadVideoSettings(project);
+
+        if (this.timeline.tracks.isEmpty()) {
+            addNewTrack("Video 1");
+            addNewTrack("Audio 1");
+        } else {
+            // Rebuild sidebar headers
+            for (Track t : timeline.tracks) {
+                trackHeadersContainer.getChildren().add(buildTrackHeader("Track " + (t.timelineIndex + 1)));
+            }
+            refreshTimelineUI();
+        }
     }
 
     private void saveProject() {
@@ -198,7 +209,6 @@ public class EditorWindow extends Stage {
         Button exportBtn = new Button("Export");
         exportBtn.getStyleClass().add("export-button");
         exportBtn.setGraphic(new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
-        exportBtn.setOnAction(e -> saveProject());
 
         bar.getChildren().addAll(backBtn, title, spacer, undoBtn, redoBtn, spacer2, exportBtn);
         return bar;
@@ -439,12 +449,14 @@ public class EditorWindow extends Stage {
         fields.getChildren().add(buildPropertyField("Name", selectedClip.getClipName(), newValue -> {
             selectedClip.setClipName(newValue);
             refreshTimelineUI();
+            saveProject();
         }));
 
         fields.getChildren().add(buildPropertyField("Start Time", String.valueOf(selectedClip.startTime), newValue -> {
             try {
                 selectedClip.startTime = Float.parseFloat(newValue);
                 refreshTimelineUI();
+                saveProject();
             } catch (Exception ignored) {}
         }));
 
@@ -452,6 +464,7 @@ public class EditorWindow extends Stage {
             try {
                 selectedClip.duration = Float.parseFloat(newValue);
                 refreshTimelineUI();
+                saveProject();
             } catch (Exception ignored) {}
         }));
 
@@ -638,6 +651,8 @@ public class EditorWindow extends Stage {
         if (timeline.tracks.size() == 1) {
             addClipToTrack(track, new Clip("Sample Video", 1.2f, 5.0f, 0, ClipType.VIDEO, true, 1920, 1080));
         }
+        
+        saveProject(); // Auto-save on track creation
     }
 
     private void addClipToTrack(Track track, Clip clip) {
@@ -760,6 +775,7 @@ public class EditorWindow extends Stage {
             }
         }
         refreshTimelineUI();
+        saveProject(); // Auto-save on split
     }
 
     private void splitClipProxy(Clip clip) {
@@ -791,6 +807,7 @@ public class EditorWindow extends Stage {
             }
         }
         refreshTimelineUI();
+        saveProject(); // Auto-save on delete
     }
 
 

@@ -11,22 +11,6 @@ public class Timeline implements Serializable {
     @Expose
     public float duration;
 
-    public void updateDuration() {
-        float max = 0f;
-        for (Track track : tracks) {
-            float endTime = track.getTrackEndTime();
-            if (endTime > max) max = endTime;
-            track.sortClips();
-        }
-        this.duration = max;
-    }
-
-    public void sortAllTracks() {
-        for (Track track : tracks) {
-            track.sortClips();
-        }
-    }
-
     public void addTrack(Track track) {
         track.timelineIndex = tracks.size();
         tracks.add(track);
@@ -57,4 +41,27 @@ public class Timeline implements Serializable {
         }
         return activeClips;
     }
+
+    public void recalculateDuration() {
+        float max = 0f;
+        for (Track track : tracks) {
+            float endTime = track.getTrackEndTime();
+            if (endTime > max) {
+                max = endTime;
+            }
+            track.sortClips();
+        }
+        duration = max;
+    }
+
+    public void prepareAfterLoad() {
+        reloadTrackIndex();
+        for (Track track : tracks) {
+            if (track.clips == null) track.clips = new ArrayList<>();
+            for (Clip clip : track.clips) {
+                clip.filterNullAfterLoad();
+            }
+        }
+    }
 }
+
