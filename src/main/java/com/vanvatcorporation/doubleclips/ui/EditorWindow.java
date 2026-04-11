@@ -603,6 +603,29 @@ public class EditorWindow extends Stage {
 
         rulerAndTracks.getChildren().addAll(rulerScrollPane, tracksWithPlayhead);
 
+        // Zoom Gestures
+        rulerAndTracks.addEventFilter(javafx.scene.input.ZoomEvent.ZOOM, e -> {
+            double zoomFactor = e.getZoomFactor();
+            double newZoom = zoomSlider.getValue() * zoomFactor;
+            zoomSlider.setValue(Math.min(zoomSlider.getMax(), Math.max(zoomSlider.getMin(), newZoom)));
+            e.consume();
+        });
+
+        rulerAndTracks.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
+            if (e.isControlDown() || e.isShortcutDown()) {
+                double delta = e.getDeltaY();
+                double zoomFactor = 1.0;
+                if (delta > 0) zoomFactor = 1.1;
+                else if (delta < 0) zoomFactor = 0.9;
+                
+                if (zoomFactor != 1.0) {
+                    double newZoom = zoomSlider.getValue() * zoomFactor;
+                    zoomSlider.setValue(Math.min(zoomSlider.getMax(), Math.max(zoomSlider.getMin(), newZoom)));
+                }
+                e.consume(); // prevent natural scrolling while zooming
+            }
+        });
+
         trackLayout.getChildren().addAll(trackSidebar, rulerAndTracks);
         timeline.getChildren().addAll(toolbar, trackLayout);
         return timeline;
