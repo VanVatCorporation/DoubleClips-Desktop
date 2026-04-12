@@ -40,6 +40,14 @@ public class Clip implements Serializable {
     // UI Handle (Optional for desktop, can be used for the JavaFX Node)
     public transient Object viewRef;
 
+    public Clip() {
+        this.videoProperties = new VideoProperties();
+        this.keyframes = new AnimatedProperty();
+        this.inAnimation = new AnimationClip("none", 0.5f);
+        this.outAnimation = new AnimationClip("none", 0.5f);
+        this.comboAnimation = new AnimationClip("none", 0.5f);
+    }
+
     public Clip(String clipName, float startTime, float duration, int trackIndex, ClipType type, boolean isClipHasAudio, int width, int height) {
         this.clipName = clipName;
         this.startTime = startTime;
@@ -87,6 +95,21 @@ public class Clip implements Serializable {
     public void setClipName(String clipName) {
         this.clipName = clipName;
     }
+
+    public float getStartTime() { return startTime; }
+    public void setStartTime(float startTime) { this.startTime = startTime; }
+
+    public float getDuration() { return duration; }
+    public void setDuration(float duration) { this.duration = duration; }
+
+    public int getTrackIndex() { return trackIndex; }
+    public void setTrackIndex(int trackIndex) { this.trackIndex = trackIndex; }
+
+    public ClipType getType() { return type; }
+    public void setType(ClipType type) { this.type = type; }
+
+    public EffectTemplate getEffect() { return effect; }
+    public void setEffect(EffectTemplate effect) { this.effect = effect; }
 
     public void filterNullAfterLoad() {
         if (type == null) type = ClipType.VIDEO;

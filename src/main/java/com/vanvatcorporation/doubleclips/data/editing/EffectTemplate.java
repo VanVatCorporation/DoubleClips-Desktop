@@ -5,14 +5,14 @@ import java.io.Serializable;
 
 public class EffectTemplate implements Serializable {
     @Expose
-    public String effectId;
+    public String style;
     @Expose
     public float duration;
     @Expose
     public float startTime;
 
-    public EffectTemplate(String effectId, float duration, float startTime) {
-        this.effectId = effectId;
+    public EffectTemplate(String style, float duration, float startTime) {
+        this.style = style;
         this.duration = duration;
         this.startTime = startTime;
     }

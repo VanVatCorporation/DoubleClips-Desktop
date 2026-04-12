@@ -31,4 +31,14 @@ public class VideoSettings implements Serializable {
     public static VideoSettings createDefault() {
         return new VideoSettings(1920, 1080, 30, 23, 10, "medium", "film");
     }
+
+    public int getFrameRate() { return frameRate; }
+    public boolean isStretchToFull() { return isStretchToFull; }
+
+    public int getRenderVideoWidth(boolean isTemplate) {
+        return videoWidth;
+    }
+    public int getRenderVideoHeight(boolean isTemplate) {
+        return videoHeight;
+    }
 }

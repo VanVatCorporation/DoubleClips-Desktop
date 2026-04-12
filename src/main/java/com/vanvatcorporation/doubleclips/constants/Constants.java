@@ -31,4 +31,12 @@ public class Constants {
 
     // Legacy/Sync regex
     public static final String DEFAULT_MULTI_FFMPEG_COMMAND_REGEX = "<Ffmpeg Command Splitter hehe lmao skibidi tung tung tung sahur>";
+
+    public static String DEFAULT_TEMPLATE_CLIP_STATIC_MARK(String clipName) {
+        return "template_static_" + clipName;
+    }
+
+    public static String DEFAULT_TEMPLATE_CLIP_MARK(int index) {
+        return "template_clip_" + index;
+    }
 }
