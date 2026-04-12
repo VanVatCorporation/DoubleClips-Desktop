@@ -327,6 +327,9 @@ public class TemplateExportWindow extends Stage {
         
         exportButton.setDisable(true);
         taskProgressBar.setProgress(0);
+
+        // Desktop is one-line command -> convert any new line into one single line
+        cmd = cmd.replace("\n", "");
         
         com.vanvatcorporation.doubleclips.FFmpegEdit.runAnyCommand(
             cmd, 
