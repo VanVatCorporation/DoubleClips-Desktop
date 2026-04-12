@@ -42,6 +42,10 @@ public class TemplateData implements Serializable {
     public int getUseCount() { return useCount; }
     public int getHeartCount() { return heartCount; }
     public int getBookmarkCount() { return bookmarkCount; }
+    public String getTemplateLocation() {
+        return "/" + templateAuthor + "/" + templateId;
+    }
+
     public ArrayList<TemplateComment> getComments() { 
         if (comments == null) comments = new ArrayList<>();
         return comments; 
@@ -54,6 +58,10 @@ public class TemplateData implements Serializable {
     public void setTemplateVideoLink(String templateVideoLink) { this.templateVideoLink = templateVideoLink; }
     public void setHeartCount(int heartCount) { this.heartCount = heartCount; }
     public void setBookmarkCount(int bookmarkCount) { this.bookmarkCount = bookmarkCount; }
+
+    public void setFfmpegCommand(String ffmpegCommand) {
+        this.ffmpegCommand = ffmpegCommand;
+    }
 
     public static class TemplateComment implements Serializable {
         public String username;

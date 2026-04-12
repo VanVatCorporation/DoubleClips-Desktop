@@ -21,6 +21,7 @@ public class TemplatePreviewOverlay extends StackPane {
 
     private MediaPlayer mediaPlayer;
     private MediaView mediaView;
+    private final Button useBtn;
     private final Consumer<Void> onClose;
     private final StackPane mediaContainer;
     private final StackPane statusLayer;
@@ -30,6 +31,12 @@ public class TemplatePreviewOverlay extends StackPane {
 
     public TemplatePreviewOverlay(TemplateData data, Consumer<Void> onClose) {
         this.onClose = onClose;
+        this.useBtn = new Button("Use Template");
+        this.useBtn.getStyleClass().add("button-primary");
+        this.useBtn.setMaxWidth(Double.MAX_VALUE);
+        this.useBtn.setPrefHeight(45);
+        this.useBtn.setStyle("-fx-background-radius: 12; -fx-font-weight: bold; -fx-font-size: 15px;");
+
         getStyleClass().add("preview-overlay");
 
         // 1. Main Portrait Card

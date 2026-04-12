@@ -530,3 +530,44 @@
     -fx-font-size: 9px;
 }
 
+/* ============================================
+   TEMPLATE EXPORT WINDOW
+   ============================================ */
+.export-window-root {
+    -fx-background-color: -color-bg-default;
+}
+
+.clip-replacement-card {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 16;
+    -fx-border-radius: 16;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+}
+
+.clip-replacement-card:hover {
+    -fx-background-color: -color-bg-inset;
+    -fx-border-color: -color-accent-muted;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.1), 10, 0, 0, 4);
+}
+
+.clip-preview-container {
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: rgba(255,255,255,0.05);
+}
+
+.clip-index-label {
+    -fx-opacity: 0.8;
+}
+
+.button-icon-only {
+    -fx-padding: 8;
+    -fx-min-width: 40;
+    -fx-min-height: 40;
+    -fx-background-radius: 20;
+}
+
+.button-icon-only .ikonli-font-icon {
+    -fx-icon-size: 24px;
+}

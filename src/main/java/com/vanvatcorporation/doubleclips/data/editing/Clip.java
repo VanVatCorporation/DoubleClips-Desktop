@@ -1,6 +1,8 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
 import com.google.gson.annotations.Expose;
+import com.vanvatcorporation.doubleclips.data.ProjectData;
+import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import java.io.Serializable;
 import java.util.ArrayList;
 
@@ -119,5 +121,48 @@ public class Clip implements Serializable {
         if (inAnimation == null) inAnimation = new AnimationClip("none", 0.5f);
         if (outAnimation == null) outAnimation = new AnimationClip("none", 0.5f);
         if (comboAnimation == null) comboAnimation = new AnimationClip("none", 0.5f);
+    }
+
+    public String getAbsolutePath(ProjectData data) {
+        if (data == null) return clipName;
+        return IOHelper.CombinePath(data.getProjectPath(), "Clips", clipName);
+    }
+
+    public String getCutoutPath(String projectPath) {
+        return IOHelper.CombinePath(projectPath, "Cutouts", clipName);
+    }
+
+    public boolean isClipTransitionAvailable() {
+        return endTransitionEnabled && endTransition != null;
+    }
+
+    public boolean isClipHasAudio() {
+        return isClipHasAudio;
+    }
+
+    public boolean isMute() {
+        return isMute;
+    }
+
+    public boolean isLockedForTemplate() {
+        return isLockedForTemplate;
+    }
+
+    public boolean isReverse() {
+        return isReverse;
+    }
+
+    public boolean hasAnimatedProperties() {
+        return keyframes != null && keyframes.keyframes != null && keyframes.keyframes.size() > 1;
+    }
+
+    public void mergingVideoPropertiesFromSingleKeyframe() {
+        if (keyframes != null && keyframes.keyframes != null && keyframes.keyframes.size() == 1) {
+            Keyframe singleKey = keyframes.keyframes.get(0);
+            if (singleKey.value != null) {
+                // Simplistic merge: overwrite base properties with keyframe values
+                this.videoProperties = new VideoProperties(singleKey.value);
+            }
+        }
     }
 }

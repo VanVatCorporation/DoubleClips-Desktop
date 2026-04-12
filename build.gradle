@@ -42,7 +42,8 @@ runtime {
         'java.scripting',
         'java.xml',
         'jdk.unsupported',
-        'java.sql'
+        'java.sql',
+        'java.net.http'
     ]
 
     jpackage {

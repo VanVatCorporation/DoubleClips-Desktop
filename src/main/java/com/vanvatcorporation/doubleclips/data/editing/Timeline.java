@@ -63,5 +63,21 @@ public class Timeline implements Serializable {
             }
         }
     }
+
+    public int getAllClipCount() {
+        int count = 0;
+        for (Track track : tracks) {
+            count += track.clips.size();
+        }
+        return count;
+    }
+
+    public List<Clip> getAllClips() {
+        List<Clip> all = new ArrayList<>();
+        for (Track track : tracks) {
+            all.addAll(track.clips);
+        }
+        return all;
+    }
 }
 

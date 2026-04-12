@@ -38,6 +38,10 @@ public class DoubleClipsDesktop extends Application {
         return instance;
     }
 
+    public Stage getPrimaryStage() {
+        return primaryStage;
+    }
+
     @Override
     public void start(Stage stage) {
         instance = this;

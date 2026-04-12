@@ -10,6 +10,7 @@ import com.vanvatcorporation.doubleclips.ui.components.ClipReplacementComponent;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
@@ -255,13 +256,14 @@ public class TemplateExportWindow extends Stage {
         new File(tempDir).mkdirs();
 
         for (String name : data.getTemplateAdditionalResourcesName()) {
-            String url = "https://app.vanvatcorp.com/doubleclips/templates" + data.getTemplateId() + "/content/" + name;
+            String url = "https://app.vanvatcorp.com/doubleclips/templates/" + data.getTemplateLocation() + "/content/" + name;
             String destPath = IOHelper.CombinePath(tempDir, name);
+            Platform.runLater(() -> { logTextArea.appendText("Downloading: " + url + " at " + destPath + "\n"); });
             
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).build();
             client.sendAsync(request, HttpResponse.BodyHandlers.ofFile(new File(destPath).toPath()))
                     .thenAccept(res -> {
-                        Platform.runLater(() -> logTextArea.appendText("Downloaded: " + name + "\n"));
+                        Platform.runLater(() -> logTextArea.appendText("Downloaded: " + name + " at " + destPath + "\n"));
                     })
                     .exceptionally(e -> {
                         Platform.runLater(() -> logTextArea.appendText("Failed to download " + name + ": " + e.getMessage() + "\n"));
@@ -309,37 +311,47 @@ public class TemplateExportWindow extends Stage {
     }
 
     private void exportClip() {
-        generateCommand();
+        if(commandTextArea.getText().isEmpty()) {
+            generateCommand();
+        }
         String cmd = commandTextArea.getText();
         
-        logTextArea.appendText("\n>>> STARTING EXPORT MOCK <<<\n");
-        logTextArea.appendText("Command: " + cmd + "\n");
-        logTextArea.appendText("Note: Physical rendering is disabled until FFmpegEdit is re-enabled.\n");
+        logTextArea.appendText("\n>>> STARTING NATIVE EXPORT <<<\n");
+        logTextArea.appendText("Binary: " + com.vanvatcorporation.doubleclips.FFmpegEdit.getFfmpegPath() + "\n");
         
-        // Mock progress
-        CompletableFuture.runAsync(() -> {
-            try {
-                for (int i = 0; i <= 100; i += 10) {
-                    final int p = i;
-                    Platform.runLater(() -> {
-                        taskProgressBar.setProgress(p / 100.0);
-                        taskStatusLabel.setText("Mock Exporting... " + p + "%");
-                    });
-                    Thread.sleep(200);
+        exportButton.setDisable(true);
+        taskProgressBar.setProgress(0);
+        
+        com.vanvatcorporation.doubleclips.FFmpegEdit.runAnyCommand(
+            cmd, 
+            "Template Export: " + data.getTemplateTitle(),
+            () -> Platform.runLater(() -> {
+                exportButton.setDisable(false);
+                taskStatusLabel.setText("Export Completed!");
+                logTextArea.appendText("\n>>> EXPORT FINISHED SUCCESS <<<\n");
+                
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.initOwner(this);
+                alert.setTitle("Export Complete");
+                alert.setHeaderText("Success!");
+                alert.setContentText("Your video has been exported successfully.");
+                alert.showAndWait();
+            }),
+            () -> Platform.runLater(() -> {
+                exportButton.setDisable(false);
+                taskStatusLabel.setText("Export Failed");
+                logTextArea.appendText("\n>>> EXPORT FAILED <<<\n");
+            }),
+            log -> Platform.runLater(() -> logTextArea.appendText(log + "\n")),
+            stats -> Platform.runLater(() -> {
+                double duration = data.getTemplateDuration(); // seconds
+                if (duration > 0) {
+                    double progress = (stats.getTimeInMs() / 1000.0) / duration;
+                    taskProgressBar.setProgress(Math.min(1.0, progress));
+                    taskStatusLabel.setText("Exporting: " + (int)(Math.min(1.0, progress) * 100) + "% (" + stats.getTime() + ")");
                 }
-                Platform.runLater(() -> {
-                    taskStatusLabel.setText("Export Completed (MOCK)");
-                    logTextArea.appendText("Export process finishes successfully (simulation).\n");
-                    
-                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                    alert.initOwner(this);
-                    alert.setTitle("Export Complete");
-                    alert.setHeaderText("Mock export finished!");
-                    alert.setContentText("The command was generated successfully. Real rendering will be enabled in the next update.");
-                    alert.showAndWait();
-                });
-            } catch (InterruptedException ignored) {}
-        });
+            })
+        );
     }
 
     @Override
