@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.helper;
 
+import com.vanvatcorporation.doubleclips.data.storage.StorageHelper;
+
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
@@ -65,7 +67,10 @@ public class IOHelper {
         }
     }
 
+//    public static String getPersistentDataPath() {
+//        return System.getProperty("user.home") + File.separator + ".doubleclips";
+//    }
     public static String getPersistentDataPath() {
-        return System.getProperty("user.home") + File.separator + ".doubleclips";
+        return StorageHelper.getAppDirectory().getAbsolutePath();
     }
 }

@@ -67,12 +67,31 @@ public class FFmpegEdit {
             return "ffmpeg"; // Default to system PATH
         }
 
-        // Handle both development and bundled paths
+        try {
+            // Find where the classes are loaded from
+            java.net.URL url = FFmpegEdit.class.getProtectionDomain().getCodeSource().getLocation();
+            File jarFile = new File(url.toURI());
+            
+            // Get the directory containing the JAR (this should be the 'app' directory inside the bundle)
+            File appDir = jarFile.getParentFile();
+            
+            // The bundle structure we created is app/bin/[os]/ffmpeg
+            File expectedBundlePath = new File(appDir, "bin" + File.separator + binaryDir + File.separator + (os.contains("win") ? "ffmpeg.exe" : "ffmpeg"));
+            
+            if (expectedBundlePath.exists()) {
+                return expectedBundlePath.getAbsolutePath();
+            }
+
+        } catch (Exception e) {
+            System.err.println("Failed to locate bundled execution path: " + e.getMessage());
+        }
+
+        // Handle development paths (when running via IDE or gradle run)
         String devPath = IOHelper.CombinePath(System.getProperty("user.dir"), "desktop", "bin", binaryDir, os.contains("win") ? "ffmpeg.exe" : "ffmpeg");
         if (new File(devPath).exists()) return devPath;
 
-        String bundlePath = IOHelper.CombinePath(System.getProperty("user.dir"), "bin", binaryDir, os.contains("win") ? "ffmpeg.exe" : "ffmpeg");
-        if (new File(bundlePath).exists()) return bundlePath;
+        String bundleFallbackPath = IOHelper.CombinePath(System.getProperty("user.dir"), "bin", binaryDir, os.contains("win") ? "ffmpeg.exe" : "ffmpeg");
+        if (new File(bundleFallbackPath).exists()) return bundleFallbackPath;
         
         return "ffmpeg"; // Fallback to system PATH
     }

@@ -75,3 +75,43 @@ runtime {
         }
     }
 }
+
+// Custom task to inject FFmpeg binary into the prepared JPackage image
+tasks.register("copyFfmpegBinaries", Copy) {
+    mustRunAfter(tasks.named("jpackageImage"))
+    
+    def os = org.gradle.internal.os.OperatingSystem.current()
+    def arch = System.getProperty("os.arch").toLowerCase()
+    
+    def binaryDir = ""
+    def binaryName = ""
+    
+    if (os.isWindows()) {
+        binaryDir = arch.contains("aarch64") || arch.contains("arm") ? "windows-arm" : "windows"
+        binaryName = "ffmpeg.exe"
+    } else if (os.isMacOsX()) {
+        binaryDir = "macos"
+        binaryName = "ffmpeg"
+    } else {
+        // Fallback or Linux
+        binaryDir = "linux"
+        binaryName = "ffmpeg"
+    }
+
+    from("bin/${binaryDir}/${binaryName}") {
+        // Ensure executable permissions are preserved when copied
+        fileMode = 0755
+    }
+    
+    // Inject into the correct image directory structure based on OS
+    if (os.isMacOsX()) {
+        into("${layout.buildDirectory.get()}/jpackage/DoubleClips.app/Contents/app/bin/${binaryDir}")
+    } else {
+        into("${layout.buildDirectory.get()}/jpackage/DoubleClips/app/bin/${binaryDir}")
+    }
+}
+
+// Hook into the jpackage lifecycle
+tasks.named("jpackage") {
+    dependsOn("copyFfmpegBinaries")
+}

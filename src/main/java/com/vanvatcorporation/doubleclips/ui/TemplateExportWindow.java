@@ -157,7 +157,7 @@ public class TemplateExportWindow extends Stage {
     private Node createAdvancedPane() {
         VBox pane = new VBox(15);
         Button genCmdBtn = new Button("Generate FFmpeg Command");
-        genCmdBtn.setOnAction(e -> generateCommand());
+        genCmdBtn.setOnAction(e -> generateCommand(data.getTemplateAdditionalResourcesName()));
         
         commandTextArea.setEditable(true);
         commandTextArea.setWrapText(true);
@@ -256,7 +256,7 @@ public class TemplateExportWindow extends Stage {
         new File(tempDir).mkdirs();
 
         for (String name : data.getTemplateAdditionalResourcesName()) {
-            String url = "https://app.vanvatcorp.com/doubleclips/templates/" + data.getTemplateLocation() + "/content/" + name;
+            String url = "https://app.vanvatcorp.com/doubleclips/templates" + data.getTemplateLocation() + "/content/" + name;
             String destPath = IOHelper.CombinePath(tempDir, name);
             Platform.runLater(() -> { logTextArea.appendText("Downloading: " + url + " at " + destPath + "\n"); });
             
@@ -272,7 +272,7 @@ public class TemplateExportWindow extends Stage {
         }
     }
 
-    private void generateCommand() {
+    private void generateCommand(String[] additionalResourcesName) {
         if (data.getFfmpegCommand() == null || data.getFfmpegCommand().isEmpty()) {
             logTextArea.appendText("Warning: FFmpeg template not yet loaded.\n");
             return;
@@ -297,6 +297,12 @@ public class TemplateExportWindow extends Stage {
             
             cmd = cmd.replace(Constants.DEFAULT_TEMPLATE_TRIM_MARK(i), trimFilter);
         }
+        for (String resourceName : additionalResourcesName) {
+            cmd = cmd.replace(Constants.DEFAULT_TEMPLATE_CLIP_STATIC_MARK(resourceName), IOHelper.CombinePath(
+                    IOHelper.getPersistentDataPath(),
+                    Constants.DEFAULT_TEMPLATE_CLIP_TEMP_DIRECTORY,
+                    resourceName));
+        }
 
         // Replace global constants
         cmd = cmd.replace(Constants.DEFAULT_TEMPLATE_CLIP_SCALE_WIDTH_MARK, String.valueOf(settings.videoWidth));
@@ -312,7 +318,7 @@ public class TemplateExportWindow extends Stage {
 
     private void exportClip() {
         if(commandTextArea.getText().isEmpty()) {
-            generateCommand();
+            generateCommand(data.getTemplateAdditionalResourcesName());
         }
         String cmd = commandTextArea.getText();
         
