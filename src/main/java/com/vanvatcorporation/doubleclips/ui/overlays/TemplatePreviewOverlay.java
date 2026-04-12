@@ -144,12 +144,10 @@ public class TemplatePreviewOverlay extends StackPane {
 
         contentRow.getChildren().addAll(leftInfo, rightActions);
 
-        // Use Template Button
-        Button useBtn = new Button("Use template");
-        useBtn.getStyleClass().addAll("button-primary", "button-large");
-        useBtn.setMaxWidth(Double.MAX_VALUE);
-        useBtn.setPrefHeight(56);
-        useBtn.setStyle("-fx-background-color: #007AFF; -fx-background-radius: 28; -fx-font-weight: bold; -fx-font-size: 16px; -fx-text-fill: white;");
+        useBtn.setOnAction(e -> {
+            close();
+            com.vanvatcorporation.doubleclips.ui.TemplateExportWindow.showInstance(data);
+        });
 
         uiLayer.getChildren().addAll(contentRow, useBtn);
 

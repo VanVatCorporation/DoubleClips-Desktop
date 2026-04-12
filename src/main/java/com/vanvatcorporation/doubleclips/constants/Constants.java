@@ -39,4 +39,12 @@ public class Constants {
     public static String DEFAULT_TEMPLATE_CLIP_MARK(int index) {
         return "template_clip_" + index;
     }
+
+    public static String DEFAULT_TEMPLATE_TRIM_MARK(int index) {
+        return "template_trim_" + index;
+    }
+
+    public static final String DEFAULT_TEMPLATE_CLIP_SCALE_WIDTH_MARK = "template_scale_width";
+    public static final String DEFAULT_TEMPLATE_CLIP_SCALE_HEIGHT_MARK = "template_scale_height";
+    public static final String DEFAULT_TEMPLATE_CLIP_EXPORT_MARK = "template_export_mark";
 }
