@@ -1,0 +1,187 @@
+package com.vanvatcorporation.doubleclips.ui;
+
+import com.vanvatcorporation.doubleclips.data.editing.Clip;
+import javafx.scene.control.Label;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Rectangle;
+
+/**
+ * A timeline clip node with a CapCut-style repeating thumbnail strip.
+ *
+ * Layout (front → back):
+ *   ┌────────────────────────────────────────────┐
+ *   │  name  timecode            [selection rim] │  ← overlay (mouse-transparent)
+ *   │  [thumb][thumb][thumb][thumb]...           │  ← thumbnail HBox (clipped)
+ *   │  teal gradient background                  │
+ *   └────────────────────────────────────────────┘
+ *
+ * Thumbnails expand / retract automatically when the node width changes
+ * (i.e. when the zoom level changes).  Each tile is (height × 16/9) px wide.
+ * Real frame images can be pushed in via {@link #setThumbnailImage(int, Image)}.
+ */
+public class ClipNode extends Pane {
+
+    /** Aspect ratio used to compute each thumbnail tile's width. */
+    private static final double THUMB_ASPECT = 16.0 / 9.0;
+
+    private final Clip    clip;
+    private final HBox    thumbnailRow;
+    private final Label   nameLabel;
+    private final Label   timecodeLabel;
+    private final Rectangle selBorder;
+
+    public ClipNode(Clip clip) {
+        this.clip = clip;
+
+        // ── Teal background ───────────────────────────────────────────────────
+        Rectangle bg = new Rectangle();
+        bg.widthProperty().bind(widthProperty());
+        bg.heightProperty().bind(heightProperty());
+        bg.setArcWidth(7);
+        bg.setArcHeight(7);
+        bg.getStyleClass().add("clip-bg");
+
+        // ── Thumbnail strip ───────────────────────────────────────────────────
+        thumbnailRow = new HBox(1);
+        thumbnailRow.setLayoutX(0);
+        thumbnailRow.setLayoutY(0);
+        thumbnailRow.prefWidthProperty().bind(widthProperty());
+        thumbnailRow.prefHeightProperty().bind(heightProperty());
+        thumbnailRow.maxWidthProperty().bind(widthProperty());
+        thumbnailRow.maxHeightProperty().bind(heightProperty());
+        // Clip so thumbs never overflow the rounded corners
+        Rectangle thumbMask = new Rectangle();
+        thumbMask.widthProperty().bind(widthProperty());
+        thumbMask.heightProperty().bind(heightProperty());
+        thumbnailRow.setClip(thumbMask);
+
+        // ── Dark gradient scrim so labels are readable ────────────────────────
+        Region scrim = new Region();
+        scrim.getStyleClass().add("clip-label-scrim");
+        scrim.prefWidthProperty().bind(widthProperty());
+        scrim.prefHeightProperty().bind(heightProperty());
+        scrim.setMouseTransparent(true);
+
+        // ── Selection border ──────────────────────────────────────────────────
+        selBorder = new Rectangle();
+        selBorder.widthProperty().bind(widthProperty());
+        selBorder.heightProperty().bind(heightProperty());
+        selBorder.setArcWidth(7);
+        selBorder.setArcHeight(7);
+        selBorder.setFill(Color.TRANSPARENT);
+        selBorder.setStroke(Color.TRANSPARENT);
+        selBorder.setStrokeWidth(2.5);
+        selBorder.setMouseTransparent(true);
+
+        // ── Overlay labels ────────────────────────────────────────────────────
+        nameLabel = new Label(clip.getClipName());
+        nameLabel.getStyleClass().add("clip-name-label");
+        nameLabel.setMouseTransparent(true);
+        nameLabel.setLayoutX(6);
+        nameLabel.setLayoutY(3);
+
+        timecodeLabel = new Label(formatDuration(clip.duration));
+        timecodeLabel.getStyleClass().add("clip-timecode-label");
+        timecodeLabel.setMouseTransparent(true);
+        timecodeLabel.setLayoutX(6);
+        timecodeLabel.setLayoutY(17);
+
+        getChildren().addAll(bg, thumbnailRow, scrim, nameLabel, timecodeLabel, selBorder);
+
+        // ── Refresh thumbnails when size changes (zoom) ───────────────────────
+        widthProperty().addListener((o, ov, nv)  -> { if (nv.doubleValue() > 0) refreshThumbnails(); });
+        heightProperty().addListener((o, ov, nv) -> { if (nv.doubleValue() > 0) refreshThumbnails(); });
+
+        getStyleClass().add("clip-node");
+    }
+
+    // ── Public API ─────────────────────────────────────────────────────────────
+
+    /** Select / deselect visual highlight. */
+    public void setSelected(boolean selected) {
+        selBorder.setStroke(selected ? Color.web("#00D4FF") : Color.TRANSPARENT);
+        if (selected) toFront();
+    }
+
+    /**
+     * Feed a decoded video-frame image into the given tile slot.
+     * Call this from a background thread result once frames are decoded.
+     */
+    public void setThumbnailImage(int tileIndex, Image image) {
+        if (tileIndex < 0 || tileIndex >= thumbnailRow.getChildren().size()) return;
+        var node = thumbnailRow.getChildren().get(tileIndex);
+        if (node instanceof StackPane sp && !sp.getChildren().isEmpty()
+                && sp.getChildren().get(0) instanceof ImageView iv) {
+            iv.setImage(image);
+        }
+    }
+
+    /** Number of currently rendered thumbnail tiles. */
+    public int getTileCount() {
+        return thumbnailRow.getChildren().size();
+    }
+
+    public Clip getContainerClip() { return clip; }
+
+    // ── Thumbnail management ───────────────────────────────────────────────────
+
+    /**
+     * Recalculate tile count and widths to fill the current node width.
+     * Called automatically on zoom (width change).
+     */
+    public void refreshThumbnails() {
+        double w = getWidth();
+        double h = getHeight();
+        if (w <= 0 || h <= 0) return;
+
+        double tw      = h * THUMB_ASPECT;                    // tile pixel width
+        int    needed  = (int) Math.ceil(w / tw) + 1;         // +1 for partial right tile
+        int    current = thumbnailRow.getChildren().size();
+
+        if (needed > current) {
+            for (int i = current; i < needed; i++) {
+                thumbnailRow.getChildren().add(buildThumbTile(tw, h));
+            }
+        } else if (needed < current) {
+            thumbnailRow.getChildren().remove(needed, current);
+        }
+
+        // Keep all tiles sized correctly (h drives width through aspect ratio)
+        for (var node : thumbnailRow.getChildren()) {
+            if (node instanceof StackPane sp) {
+                sp.setPrefWidth(tw);  sp.setMinWidth(tw);  sp.setMaxWidth(tw);
+                sp.setPrefHeight(h);  sp.setMinHeight(h);  sp.setMaxHeight(h);
+                if (!sp.getChildren().isEmpty() && sp.getChildren().get(0) instanceof ImageView iv) {
+                    iv.setFitWidth(tw);
+                    iv.setFitHeight(h);
+                }
+            }
+        }
+    }
+
+    // ── Private helpers ────────────────────────────────────────────────────────
+
+    private StackPane buildThumbTile(double w, double h) {
+        ImageView iv = new ImageView();
+        iv.setFitWidth(w);
+        iv.setFitHeight(h);
+        iv.setPreserveRatio(false);
+        iv.setSmooth(true);
+
+        StackPane sp = new StackPane(iv);
+        sp.getStyleClass().add("clip-thumb-tile");
+        sp.setPrefWidth(w);  sp.setMinWidth(w);  sp.setMaxWidth(w);
+        sp.setPrefHeight(h); sp.setMinHeight(h); sp.setMaxHeight(h);
+        return sp;
+    }
+
+    private static String formatDuration(float secs) {
+        int total = (int) secs;
+        int mm = total / 60, ss = total % 60;
+        int ff = (int) ((secs - total) * 30);
+        return String.format("%02d:%02d:%02d", mm, ss, ff);
+    }
+}

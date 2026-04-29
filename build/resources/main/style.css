@@ -503,7 +503,6 @@
 }
 
 .timeline-clip {
-    /* Premium teal look using a variable if possible, or a well-known theme color */
     -fx-fill: -color-accent-subtle;
     -fx-stroke: -color-accent-emphasis;
     -fx-stroke-width: 1;
@@ -513,6 +512,49 @@
     -fx-text-fill: -color-fg-default;
     -fx-font-weight: bold;
     -fx-font-size: 11px;
+}
+
+/* ── ClipNode (CapCut-style thumbnail strip clips) ────────────────────── */
+.clip-node {
+    -fx-cursor: hand;
+}
+
+.clip-bg {
+    -fx-fill: linear-gradient(to bottom, #1e7a6e 0%, #155f56 60%, #0e4640 100%);
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.4), 4, 0, 0, 2);
+}
+
+/* Dark scrim at top so name labels remain readable over thumbnails */
+.clip-label-scrim {
+    -fx-background-color: linear-gradient(to bottom,
+        rgba(0,0,0,0.55) 0%,
+        rgba(0,0,0,0.20) 35%,
+        transparent 60%);
+}
+
+.clip-name-label {
+    -fx-text-fill: white;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.8), 2, 0, 0, 1);
+}
+
+.clip-timecode-label {
+    -fx-text-fill: rgba(255,255,255,0.70);
+    -fx-font-size: 9px;
+    -fx-font-family: "Menlo", "Courier New", monospace;
+}
+
+/* Placeholder thumbnail tile — darkened version of the clip colour */
+.clip-thumb-tile {
+    -fx-background-color: #0d4f49;
+    -fx-border-color: rgba(255,255,255,0.05);
+    -fx-border-width: 0 1 0 0;
+}
+
+/* Ghost clone shown during drag */
+.clip-node-ghost {
+    -fx-opacity: 0.55;
 }
 
 .ruler-tick-major {

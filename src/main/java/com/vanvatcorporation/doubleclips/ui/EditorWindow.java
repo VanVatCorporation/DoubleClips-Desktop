@@ -54,6 +54,19 @@ public class EditorWindow extends Stage {
     private final ScrollPane rulerScrollPane = new ScrollPane();
     private final ScrollPane tracksScrollPane = new ScrollPane();
 
+    // --- Drag & Drop ---
+    private static final double SNAP_THRESHOLD = 8.0;
+
+    /** Mutable drag state — one active drag at a time. */
+    private static class DragContext {
+        Clip      clip;
+        ClipNode  ghost;          // semi-transparent clone in tracksPane
+        int       currentTrackIdx;
+        double    dragOffsetX;    // mouse X offset from clip left edge
+        boolean   dragging;       // becomes true once mouse moves > 0 px
+    }
+    private final DragContext activeDrag = new DragContext();
+
     public EditorWindow(ProjectData project) {
         this.project = project;
         this.setTitle(project.getProjectTitle() + " — DoubleClips");
@@ -149,9 +162,7 @@ public class EditorWindow extends Stage {
         currentTimeLabel.setText(formatTimecode(currentTime));
         
         // Update playhead position
-        if (playheadLine != null) {
-            playheadLine.setTranslateX(currentTime * pixelsPerSecond);
-        }
+        updatePlayheadPosition();
 
         // Auto-scroll if playing
         if (isPlaying) {
@@ -164,6 +175,20 @@ public class EditorWindow extends Stage {
                 tracksScrollPane.setHvalue(playheadX / scrollWidth);
             }
         }
+    }
+
+    private void updatePlayheadPosition() {
+        if (playheadLine == null || tracksScrollPane == null || tracksPane == null) return;
+        
+        double contentWidth = tracksPane.getBoundsInLocal().getWidth();
+        double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+        double hValue = tracksScrollPane.getHvalue();
+        
+        // scrollX is the pixel offset of the left edge of the viewport
+        double scrollX = hValue * (contentWidth - viewportWidth);
+        
+        // Position relative to viewport left edge
+        playheadLine.setTranslateX(currentTime * pixelsPerSecond - scrollX);
     }
 
     private String formatTimecode(float seconds) {
@@ -608,6 +633,19 @@ public class EditorWindow extends Stage {
         playheadOverlay.setMouseTransparent(true);
         tracksWithPlayhead.getChildren().add(playheadOverlay);
 
+        // --- Playhead Sync Listeners ---
+        // Update position when scrolling
+        tracksScrollPane.hvalueProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
+        
+        // Update position when resizing viewport
+        tracksScrollPane.viewportBoundsProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
+        
+        // Update position when content width changes (e.g. zoom)
+        tracksPane.widthProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
+
+        // Bind playhead height to container
+        playheadLine.endYProperty().bind(tracksWithPlayhead.heightProperty());
+
         rulerAndTracks.getChildren().addAll(rulerScrollPane, tracksWithPlayhead);
 
         // Zoom Gestures
@@ -734,24 +772,7 @@ public class EditorWindow extends Stage {
 
     private void addClipToTrack(Track track, Clip clip) {
         track.addClip(clip);
-        
-        double x = clip.startTime * pixelsPerSecond;
-        double y = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
-        double w = clip.duration * pixelsPerSecond;
-        double h = TRACK_HEIGHT - 10; // slightly smaller than track height
-        
-        Rectangle clipRect = new Rectangle(x, y + 5, w, h);
-        clipRect.getStyleClass().add("timeline-clip");
-        clipRect.setArcWidth(8);
-        clipRect.setArcHeight(8);
-        
-        Label label = new Label(clip.getClipName());
-        label.getStyleClass().add("ruler-text"); // reusing font style
-        label.setLayoutX(x + 5);
-        label.setLayoutY(y + 8);
-        
-        tracksPane.getChildren().addAll(clipRect, label);
-        clip.viewRef = clipRect;
+        renderClipUI(track, clip);
     }
 
     private void refreshTimelineUI() {
@@ -782,52 +803,180 @@ public class EditorWindow extends Stage {
         double x = clip.startTime * pixelsPerSecond;
         double y = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
         double w = clip.duration * pixelsPerSecond;
-        double h = TRACK_HEIGHT - 10;
-        
-        Rectangle clipRect = new Rectangle(x, y + 5, w, h);
-        clipRect.getStyleClass().add("timeline-clip");
-        if (selectedClip == clip) {
-            clipRect.getStyleClass().add("timeline-clip-selected");
-        }
-        clipRect.setArcWidth(8);
-        clipRect.setArcHeight(8);
-        
-        clipRect.setOnMouseClicked(e -> {
+        double h = TRACK_HEIGHT - 6;
+
+        ClipNode node = new ClipNode(clip);
+        node.setLayoutX(x);
+        node.setLayoutY(y + 3);
+        node.setPrefWidth(w);
+        node.setPrefHeight(h);
+        node.setMinWidth(w);
+        node.setMinHeight(h);
+        node.setMaxWidth(w);
+        node.setMaxHeight(h);
+
+        if (selectedClip == clip) node.setSelected(true);
+
+        setupClipInteraction(node);
+        tracksPane.getChildren().add(node);
+        clip.viewRef = node;
+    }
+
+    // =========================================================================
+    //  Clip Interaction — CapCut-style: click = select, drag = immediate move
+    // =========================================================================
+    private void setupClipInteraction(ClipNode node) {
+        Clip clip = node.getContainerClip();
+
+        node.setOnMousePressed(e -> {
+            // Select on press (feels snappier than waiting for click)
             selectClip(clip);
-            e.consume(); // prevent deselectAll from container
+
+            // Prepare drag context
+            activeDrag.clip          = clip;
+            activeDrag.currentTrackIdx = clip.trackIndex;
+            activeDrag.dragOffsetX   = e.getX();   // offset within the node
+            activeDrag.dragging      = false;
+            activeDrag.ghost         = null;
+            e.consume();
         });
-        
-        Label label = new Label(clip.getClipName());
-        label.getStyleClass().add("ruler-text");
-        label.setLayoutX(x + 5);
-        label.setLayoutY(y + 8);
-        label.setMouseTransparent(true);
-        
-        tracksPane.getChildren().addAll(clipRect, label);
-        clip.viewRef = clipRect;
+
+        node.setOnMouseDragged(e -> {
+            if (activeDrag.clip != clip) return;
+
+            // Create ghost on first drag pixel (CapCut style — no threshold)
+            if (!activeDrag.dragging) {
+                activeDrag.dragging = true;
+                node.setVisible(false);             // hide original
+                ClipNode ghost = new ClipNode(clip);
+                ghost.getStyleClass().add("clip-node-ghost");
+                ghost.setOpacity(0.55);
+                ghost.setPrefWidth(node.getPrefWidth());
+                ghost.setPrefHeight(node.getPrefHeight());
+                ghost.setMinWidth(node.getPrefWidth());
+                ghost.setMinHeight(node.getPrefHeight());
+                ghost.setMaxWidth(node.getPrefWidth());
+                ghost.setMaxHeight(node.getPrefHeight());
+                ghost.setLayoutX(node.getLayoutX());
+                ghost.setLayoutY(node.getLayoutY());
+                ghost.setMouseTransparent(true);
+                tracksPane.getChildren().add(ghost);
+                activeDrag.ghost = ghost;
+            }
+
+            // Convert scene coords → tracksPane local coords
+            javafx.geometry.Point2D local = tracksPane.sceneToLocal(e.getSceneX(), e.getSceneY());
+            double rawX = local.getX() - activeDrag.dragOffsetX;
+            double clampedX = Math.max(0, rawX);
+
+            double ghostW = activeDrag.ghost.getPrefWidth();
+
+            // Snapping
+            double snappedX = applySnap(clampedX, ghostW, activeDrag.currentTrackIdx);
+            activeDrag.ghost.setLayoutX(snappedX);
+
+            // Cross-track detection by Y
+            int newTrackIdx = trackIdxFromLocalY(local.getY());
+            if (newTrackIdx != activeDrag.currentTrackIdx) {
+                activeDrag.currentTrackIdx = newTrackIdx;
+                double newY = newTrackIdx * (TRACK_HEIGHT + TRACK_SPACING) + 3;
+                activeDrag.ghost.setLayoutY(newY);
+            }
+
+            e.consume();
+        });
+
+        node.setOnMouseReleased(e -> {
+            if (activeDrag.clip != clip) return;
+
+            if (activeDrag.dragging && activeDrag.ghost != null) {
+                double finalX   = activeDrag.ghost.getLayoutX();
+                double finalY   = activeDrag.ghost.getLayoutY();
+                int    newTrackIdx = activeDrag.currentTrackIdx;
+
+                // Remove ghost
+                tracksPane.getChildren().remove(activeDrag.ghost);
+
+                // Update model
+                float newStartTime = (float)(finalX / pixelsPerSecond);
+                clip.startTime     = Math.max(0f, newStartTime);
+
+                if (newTrackIdx != clip.trackIndex) {
+                    timeline.tracks.get(clip.trackIndex).removeClip(clip);
+                    clip.trackIndex = newTrackIdx;
+                    timeline.tracks.get(clip.trackIndex).addClip(clip);
+                }
+                timeline.tracks.get(clip.trackIndex).sortClips();
+
+                saveProject();
+            }
+
+            // Reset drag state
+            activeDrag.clip    = null;
+            activeDrag.ghost   = null;
+            activeDrag.dragging = false;
+            node.setVisible(true);
+
+            // Refresh so clip redraws at committed position
+            refreshTimelineUI();
+            e.consume();
+        });
+    }
+
+    /** Map a Y position in tracksPane-local coords to a track index. */
+    private int trackIdxFromLocalY(double localY) {
+        int idx = (int)(localY / (TRACK_HEIGHT + TRACK_SPACING));
+        return Math.max(0, Math.min(timeline.tracks.size() - 1, idx));
+    }
+
+    /**
+     * Apply playhead + clip-edge snapping to a proposed ghost X position.
+     * Mirrors Android: snaps start-to-end and end-to-start on ±1 neighbour tracks.
+     */
+    private double applySnap(double ghostX, double ghostWidth, int currentTrackIdx) {
+        double ghostEnd = ghostX + ghostWidth;
+
+        // 1. Snap to playhead
+        double playheadX = currentTime * pixelsPerSecond;
+        if (Math.abs(ghostX   - playheadX) < SNAP_THRESHOLD) return playheadX;
+        if (Math.abs(ghostEnd - playheadX) < SNAP_THRESHOLD) return playheadX - ghostWidth;
+
+        // 2. Snap to clip edges on current + neighbour tracks
+        for (int j = 0; j < timeline.tracks.size(); j++) {
+            if (Math.abs(j - currentTrackIdx) > 1) continue;  // only neighbours
+            for (Clip other : timeline.tracks.get(j).clips) {
+                if (other == activeDrag.clip) continue;
+                double otherStart = other.startTime * pixelsPerSecond;
+                double otherEnd   = (other.startTime + other.duration) * pixelsPerSecond;
+
+                if (Math.abs(ghostX   - otherEnd)   < SNAP_THRESHOLD) return otherEnd;
+                if (Math.abs(ghostEnd - otherStart)  < SNAP_THRESHOLD) return otherStart - ghostWidth;
+            }
+        }
+        return ghostX;
     }
 
     private void selectClip(Clip clip) {
-        if (selectedClip != null && selectedClip.viewRef instanceof Rectangle) {
-            ((Rectangle) selectedClip.viewRef).getStyleClass().remove("timeline-clip-selected");
+        // Deselect previous
+        if (selectedClip != null && selectedClip.viewRef instanceof ClipNode prev) {
+            prev.setSelected(false);
         }
-        
-        selectedClip = clip;
+
+        selectedClip  = clip;
         selectedTrack = timeline.tracks.get(clip.trackIndex);
-        
-        if (clip.viewRef instanceof Rectangle) {
-            ((Rectangle) clip.viewRef).getStyleClass().add("timeline-clip-selected");
+
+        if (clip.viewRef instanceof ClipNode cn) {
+            cn.setSelected(true);
         }
-        
-        System.out.println("Selected clip: " + clip.getClipName());
+
         updatePropertiesPane();
     }
 
     private void deselectAll() {
-        if (selectedClip != null && selectedClip.viewRef instanceof Rectangle) {
-            ((Rectangle) selectedClip.viewRef).getStyleClass().remove("timeline-clip-selected");
+        if (selectedClip != null && selectedClip.viewRef instanceof ClipNode cn) {
+            cn.setSelected(false);
         }
-        selectedClip = null;
+        selectedClip  = null;
         selectedTrack = null;
         updatePropertiesPane();
     }
