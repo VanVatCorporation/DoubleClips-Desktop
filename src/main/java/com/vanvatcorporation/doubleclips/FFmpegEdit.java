@@ -50,6 +50,7 @@ import java.io.*;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -806,6 +807,7 @@ public class FFmpegEdit {
                 case VIDEO:
                 case IMAGE:
                 case TEXT:
+                    System.err.println(filterComplex);
                     filterComplex.append((layer == 0 ? baseInfo.tag : (tags.useTag(prevOutputLabel).tag))).append(tags.useTag(clip).tag)
                             .append("overlay=")
                             .append("enable='").append(
@@ -1297,10 +1299,87 @@ public class FFmpegEdit {
 
 
     public static class FfmpegFilterComplexTags {
-        public List<Map.Entry<Clip, String>> tagsMapToUsableTagIndex = new ArrayList<>();
-        public List<Map.Entry<Clip, Clip>> tagsMergedClipMap = new ArrayList<>();
+        public static class MapUsableTag implements BaseMapTag<Clip, String> {
+            public Clip key;
+            public String value;
+
+            public MapUsableTag(Clip key, String value) {
+                this.key = key;
+                this.value = value;
+            }
+
+            @Override
+            public Clip getKey() {
+                return key;
+            }
+
+            @Override
+            public String getValue() {
+                return value;
+            }
+        }
+
+        public static class MapMergedClip implements BaseMapTag<Clip, Clip> {
+            public Clip key;
+            public Clip value;
+
+            public MapMergedClip(Clip key, Clip value) {
+                this.key = key;
+                this.value = value;
+            }
+
+            @Override
+            public Clip getKey() {
+                return key;
+            }
+
+            @Override
+            public Clip getValue() {
+                return value;
+            }
+        }
+
+
+        public interface BaseMapTag<K, V> {
+            K getKey();
+
+            V getValue();
+        }
+
+        public static class MapTag<K, V, T extends BaseMapTag<K, V>> extends ArrayList<T> {
+
+            // Key-based lookup (mimics Map.get)
+            public V getValueByKey(K key) {
+                for (T item : this) {
+                    if (Objects.equals(item.getKey(), key)) {
+                        return item.getValue();
+                    }
+                }
+                return null;
+            }
+
+            // Check if key exists
+            public boolean containsKey(K key) {
+                for (T item : this) {
+                    if (Objects.equals(item.getKey(), key)) return true;
+                }
+                return false;
+            }
+
+            // Remove by key
+            public void removeByKey(K key) {
+                removeIf(item -> Objects.equals(item.getKey(), key));
+            }
+
+            // Since it extends ArrayList, you already have:
+            // add(T element) -> adds to end
+            // add(int index, T element) -> inserts at position
+        }
+
 
         private final ArrayList<String> usableTag = new ArrayList<>();
+        private final MapTag<Clip, String, MapUsableTag> tagsMapToUsableTagIndex = new MapTag<>();
+        private final MapTag<Clip, Clip, MapMergedClip> tagsMergedClipMap = new MapTag<>();
 
         public int getTagCount()
         {
@@ -1334,41 +1413,71 @@ public class FFmpegEdit {
         }
 
 
-        public FilterComplexInfo useTag(Clip clip) {
-            for (Map.Entry<Clip, String> entry : tagsMapToUsableTagIndex) {
-                if (entry.getKey() == clip) {
-                    // Logic to "use" tag: normally means removing it from usable tags
-                    // For now, just return it.
-                    return new FilterComplexInfo(0, entry.getValue());
-                }
+        public FilterComplexInfo useTag(Clip key) {
+
+            if(usableTag.contains(tagsMapToUsableTagIndex.getValueByKey(key)))
+            {
+                String retrieveTag = tagsMapToUsableTagIndex.getValueByKey(key);
+                int indexTag = usableTag.indexOf(retrieveTag);
+                FilterComplexInfo info = new FilterComplexInfo(indexTag, retrieveTag);
+
+                usableTag.remove(indexTag);
+                tagsMapToUsableTagIndex.removeByKey(key);
+                return info;
+            }
+//            else if(tagsMergedClipMap.containsKey(key) && usableTag.contains(tagsMapToUsableTagIndex.get(tagsMergedClipMap.get(key))))
+//            {
+//                useTag(tagsMergedClipMap.get(key));
+//                tagsMergedClipMap.remove(key);
+//            }
+            return null;
+        }
+        public FilterComplexInfo useTag(Clip key, Clip mergingKey) {
+            if(usableTag.contains(tagsMapToUsableTagIndex.getValueByKey(key)))
+            {
+                String retrieveTag = tagsMapToUsableTagIndex.getValueByKey(key);
+                int indexTag = usableTag.indexOf(retrieveTag);
+                FilterComplexInfo info = new FilterComplexInfo(indexTag, retrieveTag);
+
+                usableTag.remove(indexTag);
+                tagsMapToUsableTagIndex.removeByKey(key);
+
+                tagsMergedClipMap.add(new MapMergedClip(key, mergingKey));
+                return info;
             }
             return null;
         }
-
-        public FilterComplexInfo useTag(Clip clip, Clip mergedClip) {
-            return useTag(clip);
-        }
-
-        public void storeTag(Clip clip, String tag) {
+        public void storeTag(Clip key, String tag) {
             usableTag.add(tag);
-            tagsMapToUsableTagIndex.add(new AbstractMap.SimpleEntry<>(clip, tag));
-        }
 
-        public void storeTag(Clip clip, String tag, int index) {
-            if (index < 0) index = 0;
-            if (index > usableTag.size()) index = usableTag.size();
+            tagsMapToUsableTagIndex.add(new MapUsableTag(key, tag));
+        }
+        public void storeTag(Clip key, String tag, int index) {
+            if(index < 0) index = 0;
+            if(index >= usableTag.size()) index = usableTag.size() - 1;
             usableTag.add(index, tag);
-            tagsMapToUsableTagIndex.add(index, new AbstractMap.SimpleEntry<>(clip, tag));
+
+            tagsMapToUsableTagIndex.add(index, new MapUsableTag(key, tag));
         }
 
-        public void storeTag(Clip clipA, Clip clipB, Clip mergedClip, String tag, int index) {
-            tagsMergedClipMap.add(new AbstractMap.SimpleEntry<>(mergedClip, clipA));
-            storeTag(mergedClip, tag, index);
-        }
+
+//        public Clip getKeyFromTag(String tag)
+//        {
+//            for (Map.Entry<Clip, String> entry : tagsMapToUsableTagIndex.entrySet()) {
+//                if (entry.getValue().equals(tag)) {
+//                    return entry.getKey();
+//                }
+//            }
+//            return null;
+//        }
 
         public Clip getKeyFromTag(String tag) {
-            for (Map.Entry<Clip, String> entry : tagsMapToUsableTagIndex) {
-                if (Objects.equals(entry.getValue(), tag)) return entry.getKey();
+            // tagsMapToUsableTagIndex is an ArrayList of MapUsableTag
+            for (MapUsableTag entry : tagsMapToUsableTagIndex) {
+                // Use the getter from the BaseMapTag interface
+                if (Objects.equals(entry.getValue(), tag)) {
+                    return entry.getKey();
+                }
             }
             return null;
         }
@@ -1376,12 +1485,10 @@ public class FFmpegEdit {
 
         public Clip getValidMapKey(Clip clipKey)
         {
-            for (Map.Entry<Clip, String> entry : tagsMapToUsableTagIndex) {
-                if (entry.getKey() == clipKey) return clipKey;
-            }
-            for (Map.Entry<Clip, Clip> entry : tagsMergedClipMap) {
-                if (entry.getKey() == clipKey) return entry.getValue();
-            }
+            if(tagsMapToUsableTagIndex.containsKey(clipKey))
+                return clipKey;
+            if(tagsMergedClipMap.containsKey(clipKey))
+                return tagsMergedClipMap.getValueByKey(clipKey);
             return null;
         }
 
@@ -1438,6 +1545,8 @@ public class FFmpegEdit {
             taskQueue.clear();
             totalQueue = 0;
             queueDone = 0;
+            // TODO: Android equivalent is FFmpegKit.cancel();
+            //  find a way to do the same with desktop version.
             // No direct way to cancel native process without keeping track of them.
             // For now, clear the queue. Future: Add process tracking.
         }
@@ -1447,8 +1556,8 @@ public class FFmpegEdit {
             Runnable task;
             public String taskName;
 
-            java.util.function.Consumer<String> onLog = s -> {};
-            java.util.function.Consumer<FfmpegStatistics> onStatistics = stats -> {};
+            Consumer<String> onLog = s -> {};
+            Consumer<FfmpegStatistics> onStatistics = stats -> {};
 
             public FfmpegRenderQueueInfo(String taskName, Runnable task)
             {

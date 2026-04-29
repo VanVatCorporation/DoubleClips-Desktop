@@ -234,6 +234,7 @@ public class EditorWindow extends Stage {
         Button exportBtn = new Button("Export");
         exportBtn.getStyleClass().add("export-button");
         exportBtn.setGraphic(new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
+        exportBtn.setOnAction(e -> ExportWindow.show(this, project, timeline, videoSettings));
 
         bar.getChildren().addAll(backBtn, title, spacer, undoBtn, redoBtn, spacer2, exportBtn);
         return bar;

@@ -613,3 +613,128 @@
 .button-icon-only .ikonli-font-icon {
     -fx-icon-size: 24px;
 }
+
+/* ============================================
+   EXPORT WINDOW
+   ============================================ */
+
+/* Top bar */
+.export-topbar {
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: transparent transparent -color-border-subtle transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 10 16;
+}
+
+/* Section card wrapper */
+.export-section {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 14;
+    -fx-border-radius: 14;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.06), 8, 0, 0, 2);
+}
+
+.export-section-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-muted;
+    -fx-padding: 0 0 4 0;
+}
+
+/* FFmpeg command text area */
+.export-command-area {
+    -fx-font-family: "Monaco", "Menlo", "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-control-inner-background: -color-bg-inset;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+    -fx-text-fill: -color-fg-default;
+}
+
+/* Log output text area (terminal green-on-black look) */
+.export-log-area {
+    -fx-font-family: "Monaco", "Menlo", "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-control-inner-background: #0d0d0d;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+    -fx-text-fill: #c8ff9a;
+    -fx-highlight-fill: #3a5f28;
+}
+
+/* Status labels above progress bars */
+.export-status-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-fg-muted;
+}
+
+/* Progress bars */
+.export-progress-bar > .track {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+}
+
+.export-progress-bar > .bar {
+    -fx-background-color: linear-gradient(to right, #007AFF 0%, #34C759 100%);
+    -fx-background-radius: 4;
+    -fx-border-radius: 4;
+    -fx-background-insets: 0;
+}
+
+.export-progress-bar:indeterminate > .bar {
+    -fx-background-color: linear-gradient(to right, #007AFF 0%, #5856D6 100%);
+}
+
+/* Secondary action buttons (Generate Command, etc.) */
+.secondary-action-button {
+    -fx-background-color: -color-bg-inset;
+    -fx-text-fill: -color-fg-default;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+    -fx-padding: 6 14;
+    -fx-font-size: 12px;
+    -fx-cursor: hand;
+}
+
+.secondary-action-button:hover {
+    -fx-background-color: -color-bg-default;
+    -fx-border-color: -color-accent-muted;
+}
+
+.secondary-action-button .ikonli-font-icon {
+    -fx-icon-size: 14px;
+    -fx-icon-color: -color-fg-muted;
+}
+
+/* "Export as Template" button (amber accent) */
+.export-template-button {
+    -fx-background-color: #FF9F0A;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-padding: 6 16;
+    -fx-cursor: hand;
+}
+
+.export-template-button:hover {
+    -fx-background-color: #e08800;
+}
+
+.export-template-button .ikonli-font-icon {
+    -fx-icon-color: white;
+}
+
+.export-template-button:disabled,
+.export-button:disabled {
+    -fx-opacity: 0.45;
+}
