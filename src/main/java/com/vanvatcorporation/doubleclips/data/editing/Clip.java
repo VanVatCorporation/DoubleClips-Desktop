@@ -128,6 +128,17 @@ public class Clip implements Serializable {
         return IOHelper.CombinePath(data.getProjectPath(), "Clips", clipName);
     }
 
+    public String getAbsolutePreviewPath(ProjectData data) {
+        if (data == null) return clipName;
+        return IOHelper.CombinePath(data.getProjectPath(), "PreviewClips", clipName);
+    }
+
+    public String getAbsolutePreviewPath(ProjectData data, String extension) {
+        if (data == null) return clipName;
+        String baseName = clipName.contains(".") ? clipName.substring(0, clipName.lastIndexOf('.')) : clipName;
+        return IOHelper.CombinePath(data.getProjectPath(), "PreviewClips", baseName + extension);
+    }
+
     public String getCutoutPath(String projectPath) {
         return IOHelper.CombinePath(projectPath, "Cutouts", clipName);
     }
