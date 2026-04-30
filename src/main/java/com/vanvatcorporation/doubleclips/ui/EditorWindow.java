@@ -207,7 +207,7 @@ public class EditorWindow extends Stage {
     private void updatePlayheadPosition() {
         if (playheadLine == null || tracksScrollPane == null || tracksPane == null) return;
         
-        double contentWidth = tracksPane.getBoundsInLocal().getWidth();
+        double contentWidth = tracksPane.getPrefWidth();
         double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
         double hValue = tracksScrollPane.getHvalue();
         
@@ -951,7 +951,7 @@ public class EditorWindow extends Stage {
         HBox.setHgrow(rulerAndTracks, Priority.ALWAYS);
 
         // Ruler
-        buildRuler();
+        buildRuler(8000); // TODO: Hardcoded 8000?
         rulerScrollPane.getStyleClass().add("ruler-scroll");
         rulerScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         rulerScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -1014,6 +1014,9 @@ public class EditorWindow extends Stage {
 
         rulerAndTracks.getChildren().addAll(rulerScrollPane, tracksWithPlayhead);
 
+        // Sync Ruler and Tracks scrolling
+        rulerScrollPane.hvalueProperty().bindBidirectional(tracksScrollPane.hvalueProperty());
+
         // Zoom Gestures
         rulerAndTracks.addEventFilter(javafx.scene.input.ZoomEvent.ZOOM, e -> {
             double zoomFactor = e.getZoomFactor();
@@ -1041,9 +1044,9 @@ public class EditorWindow extends Stage {
         return timeline;
     }
 
-    private void buildRuler() {
+    private void buildRuler(double width) {
         Pane ruler = new Pane();
-        ruler.setPrefWidth(8000);
+        ruler.setPrefWidth(width);
         ruler.setPrefHeight(30);
         ruler.setPickOnBounds(true);
         ruler.getStyleClass().add("timeline-ruler-pane");
@@ -1055,8 +1058,8 @@ public class EditorWindow extends Stage {
         else if (pixelsPerSecond >= 100) rulerInterval = 0.5f;
 
         float majorPixels = pixelsPerSecond * rulerInterval;
-        float visibleDuration = 8000 / pixelsPerSecond;
-        long steps = (long) Math.ceil((visibleDuration + 2f) / rulerInterval);
+        float visibleDuration = (float) (width / pixelsPerSecond);
+        long steps = (long) Math.ceil((visibleDuration + 1f) / rulerInterval);
         
         int subCount = 0;
         if (majorPixels >= 60f) subCount = 4;
@@ -1164,15 +1167,23 @@ public class EditorWindow extends Stage {
     }
 
     private void refreshTimelineUI() {
+        timeline.recalculateDuration();
+        project.setProjectDuration((long) (timeline.duration * 1000));
+
+        double totalDuration = timeline.duration;
+        double contentWidth = Math.max(1200, totalDuration * pixelsPerSecond + 1000); // Add 1000px padding at end
+        
         // Refresh Ruler
-        buildRuler();
+        buildRuler(contentWidth);
         
         // Refresh Clips and Tracks
         tracksPane.getChildren().clear();
+        tracksPane.setPrefWidth(contentWidth);
+
         for (Track track : timeline.tracks) {
             // Add track band
             double y = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
-            Rectangle band = new Rectangle(0, y, 8000, TRACK_HEIGHT);
+            Rectangle band = new Rectangle(0, y, contentWidth, TRACK_HEIGHT);
             band.getStyleClass().add(track.timelineIndex % 2 == 0 ? "track-band-even" : "track-band-odd");
             tracksPane.getChildren().add(band);
 
