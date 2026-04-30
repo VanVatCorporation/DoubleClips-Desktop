@@ -29,6 +29,7 @@ public class ClipNode extends Pane {
 
     private final Clip    clip;
     private final HBox    thumbnailRow;
+    private final ImageView singleImageOverlay;
     private final Label   nameLabel;
     private final Label   timecodeLabel;
     private final Rectangle selBorder;
@@ -89,7 +90,15 @@ public class ClipNode extends Pane {
         timecodeLabel.setLayoutX(6);
         timecodeLabel.setLayoutY(17);
 
-        getChildren().addAll(bg, thumbnailRow, scrim, nameLabel, timecodeLabel, selBorder);
+        // ── Single Image Overlay ──────────────────────────────────────────────
+        singleImageOverlay = new ImageView();
+        singleImageOverlay.setMouseTransparent(true);
+        singleImageOverlay.setPreserveRatio(false);
+        singleImageOverlay.fitWidthProperty().bind(widthProperty());
+        singleImageOverlay.fitHeightProperty().bind(heightProperty());
+        singleImageOverlay.setVisible(false);
+
+        getChildren().addAll(bg, thumbnailRow, singleImageOverlay, scrim, nameLabel, timecodeLabel, selBorder);
 
         // ── Refresh thumbnails when size changes (zoom) ───────────────────────
         widthProperty().addListener((o, ov, nv)  -> { if (nv.doubleValue() > 0) refreshThumbnails(); });
@@ -119,8 +128,19 @@ public class ClipNode extends Pane {
         }
     }
 
+    /**
+     * Sets a single image spanning the entire clip width.
+     * Used for AUDIO, TEXT, EFFECT, and IMAGE clips instead of tiled thumbnails.
+     */
+    public void setSingleThumbnail(Image image) {
+        thumbnailRow.setVisible(false);
+        singleImageOverlay.setImage(image);
+        singleImageOverlay.setVisible(true);
+    }
+
     /** Number of currently rendered thumbnail tiles. */
     public int getTileCount() {
+        if (thumbnailRow.getChildren().isEmpty()) refreshThumbnails();
         return thumbnailRow.getChildren().size();
     }
 
@@ -135,6 +155,8 @@ public class ClipNode extends Pane {
     public void refreshThumbnails() {
         double w = getWidth();
         double h = getHeight();
+        if (w <= 0) w = getPrefWidth();
+        if (h <= 0) h = getPrefHeight();
         if (w <= 0 || h <= 0) return;
 
         double tw      = h * THUMB_ASPECT;                    // tile pixel width

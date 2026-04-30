@@ -1,5 +1,6 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.AudioUtils;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.*;
 import com.vanvatcorporation.doubleclips.data.editing.*;
@@ -55,6 +56,16 @@ public class EditorWindow extends Stage {
     // Playback engine
     private AnimationTimer playbackTimer;
     private long lastTimerUpdate = 0;
+
+    // Background operations
+    private final java.util.concurrent.ExecutorService thumbnailExecutor = java.util.concurrent.Executors.newFixedThreadPool(
+        Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
+        r -> {
+            Thread t = new Thread(r, "ThumbnailGenerator");
+            t.setDaemon(true);
+            return t;
+        }
+    );
 
     // UI Components for logic access
     private final Label currentTimeLabel = new Label("00:00:00:00");
@@ -1166,6 +1177,118 @@ public class EditorWindow extends Stage {
         renderClipUI(track, clip);
     }
 
+    private void generateThumbnailsForNode(ClipNode node) {
+        Clip clip = node.getContainerClip();
+        if (clip.type == ClipType.VIDEO) {
+            thumbnailExecutor.submit(() -> {
+                int tileCount = node.getTileCount();
+                if (tileCount <= 0) return;
+                    float tileDuration = (float) (clip.duration / tileCount);
+                    for (int i = 0; i < tileCount; i++) {
+                        // Stop extracting if node was removed or hidden
+                        if (node.getParent() == null) return;
+
+                        float time = clip.startClipTrim + (i * tileDuration);
+                        Image img = decodeVideoFrame(clip, time);
+                    if (img != null) {
+                        int finalI = i;
+                        javafx.application.Platform.runLater(() -> node.setThumbnailImage(finalI, img));
+                    }
+                }
+            });
+        } else if (clip.type == ClipType.AUDIO) {
+            thumbnailExecutor.submit(() -> {
+                Image img = AudioUtils.generateAudioWaveformImage(
+                        clip.getAbsolutePreviewPath(project, ".wav"), clip, pixelsPerSecond, (int) TRACK_HEIGHT, 1, 0); // 2 1
+                if (img != null) {
+                    javafx.application.Platform.runLater(() -> node.setSingleThumbnail(img));
+                }
+            });
+        } else if (clip.type == ClipType.IMAGE) {
+            thumbnailExecutor.submit(() -> {
+                try {
+                    java.io.File file = new java.io.File(clip.getAbsolutePath(project));
+                    if (file.exists()) {
+                        Image img = new Image(file.toURI().toString(), -1, TRACK_HEIGHT, true, true);
+                        javafx.application.Platform.runLater(() -> node.setSingleThumbnail(img));
+                    }
+                } catch (Exception ignored) {}
+            });
+        } else {
+            thumbnailExecutor.submit(() -> {
+                javafx.scene.image.WritableImage empty = new javafx.scene.image.WritableImage(1, (int) TRACK_HEIGHT);
+                javafx.scene.paint.Color fill = clip.type == ClipType.TEXT ? javafx.scene.paint.Color.web("#AAFF0000") : javafx.scene.paint.Color.web("#AAFFFF00");
+                for (int y = 0; y < TRACK_HEIGHT; y++) empty.getPixelWriter().setColor(0, y, fill);
+                javafx.application.Platform.runLater(() -> node.setSingleThumbnail(empty));
+            });
+        }
+    }
+
+    private Image decodeVideoFrame(Clip clip, float clipTime) {
+        String previewPath = clip.getAbsolutePreviewPath(project);
+        java.io.File previewFile = new java.io.File(previewPath);
+        if (!previewFile.exists()) {
+            // Try with .mp4 extension
+            String mp4Preview = clip.getAbsolutePreviewPath(project, ".mp4");
+            java.io.File mp4File = new java.io.File(mp4Preview);
+            if (mp4File.exists()) {
+                previewFile = mp4File;
+            } else {
+                previewFile = new java.io.File(clip.getAbsolutePath(project));
+                if (!previewFile.exists()) return null;
+            }
+        }
+
+        // Standard low-res for thumbnails - Ensure EVEN dimensions for FFmpeg
+        int sampleSize = com.vanvatcorporation.doubleclips.constants.Constants.SAMPLE_SIZE_PREVIEW_CLIP;
+        int w = (1280 / sampleSize) & ~1; // Force even
+        int h = (720 / sampleSize) & ~1;  // Force even
+        if (w <= 0) w = 80;
+        if (h <= 0) h = 45; // Wait, 45 is odd. Let's use 44 or 46.
+        if ((h % 2) != 0) h++;
+
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add(com.vanvatcorporation.doubleclips.FFmpegEdit.getFfmpegPath());
+        cmd.add("-accurate_seek");
+        cmd.add("-ss"); cmd.add(String.format(java.util.Locale.US, "%.6f", clipTime));
+        cmd.add("-i"); cmd.add(previewFile.getAbsolutePath());
+        cmd.add("-vframes"); cmd.add("1");
+        cmd.add("-vf"); cmd.add("scale=" + w + ":" + h);
+        cmd.add("-f");        cmd.add("rawvideo");
+        cmd.add("-pix_fmt");  cmd.add("bgra");
+        cmd.add("pipe:1");
+
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+            Process proc = pb.start();
+
+            int expectedBytes = w * h * 4;
+            byte[] buf;
+            try (java.io.InputStream is = proc.getInputStream()) {
+                buf = is.readNBytes(expectedBytes);
+            }
+            proc.destroy(); // Ensure process is killed
+
+            if (buf.length == expectedBytes) {
+                int[] pixels = new int[w * h];
+                for (int i = 0; i < pixels.length; i++) {
+                    int base = i * 4;
+                    int b = buf[base] & 0xFF;
+                    int g = buf[base + 1] & 0xFF;
+                    int r = buf[base + 2] & 0xFF;
+                    int a = buf[base + 3] & 0xFF;
+                    pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
+                }
+                javafx.scene.image.WritableImage fxImage = new javafx.scene.image.WritableImage(w, h);
+                fxImage.getPixelWriter().setPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(), pixels, 0, w);
+                return fxImage;
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+
     private void refreshTimelineUI() {
         timeline.recalculateDuration();
         project.setProjectDuration((long) (timeline.duration * 1000));
@@ -1224,6 +1347,9 @@ public class EditorWindow extends Stage {
         setupClipInteraction(node);
         tracksPane.getChildren().add(node);
         clip.viewRef = node;
+
+        // Start generating thumbnails for this node
+        generateThumbnailsForNode(node);
     }
 
     // =========================================================================
