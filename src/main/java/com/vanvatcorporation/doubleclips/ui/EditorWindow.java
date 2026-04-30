@@ -323,16 +323,25 @@ public class EditorWindow extends Stage {
         timelineRenderer = new TimelineRenderer(project, videoSettings);
         Pane renderPane = timelineRenderer.getRenderPane();
 
-        // Scale renderPane to fit inside canvas while preserving aspect ratio
-        renderPane.scaleXProperty().bind(
-            javafx.beans.binding.Bindings.min(
-                canvas.widthProperty().subtract(32).divide(videoSettings.videoWidth),
-                canvas.heightProperty().subtract(32).divide(videoSettings.videoHeight)
-            )
-        );
-        renderPane.scaleYProperty().bind(renderPane.scaleXProperty());
+        // Wrap in a Group to detach bounds from StackPane's layout system
+        javafx.scene.Group renderGroup = new javafx.scene.Group(renderPane);
+        renderGroup.setManaged(false); // crucial for allowing canvas to shrink smaller than the video settings
+        canvas.getChildren().add(renderGroup);
 
-        canvas.getChildren().add(renderPane);
+        canvas.layoutBoundsProperty().addListener((obs, oldBounds, newBounds) -> {
+            double w = newBounds.getWidth() - 32;
+            double h = newBounds.getHeight() - 32;
+            if (w <= 0 || h <= 0) return;
+            
+            double scale = Math.min(w / videoSettings.videoWidth, h / videoSettings.videoHeight);
+            
+            renderPane.setScaleX(scale);
+            renderPane.setScaleY(scale);
+            
+            // Center the group in the canvas based on the unscaled dimensions
+            renderGroup.setLayoutX(newBounds.getWidth() / 2.0 - videoSettings.videoWidth / 2.0);
+            renderGroup.setLayoutY(newBounds.getHeight() / 2.0 - videoSettings.videoHeight / 2.0);
+        });
 
         // Playback Controls Row
         HBox controls = new HBox(16);
