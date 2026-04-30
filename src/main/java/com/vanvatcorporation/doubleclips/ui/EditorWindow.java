@@ -983,7 +983,8 @@ public class EditorWindow extends Stage {
         // Tracks content container
         tracksPane.getStyleClass().add("timeline-tracks-pane");
         tracksPane.setPrefWidth(8000);
-        tracksPane.setPrefHeight(300);
+        tracksPane.setPrefHeight(0); // Will be updated by refreshTimelineUI
+
         tracksPane.setOnMouseClicked(e -> deselectAll());
         tracksScrollPane.setContent(tracksPane);
 
@@ -1162,6 +1163,10 @@ public class EditorWindow extends Stage {
         band.getStyleClass().add((timeline.tracks.size() - 1) % 2 == 0 ? "track-band-even" : "track-band-odd");
         tracksPane.getChildren().add(band);
         
+        // Ensure tracksPane height is synced with headers
+        tracksPane.setPrefHeight(timeline.tracks.size() * (TRACK_HEIGHT + TRACK_SPACING));
+
+        
         track.viewRef = band; // Keep reference if needed
 
         // Add a sample clip to the first track for visualization
@@ -1302,6 +1307,8 @@ public class EditorWindow extends Stage {
         // Refresh Clips and Tracks
         tracksPane.getChildren().clear();
         tracksPane.setPrefWidth(contentWidth);
+        tracksPane.setPrefHeight(timeline.tracks.size() * (TRACK_HEIGHT + TRACK_SPACING));
+
 
         for (Track track : timeline.tracks) {
             // Add track band
