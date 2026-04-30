@@ -3,6 +3,7 @@ package com.vanvatcorporation.doubleclips.ui;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.*;
 import com.vanvatcorporation.doubleclips.data.editing.*;
+import com.vanvatcorporation.doubleclips.ui.renderer.TimelineRenderer;
 import java.util.ArrayList;
 import java.util.List;
 import javafx.animation.AnimationTimer;
@@ -26,6 +27,8 @@ public class EditorWindow extends Stage {
     private final ProjectData project;
     private Timeline timeline;
     private VideoSettings videoSettings;
+    
+    private TimelineRenderer timelineRenderer;
 
     // Editor State
     private float currentTime = 0f;
@@ -75,6 +78,10 @@ public class EditorWindow extends Stage {
         this.setMinWidth(1024);
         this.setMinHeight(640);
 
+        // Load persistences early
+        this.timeline = ProjectRepository.getInstance().loadTimeline(project);
+        this.videoSettings = ProjectRepository.getInstance().loadVideoSettings(project);
+
         BorderPane root = new BorderPane();
         root.getStyleClass().add("editor-root");
 
@@ -108,10 +115,6 @@ public class EditorWindow extends Stage {
 
         initPlaybackTimer();
         
-        // Load persistences
-        this.timeline = ProjectRepository.getInstance().loadTimeline(project);
-        this.videoSettings = ProjectRepository.getInstance().loadVideoSettings(project);
-
         if (this.timeline.tracks.isEmpty()) {
             addNewTrack("Video 1");
             addNewTrack("Audio 1");
@@ -163,6 +166,10 @@ public class EditorWindow extends Stage {
         
         // Update playhead position
         updatePlayheadPosition();
+
+        if (timelineRenderer != null) {
+            timelineRenderer.updateTime(currentTime, !isPlaying);
+        }
 
         // Auto-scroll if playing
         if (isPlaying) {
@@ -312,14 +319,20 @@ public class EditorWindow extends Stage {
         canvas.getStyleClass().add("canvas-wrapper");
         VBox.setVgrow(canvas, Priority.ALWAYS);
 
-        java.io.File previewFile = new java.io.File(project.getProjectPath(), "preview.png");
-        if (previewFile.exists()) {
-            ImageView iv = new ImageView(new Image(previewFile.toURI().toString()));
-            iv.setPreserveRatio(true);
-            iv.fitWidthProperty().bind(canvas.widthProperty().subtract(32));
-            iv.fitHeightProperty().bind(canvas.heightProperty().subtract(32));
-            canvas.getChildren().add(iv);
-        }
+        // Initialize TimelineRenderer
+        timelineRenderer = new TimelineRenderer(project, videoSettings);
+        Pane renderPane = timelineRenderer.getRenderPane();
+
+        // Scale renderPane to fit inside canvas while preserving aspect ratio
+        renderPane.scaleXProperty().bind(
+            javafx.beans.binding.Bindings.min(
+                canvas.widthProperty().subtract(32).divide(videoSettings.videoWidth),
+                canvas.heightProperty().subtract(32).divide(videoSettings.videoHeight)
+            )
+        );
+        renderPane.scaleYProperty().bind(renderPane.scaleXProperty());
+
+        canvas.getChildren().add(renderPane);
 
         // Playback Controls Row
         HBox controls = new HBox(16);
@@ -794,6 +807,11 @@ public class EditorWindow extends Stage {
             for (Clip clip : track.clips) {
                 renderClipUI(track, clip);
             }
+        }
+        
+        // Rebuild TimelineRenderer
+        if (timelineRenderer != null) {
+            timelineRenderer.buildTimeline(timeline);
         }
         
         // Update playhead
