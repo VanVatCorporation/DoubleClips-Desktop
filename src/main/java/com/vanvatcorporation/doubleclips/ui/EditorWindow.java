@@ -322,8 +322,54 @@ public class EditorWindow extends Stage {
 
         importBtn.setOnAction(e -> handleImportMedia(mediaGrid));
 
+        loadMediaGrid(mediaGrid);
+
         panel.getChildren().addAll(tabStrip, importBar, mediaGrid);
         return panel;
+    }
+
+    private void loadMediaGrid(FlowPane mediaGrid) {
+        String clipDir = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_CLIP_DIRECTORY);
+        File dir = new File(clipDir);
+        if (!dir.exists() || !dir.isDirectory()) return;
+
+        File[] files = dir.listFiles();
+        if (files == null || files.length == 0) return;
+
+        Task<List<Clip>> task = new Task<>() {
+            @Override
+            protected List<Clip> call() throws Exception {
+                List<Clip> loadedClips = new ArrayList<>();
+                for (File f : files) {
+                    if (f.isDirectory() || f.getName().startsWith(".")) continue;
+                    
+                    String filename = f.getName();
+                    String mime = Files.probeContentType(f.toPath());
+                    ClipType type = ClipType.VIDEO;
+                    if (mime != null) {
+                        if (mime.startsWith("audio")) type = ClipType.AUDIO;
+                        else if (mime.startsWith("image")) type = ClipType.IMAGE;
+                    } else {
+                        if (filename.endsWith(".mp3") || filename.endsWith(".wav")) type = ClipType.AUDIO;
+                        else if (filename.endsWith(".png") || filename.endsWith(".jpg")) type = ClipType.IMAGE;
+                    }
+                    
+                    Clip clip = new Clip(filename, 0, 0, 0, type, false, 0, 0);
+                    loadedClips.add(clip);
+                }
+                return loadedClips;
+            }
+        };
+
+        task.setOnSucceeded(e -> {
+            for (Clip c : task.getValue()) {
+                addClipToMediaGrid(mediaGrid, c);
+            }
+        });
+        
+        Thread t = new Thread(task);
+        t.setDaemon(true);
+        t.start();
     }
 
     private void handleImportMedia(FlowPane mediaGrid) {
@@ -385,6 +431,14 @@ public class EditorWindow extends Stage {
                     CountDownLatch latch = new CountDownLatch(1);
 
                     if (type == ClipType.VIDEO) {
+                        CountDownLatch thumbLatch = new CountDownLatch(1);
+                        String cmdThumb = "-i \"" + targetFile.getAbsolutePath() + "\" -vframes 1 -s 128x128 -y \"" + previewClipPath + ".jpg\"";
+                        FFmpegEdit.runAnyCommand(cmdThumb, "Preview Thumb",
+                            () -> thumbLatch.countDown(),
+                            () -> thumbLatch.countDown(),
+                            log -> {}, stats -> {});
+                        thumbLatch.await();
+
                         String cmd = "-i \"" + targetFile.getAbsolutePath() + "\" -vf \"scale=1280:-2\" -c:v libx264 -preset ultrafast -crf 32 -x264-params keyint=1 -an -y \"" + previewClipPath + "\"";
                         FFmpegEdit.runAnyCommand(cmd, "Preview Video",
                             () -> latch.countDown(),
@@ -447,17 +501,45 @@ public class EditorWindow extends Stage {
         box.getStyleClass().add("media-grid-item");
         box.setStyle("-fx-border-color: #555; -fx-border-radius: 4px; -fx-background-color: #222; -fx-padding: 4px;");
 
-        FontIcon icon = new FontIcon(clip.type == ClipType.VIDEO ? MaterialDesignM.MOVIE : clip.type == ClipType.AUDIO ? MaterialDesignM.MUSIC_NOTE : MaterialDesignI.IMAGE);
-        icon.setIconSize(32);
-        icon.setIconColor(Color.WHITE);
+        javafx.scene.Node graphicNode;
+
+        if (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE) {
+            String imagePath;
+            if (clip.type == ClipType.VIDEO) {
+                imagePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY, clip.getClipName() + ".jpg");
+            } else {
+                imagePath = clip.getAbsolutePath(project);
+            }
+            
+            File imgFile = new File(imagePath);
+            if (imgFile.exists()) {
+                Image img = new Image("file:" + imgFile.getAbsolutePath(), 60, 60, true, true);
+                ImageView imageView = new ImageView(img);
+                imageView.setFitWidth(60);
+                imageView.setFitHeight(40);
+                imageView.setPreserveRatio(true);
+                graphicNode = imageView;
+            } else {
+                FontIcon icon = new FontIcon(clip.type == ClipType.VIDEO ? MaterialDesignM.MOVIE : MaterialDesignI.IMAGE);
+                icon.setIconSize(32);
+                icon.setIconColor(Color.WHITE);
+                graphicNode = icon;
+            }
+        } else {
+            FontIcon icon = new FontIcon(clip.type == ClipType.AUDIO ? MaterialDesignM.MUSIC_NOTE : MaterialDesignF.FILE_QUESTION);
+            icon.setIconSize(32);
+            icon.setIconColor(Color.WHITE);
+            graphicNode = icon;
+        }
 
         Label nameLbl = new Label(clip.getClipName());
         nameLbl.setStyle("-fx-text-fill: white; -fx-font-size: 10px;");
         nameLbl.setWrapText(true);
         nameLbl.setMaxWidth(70);
+        nameLbl.setMaxHeight(20);
         nameLbl.setAlignment(Pos.CENTER);
 
-        box.getChildren().addAll(icon, nameLbl);
+        box.getChildren().addAll(graphicNode, nameLbl);
         mediaGrid.getChildren().add(box);
     }
 
