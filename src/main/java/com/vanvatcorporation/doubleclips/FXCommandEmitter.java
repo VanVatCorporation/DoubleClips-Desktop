@@ -9,79 +9,104 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class FXCommandEmitter {
+//    public static String emit(EffectTemplate fx, int inputIndex) {
+//        switch (fx.style) {
+//            case "fade":
+//                return "[" + (inputIndex - 1) + "][clip" + inputIndex + "]xfade=transition=fade:duration=" + fx.duration + ":offset=" + fx.offset + "[tmp" + inputIndex + "];";
+//            case "glitch":
+//                return "[clip" + inputIndex + "]glitch=intensity=" + fx.params.get("intensity") + "[tmp" + inputIndex + "];";
+//            // Add more effects...
+//        }
+//        return "";
+//    }
 
     public static String emit(Clip clip, FFmpegEdit.FfmpegFilterComplexTags.FilterComplexInfo affectedTags,
                               FFmpegEdit.FfmpegFilterComplexTags tags) {
-        if (affectedTags == null) return "";
+        if(affectedTags == null) return "";
         String outputLabel = "[transition_" +
                 affectedTags.tag.replace("[trans-video-", "").replace("]", "") + "]";
 
-        EffectTemplate fx = clip.getEffect();
 
-        if (fx == null || fx.style == null) return "";
+        EffectTemplate fx = clip.effect;
 
         switch (fx.style) {
             case "glitch-pulse":
-                tags.storeTag(outputLabel);
+                tags.storeTag(outputLabel, affectedTags.index);
                 return affectedTags.tag + "tblend=all_mode=addition,framestep=2,eq=brightness=0.2" + outputLabel + ";";
 
             case "warp-zoom":
-                tags.storeTag(outputLabel);
-                return affectedTags.tag + "zoompan=z='zoom+0.001':d=" + (int) (clip.getDuration() * 30) +
+                tags.storeTag(outputLabel, affectedTags.index);
+                return affectedTags.tag + "zoompan=z='zoom+0.001':d=" + (int)(clip.duration * 30) +
                         ":x='iw/2':y='ih/2'" + outputLabel + ";";
 
             case "lens-flare-surge":
-                tags.storeTag(outputLabel);
+                tags.storeTag(outputLabel, affectedTags.index);
                 return affectedTags.tag + "curves=preset=cross_process,eq=contrast=1.5:saturation=1.2" + outputLabel + ";";
 
             case "spin-burst":
-                tags.storeTag(outputLabel);
-                return affectedTags.tag + "rotate='2*PI*t/" + clip.getDuration() + "'" + outputLabel + ";";
-        }
-        return ""; 
-    }
+                tags.storeTag(outputLabel, affectedTags.index);
+                return affectedTags.tag + "rotate='2*PI*t/" + clip.duration + "'" + outputLabel + ";";
 
-    public static String emitTransition(Clip clipA, Clip clipB, TransitionClip transition,
+            // You can keep adding more wild ones here...
+        }
+        return ""; // If unknown, emit nothing
+    }
+    public static String emitTransition(Clip clipBefore, Clip clipAfter, TransitionClip transition,
                                         FFmpegEdit.FfmpegFilterComplexTags tags) {
 
-        if (clipA == null || clipB == null) return "";
-
-        Clip mergedClip = new Clip();
-        mergedClip.setClipName("MERGED");
-        mergedClip.setStartTime(clipA.getStartTime());
-        mergedClip.setDuration(clipA.getDuration() + clipB.getDuration() -
-                (transition.mode == TransitionClip.TransitionMode.OVERLAP ? transition.duration : 0));
-        mergedClip.setTrackIndex(clipA.getTrackIndex());
-        mergedClip.setType(clipA.getType());
+        Clip clipA = tags.getValidMapKey(clipBefore);
+        Clip clipB = tags.getValidMapKey(clipAfter);
+        if(clipA == null) return "";
+        if(clipB == null) return "";
+        if(transition.effect.style.equals("none")) return "";
+        Clip mergedClip = new Clip("MERGED", clipA.startTime, clipA.duration + clipB.duration -
+                // Overlap mean both the overlap clip lost the transition duration amount of time
+                // (end first clip sooner than half of transition and start second clip sooner than half of transition)
+                (transition.mode == TransitionClip.TransitionMode.OVERLAP ? transition.duration : 0)
+                , clipA.trackIndex, clipA.type, clipA.isClipHasAudio() || clipB.isClipHasAudio(), clipA.width, clipA.height);
 
         FFmpegEdit.FfmpegFilterComplexTags.FilterComplexInfo fromTag = tags.useTag(clipA, mergedClip);
         FFmpegEdit.FfmpegFilterComplexTags.FilterComplexInfo toTag = tags.useTag(clipB, mergedClip);
 
-        if (fromTag == null || toTag == null) return "";
+        if(fromTag == null) return "";
+        if(toTag == null) return "";
+        if(tags == null) return "";
 
-        String outputLabel = "[transition_" +
-                fromTag.tag.replace("[transition_", "")
-                        .replace("[trans-video-", "").replace("]", "") + "_" +
-                toTag.tag.replace("[transition_", "")
-                        .replace("[trans-video-", "").replace("]", "") + "]";
+//        String outputLabel = "[transition_" +
+//                fromTag.tag.replace("[", "").replace("]", "") + "_" +
+//                toTag.tag.replace("[", "").replace("]", "") + "]";
+
+
+        // Output is long
+//        String outputLabel = "[transition_" +
+//                fromTag.tag.replace("[transition_", "")
+//                        .replace("[trans-video-", "").replace("]", "") + "_" +
+//                toTag.tag.replace("[transition_", "")
+//                        .replace("[trans-video-", "").replace("]", "") + "]";
+        String outputLabel = "[phase" + tags.getTagCount() + "]";
+
+
 
         float transitionOffset = 0;
-        switch (transition.mode) {
+        switch (transition.mode)
+        {
             case END_FIRST:
-                transitionOffset = (clipA.getDuration() - (transition.duration * 2));
+                transitionOffset = (clipA.duration - (transition.duration * 2));
                 break;
             case OVERLAP:
-                transitionOffset = (clipA.getDuration() - transition.duration);
+                transitionOffset = (clipA.duration - transition.duration);
                 break;
             case BEGIN_SECOND:
-                transitionOffset = clipA.getDuration();
+                transitionOffset = clipA.duration;
                 break;
-        }
 
-        if (transition.effect != null && transition.effect.style != null && transition.effect.style.contains("custom_")) {
+        }
+        if(transition.effect.style.contains("custom_"))
+        {
             String customStyle = transition.effect.style.replace("custom_", "");
             String expression = "";
-            switch (customStyle) {
+            switch (customStyle)
+            {
                 case "expose":
                     expression = "if(gt(Y, H*(1-P)), A, B)";
                     break;
@@ -97,9 +122,11 @@ public class FXCommandEmitter {
                 case "fake-glass-shatter":
                     expression = "B*(exp(-((X-W/2)^2+(Y-H/2)^2)/(500+100*sin(P*PI*10))) * sin(P*PI)^2) + A*(1 - sin(P*PI)^2)";
                     break;
+
             }
 
-            if (!expression.isEmpty()) {
+            if(!expression.isEmpty())
+            {
                 tags.storeTag(mergedClip, outputLabel, fromTag.index);
                 return fromTag.tag + toTag.tag +
                         "xfade=transition=custom:duration=" + transition.duration + ":offset=" +
@@ -107,7 +134,8 @@ public class FXCommandEmitter {
                         ":expr='" + expression + "'"
                         + outputLabel + ";\n";
             }
-        } else if (transition.effect != null && transition.effect.style != null) {
+        }
+        else {
             tags.storeTag(mergedClip, outputLabel, fromTag.index);
             return fromTag.tag + toTag.tag +
                     "xfade=transition=" + transition.effect.style + ":duration=" + transition.duration + ":offset=" +
@@ -117,24 +145,43 @@ public class FXCommandEmitter {
         return "";
     }
 
+
     public static class FXRegistry {
-        public static final Map<String, String> effectsFXMap = Collections.unmodifiableMap(new HashMap<String, String>() {{
+//      public static Map<String, String> nameMap = Map.of(
+//                "fade", "Cross Fade",
+//                "glitch-pulse", "Glitch Pulse",
+//                "warp-zoom", "Warp Zoom",
+//                "lens-flare-surge", "Lens Flare Surge",
+//                "spin-burst", "Spinning Burst"
+//        );
+
+        public static Map<String, String> effectsFXMap = Collections.unmodifiableMap(new HashMap<String, String>() {{
             put("glitch-pulse", "Glitch Pulse");
             put("warp-zoom", "Warp Zoom");
             put("lens-flare-surge", "Lens Flare Surge");
             put("spin-burst", "Spinning Burst");
         }});
 
-        public static final Map<String, String> transitionFXMap = Collections.unmodifiableMap(new HashMap<String, String>() {{
+        public static Map<String, String> transitionFXMap = Collections.unmodifiableMap(new HashMap<String, String>() {{
             put("custom_expose", "Expose [Custom]");
             put("custom_two-stage-slide", "Two Stage Slide [Custom]");
             put("custom_radial-shockwave", "Radial Shockwave [Custom]");
             put("custom_massive-effect", "Massive Effect [Custom]");
             put("custom_fake-glass-shatter", "Fake Glass Shatter [Custom]");
 
+
+            put("none", "None");
+
             put("fade", "Cross Fade");
             put("dissolve", "Dissolve");
+            put("radial ", "Radial");
+            put("circleopen ", "Circle Open");
+            put("circleclose", "Circle Close");
             put("pixelize", "Pixelize");
+            put("hlslice", "Horizontal Left Slice");
+            put("hrslice", "Horizontal Right Slice");
+            put("vuslice", "Vertical Up Slice");
+            put("vdslice", "Vertical Down Slice");
             put("hblur", "Horizontal Blur");
             put("fadegrays", "Fade Gray");
             put("fadeblack", "Fade Black");
@@ -152,5 +199,8 @@ public class FXCommandEmitter {
             put("diagbl", "Diagonal Bottom-Left Wipe");
             put("revealup", "Reveal Up");
         }});
+
     }
+
 }
+

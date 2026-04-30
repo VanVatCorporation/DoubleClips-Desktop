@@ -377,11 +377,12 @@ public class ExportWindow extends Stage {
         File dest = fc.showSaveDialog(this);
         if (dest == null) return; // user cancelled
 
-        // Append output path to command if it doesn't already end with one
-        if (!cmd.contains(dest.getAbsolutePath())) {
-            cmd = cmd + " \"" + dest.getAbsolutePath() + "\"";
-            commandTextArea.setText(cmd + " \"" + dest.getAbsolutePath() + "\"");
-        }
+        // TODO: Output to project, at which the rendering is done, will move the export video into somewhere user what.
+//        // Append output path to command if it doesn't already end with one
+//        if (!cmd.contains(dest.getAbsolutePath())) {
+//            cmd = cmd + " \"" + dest.getAbsolutePath() + "\"";
+//            commandTextArea.setText(cmd + " \"" + dest.getAbsolutePath() + "\"");
+//        }
 
         startExportRendering();
         final String finalCmd = cmd;
