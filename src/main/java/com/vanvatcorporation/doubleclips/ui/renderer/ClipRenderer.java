@@ -51,7 +51,9 @@ public class ClipRenderer {
 
     // --- DECODING ---
     private ExecutorService decoderService;
+    private ExecutorService audioService;
     private final AtomicBoolean isDecoding = new AtomicBoolean(false);
+    private final AtomicBoolean isAudioBursting = new AtomicBoolean(false);
     private float lastRequestedTime = -1f;
     private float lastRenderedTime = -1f;
 
@@ -71,6 +73,12 @@ public class ClipRenderer {
 
         this.decoderService = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "Decoder-" + clip.getClipName());
+            t.setDaemon(true);
+            return t;
+        });
+
+        this.audioService = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "AudioService-" + clip.getClipName());
             t.setDaemon(true);
             return t;
         });
@@ -149,8 +157,9 @@ public class ClipRenderer {
         if (isSeekingOnly) {
             stopAudio();
             isPlaying = false;
-            if (clip.type == ClipType.VIDEO) {
-                requestVideoFrame(clipTime);
+            if (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO) {
+                if (clip.type == ClipType.VIDEO) requestVideoFrame(clipTime);
+                requestAudioBurst(clipTime);
             }
         } else {
             if (clip.type == ClipType.VIDEO) {
@@ -260,6 +269,39 @@ public class ClipRenderer {
         }
     }
 
+    private void requestAudioBurst(float clipTime) {
+        if (audioLine == null || wavFile == null) return;
+
+        if (isAudioBursting.compareAndSet(false, true)) {
+            audioService.submit(() -> {
+                try {
+                    long offset = wavDataStart + (long) (clipTime * wavBytesPerSecond);
+                    int frameSize = audioLine.getFormat().getFrameSize();
+                    offset = (offset / frameSize) * frameSize;
+
+                    int burstSize = (int) (wavBytesPerSecond * 0.05); // 50ms burst
+                    burstSize = (burstSize / frameSize) * frameSize;
+                    if (burstSize <= 0) return;
+
+                    byte[] buf = new byte[burstSize];
+                    int read;
+                    synchronized (wavFile) {
+                        wavFile.seek(offset);
+                        read = wavFile.read(buf);
+                    }
+
+                    if (read > 0) {
+                        audioLine.flush();
+                        audioLine.write(buf, 0, read);
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    isAudioBursting.set(false);
+                }
+            });
+        }
+    }
+
     private void startAudioAt(float clipTime) {
         if (audioLine == null || wavFile == null) return;
         stopAudio();
@@ -269,10 +311,17 @@ public class ClipRenderer {
                 long offset = wavDataStart + (long) (clipTime * wavBytesPerSecond);
                 int frameSize = audioLine.getFormat().getFrameSize();
                 offset = (offset / frameSize) * frameSize;
-                wavFile.seek(offset);
+
+                synchronized (wavFile) {
+                    wavFile.seek(offset);
+                }
+
                 byte[] buf = new byte[4096];
                 while (audioRunning) {
-                    int read = wavFile.read(buf);
+                    int read;
+                    synchronized (wavFile) {
+                        read = wavFile.read(buf);
+                    }
                     if (read < 0) break;
                     audioLine.write(buf, 0, read);
                 }
@@ -324,6 +373,7 @@ public class ClipRenderer {
     public void release() {
         stopAudio();
         decoderService.shutdownNow();
+        audioService.shutdownNow();
         if (viewNode != null) {
             Platform.runLater(() -> renderPane.getChildren().remove(viewNode));
         }
