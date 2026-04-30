@@ -199,22 +199,22 @@ public class ClipRenderer {
         List<String> cmd = new ArrayList<>();
         cmd.add(FFmpegEdit.getFfmpegPath());
         cmd.add("-accurate_seek");
-        cmd.add("-ss"); cmd.add(String.format("%.6f", clipTime));
+        cmd.add("-ss"); cmd.add(String.format(java.util.Locale.US, "%.6f", clipTime));
         cmd.add("-i"); cmd.add(previewFile.getAbsolutePath());
         cmd.add("-vframes"); cmd.add("1");
         cmd.add("-vf"); cmd.add("scale=" + w + ":" + h);
-        cmd.add("-f"); cmd.add("rawvideo");
-        cmd.add("-pix_fmt"); cmd.add("bgra");
+        cmd.add("-f");        cmd.add("rawvideo");
+        cmd.add("-pix_fmt");  cmd.add("bgra");
         cmd.add("pipe:1");
 
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD);
             Process proc = pb.start();
-            proc.getErrorStream().close(); // Ignore errors for performance
 
             int expectedBytes = w * h * 4;
             byte[] buf = proc.getInputStream().readNBytes(expectedBytes);
-            proc.waitFor();
+            int exitCode = proc.waitFor();
 
             if (buf.length == expectedBytes) {
                 int[] pixels = new int[w * h];
@@ -313,8 +313,8 @@ public class ClipRenderer {
 
     private void applyTransformation() {
         if (viewNode == null) return;
-        viewNode.setTranslateX(posX);
-        viewNode.setTranslateY(posY);
+        viewNode.setLayoutX(posX);
+        viewNode.setLayoutY(posY);
         viewNode.setScaleX(scaleX);
         viewNode.setScaleY(scaleY);
         viewNode.setRotate(rot);
