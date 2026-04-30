@@ -79,6 +79,7 @@ public class EditorWindow extends Stage {
         int       currentTrackIdx;
         double    dragOffsetX;    // mouse X offset from clip left edge
         boolean   dragging;       // becomes true once mouse moves > 0 px
+        boolean   isNewClip;      // true if dragging from media browser
     }
     private final DragContext activeDrag = new DragContext();
 
@@ -324,7 +325,13 @@ public class EditorWindow extends Stage {
 
         loadMediaGrid(mediaGrid);
 
-        panel.getChildren().addAll(tabStrip, importBar, mediaGrid);
+        ScrollPane mediaGridScroll = new ScrollPane(mediaGrid);
+        mediaGridScroll.setFitToWidth(true);
+        mediaGridScroll.getStyleClass().add("edge-to-edge");
+        mediaGridScroll.setStyle("-fx-background-color: transparent; -fx-control-inner-background: transparent; -fx-border-color: transparent;");
+        VBox.setVgrow(mediaGridScroll, Priority.ALWAYS);
+
+        panel.getChildren().addAll(tabStrip, importBar, mediaGridScroll);
         return panel;
     }
 
@@ -541,6 +548,91 @@ public class EditorWindow extends Stage {
 
         box.getChildren().addAll(graphicNode, nameLbl);
         mediaGrid.getChildren().add(box);
+
+        box.setOnMousePressed(e -> {
+            Clip copyClip = new Clip(clip);
+            copyClip.trackIndex = 0;
+            
+            activeDrag.clip = copyClip;
+            activeDrag.currentTrackIdx = 0;
+            activeDrag.dragOffsetX = e.getX();
+            activeDrag.dragging = false;
+            activeDrag.ghost = null;
+            activeDrag.isNewClip = true;
+            e.consume();
+        });
+
+        box.setOnMouseDragged(e -> {
+            if (activeDrag.clip == null || !activeDrag.isNewClip) return;
+
+            if (!activeDrag.dragging) {
+                activeDrag.dragging = true;
+                ClipNode ghost = new ClipNode(activeDrag.clip);
+                ghost.getStyleClass().add("clip-node-ghost");
+                ghost.setOpacity(0.55);
+                double targetWidth = Math.max(2, activeDrag.clip.duration * pixelsPerSecond);
+                ghost.setPrefWidth(targetWidth);
+                ghost.setPrefHeight(TRACK_HEIGHT);
+                ghost.setMinWidth(targetWidth);
+                ghost.setMinHeight(TRACK_HEIGHT);
+                ghost.setMaxWidth(targetWidth);
+                ghost.setMaxHeight(TRACK_HEIGHT);
+                ghost.setMouseTransparent(true);
+                tracksPane.getChildren().add(ghost);
+                activeDrag.ghost = ghost;
+            }
+
+            javafx.geometry.Point2D local = tracksPane.sceneToLocal(e.getSceneX(), e.getSceneY());
+            double rawX = local.getX() - activeDrag.dragOffsetX;
+            double clampedX = Math.max(0, rawX);
+
+            double ghostW = activeDrag.ghost.getPrefWidth();
+            double snappedX = applySnap(clampedX, ghostW, activeDrag.currentTrackIdx);
+            activeDrag.ghost.setLayoutX(snappedX);
+
+            int newTrackIdx = trackIdxFromLocalY(local.getY());
+            if (newTrackIdx != activeDrag.currentTrackIdx) {
+                activeDrag.currentTrackIdx = newTrackIdx;
+            }
+            double newY = activeDrag.currentTrackIdx * (TRACK_HEIGHT + TRACK_SPACING) + 3;
+            activeDrag.ghost.setLayoutY(newY);
+
+            e.consume();
+        });
+
+        box.setOnMouseReleased(e -> {
+            if (activeDrag.clip == null || !activeDrag.isNewClip) return;
+
+            if (activeDrag.dragging && activeDrag.ghost != null) {
+                double finalX   = activeDrag.ghost.getLayoutX();
+                int    newTrackIdx = activeDrag.currentTrackIdx;
+
+                tracksPane.getChildren().remove(activeDrag.ghost);
+
+                javafx.geometry.Point2D spLocal = tracksScrollPane.sceneToLocal(e.getSceneX(), e.getSceneY());
+                if (spLocal.getX() >= 0 && spLocal.getY() >= 0 && spLocal.getX() <= tracksScrollPane.getWidth() && spLocal.getY() <= tracksScrollPane.getHeight()) {
+                    float newStartTime = (float)(finalX / pixelsPerSecond);
+                    activeDrag.clip.startTime = Math.max(0f, newStartTime);
+                    activeDrag.clip.trackIndex = newTrackIdx;
+
+                    while (timeline.tracks.size() <= newTrackIdx) {
+                        addNewTrack("Track " + (timeline.tracks.size() + 1));
+                    }
+
+                    timeline.tracks.get(newTrackIdx).addClip(activeDrag.clip);
+                    timeline.tracks.get(newTrackIdx).sortClips();
+                    
+                    saveProject();
+                    refreshTimelineUI();
+                }
+            }
+
+            activeDrag.clip    = null;
+            activeDrag.ghost   = null;
+            activeDrag.dragging = false;
+            activeDrag.isNewClip = false;
+            e.consume();
+        });
     }
 
     // ====================================================================
@@ -1102,11 +1194,12 @@ public class EditorWindow extends Stage {
             activeDrag.dragOffsetX   = e.getX();   // offset within the node
             activeDrag.dragging      = false;
             activeDrag.ghost         = null;
+            activeDrag.isNewClip     = false;
             e.consume();
         });
 
         node.setOnMouseDragged(e -> {
-            if (activeDrag.clip != clip) return;
+            if (activeDrag.clip != clip || activeDrag.isNewClip) return;
 
             // Create ghost on first drag pixel (CapCut style — no threshold)
             if (!activeDrag.dragging) {
@@ -1151,7 +1244,7 @@ public class EditorWindow extends Stage {
         });
 
         node.setOnMouseReleased(e -> {
-            if (activeDrag.clip != clip) return;
+            if (activeDrag.clip != clip || activeDrag.isNewClip) return;
 
             if (activeDrag.dragging && activeDrag.ghost != null) {
                 double finalX   = activeDrag.ghost.getLayoutX();
