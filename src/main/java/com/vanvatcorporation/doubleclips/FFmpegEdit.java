@@ -36,12 +36,7 @@
 package com.vanvatcorporation.doubleclips;
 
 import com.vanvatcorporation.doubleclips.data.ProjectData;
-import com.vanvatcorporation.doubleclips.data.editing.Clip;
-import com.vanvatcorporation.doubleclips.data.editing.ClipType;
-import com.vanvatcorporation.doubleclips.data.editing.Timeline;
-import com.vanvatcorporation.doubleclips.data.editing.Track;
-import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
-import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
+import com.vanvatcorporation.doubleclips.data.editing.*;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.manager.LoggingManager;
@@ -187,18 +182,19 @@ public class FFmpegEdit {
 
 
 
-
+    // TODO: Sync from up here
     public static void generateSolidColorImage(String projectClipPath, String colorHex)
     {
         String emptyImagePath = IOHelper.getNextIndexPathInFolder(IOHelper.CombinePath(projectClipPath), "solid_color_", ".png", false);
-        runAnyCommand("-f lavfi -i color=c=#" + colorHex + ":s=100x100 -frames:v 1 \"" + emptyImagePath + "\"",
+        runAnyCommand(
+                "-f lavfi -i color=c=#" + colorHex + ":s=100x100 -frames:v 1 \"" + emptyImagePath + "\"",
                 "Solid Image Generation");
     }
 
 
     public static String generateExportCmdPartially(RenderSettings renderSettings,
                                                     int clipCount, int clipOffset) {
-        Clip[] clipsToRender = new Clip[clipCount];
+        Clip[] clips = new Clip[clipCount];
         int currentClipCount = 0;
         for (Track track : renderSettings.timeline.tracks) {
             if(currentClipCount >= clipCount) break;
@@ -210,17 +206,17 @@ public class FFmpegEdit {
                     continue;
                 }
 
-                clipsToRender[currentClipCount] = clip;
+                clips[currentClipCount] = clip;
                 currentClipCount++;
             }
         }
 
-        renderSettings.setClips(clipsToRender);
+        renderSettings.setClips(clips);
 
-        return generateExportCmdPartially(clipsToRender, renderSettings, false);
+        return generateExportCmdPartially(renderSettings);
     }
 
-    public static String generateExportCmdPartially(Clip[] clips, RenderSettings templateSettings, boolean is) {
+    public static String generateExportCmdPartially(RenderSettings templateSettings) {
 
         FfmpegFilterComplexTags tags = new FfmpegFilterComplexTags();
 
@@ -255,8 +251,8 @@ public class FFmpegEdit {
         int keyframeClipIndex = 0;
         // --- Inserting file path into -i ---
 
-        for (int i = 0; i < clips.length; i++) {
-            Clip clip = clips[i];
+        for (int i = 0; i < templateSettings.clips.length; i++) {
+            Clip clip = templateSettings.clips[i];
 
             String inputPath;
             if (templateSettings.isTemplateCommand && clip.isLockedForTemplate()) {
@@ -318,7 +314,6 @@ public class FFmpegEdit {
         }
 
 
-
         // --- Inputting clips from -i ---
         String baseTag = "[base]";
         filterComplex.append("[").append(inputLayerIndex).append(":v]trim=duration=").append(templateSettings.timeline.duration).append(",setpts=PTS-STARTPTS").append(baseTag).append(";\n");
@@ -326,8 +321,8 @@ public class FFmpegEdit {
         inputLayerIndex++;
         inputMediaIndex++;
 
-        for (int clipIndex = 0; clipIndex < clips.length; clipIndex++) {
-            Clip clip = clips[clipIndex];
+        for (int clipIndex = 0; clipIndex < templateSettings.clips.length; clipIndex++) {
+            Clip clip = templateSettings.clips[clipIndex];
 
             String clipLabel = "[video-" + inputMediaIndex + "]";
             String transparentLabel = "[trans-" + inputMediaIndex + "]";
@@ -388,9 +383,9 @@ public class FFmpegEdit {
 
 //                    String speedCmd;
 //                    if(clip.hasAnimatedProperties()) {
-//                        speedCmd = getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, EditingActivity.VideoProperties.ValueType.Speed);
+//                        speedCmd = getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.Speed);
 //                    } else {
-//                        speedCmd = String.valueOf(clip.videoProperties.getValue(EditingActivity.VideoProperties.ValueType.Speed));
+//                        speedCmd = String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.Speed));
 //                    }
 
 
@@ -426,8 +421,8 @@ public class FFmpegEdit {
                     // First we declared the stream of video
                     if (hasVideoMask) {
                         filterComplex.append("[").append(sourceInputIndex).append(":v]").append(trimFilter).append(",setpts=PTS-STARTPTS[v-raw-").append(clipIndex).append("];\n")
-                                     .append("[").append(maskInputIndex).append(":v]").append(trimFilter).append(",setpts=PTS-STARTPTS[v-mask-").append(clipIndex).append("];\n")
-                                     .append("[v-raw-").append(clipIndex).append("][v-mask-").append(clipIndex).append("]alphamerge,");
+                                .append("[").append(maskInputIndex).append(":v]").append(trimFilter).append(",setpts=PTS-STARTPTS[v-mask-").append(clipIndex).append("];\n")
+                                .append("[v-raw-").append(clipIndex).append("][v-mask-").append(clipIndex).append("]alphamerge,");
                     } else {
                         filterComplex.append("[").append(sourceInputIndex).append(":v]").append(trimFilter).append(",");
                     }
@@ -465,10 +460,10 @@ public class FFmpegEdit {
 
 //                        String scaleXCmd = templateSettings.settings.isStretchToFull() ?
 //                                String.valueOf(templateSettings.settings.getRenderVideoWidth(templateSettings.isTemplateCommand)) :
-//                                "iw*" + clip.videoProperties.getValue(EditingActivity.VideoProperties.ValueType.ScaleX);
+//                                "iw*" + clip.videoProperties.getValue(VideoProperties.ValueType.ScaleX);
 //                        String scaleYCmd = templateSettings.settings.isStretchToFull() ?
 //                                String.valueOf(templateSettings.settings.getRenderVideoHeight(templateSettings.isTemplateCommand)) :
-//                                "ih*" + clip.videoProperties.getValue(EditingActivity.VideoProperties.ValueType.ScaleY);
+//                                "ih*" + clip.videoProperties.getValue(VideoProperties.ValueType.ScaleY);
 
                         String scaleXStretchExpr = (templateSettings.settings.isStretchToFull() ?
                                 String.valueOf(templateSettings.settings.getRenderVideoWidth(templateSettings.isTemplateCommand)) :
@@ -493,7 +488,7 @@ public class FFmpegEdit {
                                 .append("':s='").append(saturationExpr)
                                 .append("':b='").append(brightnessExpr).append("',")
                                 .append("colortemperature=temperature='").append(clip.videoProperties.getValue(VideoProperties.ValueType.Temperature)).append("',")
-                               // .append("zoompan=z=zoom*'").append(scaleXExpr).append("':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'").append(scaleZoompan).append(",")
+                                // .append("zoompan=z=zoom*'").append(scaleXExpr).append("':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'").append(scaleZoompan).append(",")
                                 // TODO: Use geq is super slow. Research a better way, like only render affected frame.
                                 .append("format=yuva420p,geq=r='r(X,Y)':a='alpha(X,Y)*").append(opacityExpr).append("',");
                     } else {
@@ -539,10 +534,10 @@ public class FFmpegEdit {
                             float durFrames = dur * fps;
                             String durFramesStr = String.valueOf(durFrames);
                             String cond = getConditionTwo("in", "<=", durFramesStr);
-                            
+
                             // progress p = in / durFrames
                             String p = "(in/" + durFramesStr + ")";
-                            
+
                             // Center expansion logic:
                             // x0: W/2*(1-p) -> 0
                             // y0: H/2*(1-p) -> 0
@@ -617,7 +612,7 @@ public class FFmpegEdit {
                                     .append("y2='").append(y2Expr).append("':")
                                     .append("x3='").append(x3Expr).append("':")
                                     .append("y3='").append(y3Expr).append("'");
-                            
+
                             // Fade from white
                             filterComplex.append(",fade=in:st=").append(clip.startTime).append(":d=").append(dur).append(":color=white");
                         }
@@ -732,14 +727,14 @@ public class FFmpegEdit {
 
                 // Transition extension: Same for clip
                 int delayMs = (int) (clip.startTime * 1000);
-                // Note: and the video input index might have shifted if there was a mask, 
+                // Note: and the video input index might have shifted if there was a mask,
                 // but audio is always in the original video input (sourceInputIndex).
-                // Wait, I need to check if sourceInputIndex is available here. 
+                // Wait, I need to check if sourceInputIndex is available here.
                 // It was defined inside the switch block. I should move it out or use the logic.
-                
-                int effectiveSourceInputIndex = (clip.type == ClipType.VIDEO && clip.removeBackground) ? 
-                    (inputLayerIndex - (IOHelper.isFileExist(clip.getCutoutPath(templateSettings.data.getProjectPath()) + ".mp4") ? 2 : 1)) :
-                    (inputLayerIndex - 1);
+
+                int effectiveSourceInputIndex = (clip.type == ClipType.VIDEO && clip.removeBackground) ?
+                        (inputLayerIndex - (IOHelper.isFileExist(clip.getCutoutPath(templateSettings.data.getProjectPath()) + ".mp4") ? 2 : 1)) :
+                        (inputLayerIndex - 1);
 
                 filterComplex.append("[").append(effectiveSourceInputIndex).append(":a]")
                         .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration + extendMediaDuration).append(",")
@@ -769,20 +764,20 @@ public class FFmpegEdit {
         }
 
         // Use for previous full render
-//        for (EditingActivity.Track track : templateSettings.timeline.tracks) {
-//            List<EditingActivity.Clip> clipList = track.clips;
+//        for (Track track : templateSettings.timeline.tracks) {
+//            List<Clip> clipList = track.clips;
 //            for (int i = 0; i < clipList.size() - 1; i++) {
-//                EditingActivity.Clip clipA = clipList.get(i);
-//                EditingActivity.Clip clipB = clipList.get(i + 1);
+//                Clip clipA = clipList.get(i);
+//                Clip clipB = clipList.get(i + 1);
 //
 //                if (clipA.isClipTransitionAvailable())
 //                    filterComplex.append(FXCommandEmitter.emitTransition(clipA, clipB, clipA.endTransition, tags));
 //            }
 //        }
 
-        for (int i = 0; i < clips.length - 1; i++) {
-            Clip clipA = clips[i];
-            Clip clipB = clips[i + 1];
+        for (int i = 0; i < templateSettings.clips.length - 1; i++) {
+            Clip clipA = templateSettings.clips[i];
+            Clip clipB = templateSettings.clips[i + 1];
 
             if (clipA.isClipTransitionAvailable())
                 filterComplex.append(FXCommandEmitter.emitTransition(clipA, clipB, clipA.endTransition, tags));
@@ -797,8 +792,6 @@ public class FFmpegEdit {
         while(tags.tagsMapToUsableTagIndex.size() > 0)
         {
             Clip clip = tags.tagsMapToUsableTagIndex.get(0).getKey();
-            int outWidth = (int) (templateSettings.settings.outputWidth > 0 ? templateSettings.settings.outputWidth : clip.width);
-            int outHeight = (int) (templateSettings.settings.outputHeight > 0 ? templateSettings.settings.outputHeight : clip.height);
 
             String prevOutputLabel = "[layer-" + (layer - 1 ) + "]";
             String outputLabel = "[layer-" + layer + "]";
@@ -807,7 +800,6 @@ public class FFmpegEdit {
                 case VIDEO:
                 case IMAGE:
                 case TEXT:
-                    System.err.println(filterComplex);
                     filterComplex.append((layer == 0 ? baseInfo.tag : (tags.useTag(prevOutputLabel).tag))).append(tags.useTag(clip).tag)
                             .append("overlay=")
                             .append("enable='").append(
@@ -857,6 +849,7 @@ public class FFmpegEdit {
         // Null when there are no video in the track
         FfmpegFilterComplexTags.FilterComplexInfo mapTag = tags.useTag(0);
 
+        // TODO: Sync all up to here
         // If it was template then insert the mark.
         String outputStr =
                 templateSettings.isTemplateCommand ? Constants.DEFAULT_TEMPLATE_CLIP_EXPORT_MARK :
@@ -869,11 +862,11 @@ public class FFmpegEdit {
         // Encoder selection: hardware (MediaCodec) or software (libx264)
         if (templateSettings.settings.isUseHardwareAccel()) {
             cmd.append(" -c:v h264_mediacodec")
-               .append(" -b:v ").append(templateSettings.settings.getBitrate()).append("M");
+                    .append(" -b:v ").append(templateSettings.settings.getBitrate()).append("M");
         } else {
             cmd.append(" -c:v libx264 -preset ").append(templateSettings.settings.getPreset())
-               .append(" -tune ").append(templateSettings.settings.getTune())
-               .append(" -crf ").append(templateSettings.settings.getCRF());
+                    .append(" -tune ").append(templateSettings.settings.getTune())
+                    .append(" -crf ").append(templateSettings.settings.getCRF());
         }
         cmd.append(" -y ").append("\"")
                 .append(outputStr)
@@ -881,11 +874,14 @@ public class FFmpegEdit {
 
         return cmd.toString();
     }
+    public static String generateCmdFull(VideoSettings settings, Timeline timeline, ProjectData data, boolean isTemplateCommand, boolean isTrimAllowed) {
+
+        RenderSettings renderSettings = new RenderSettings(settings, timeline, new Clip[0], data, 0, false, isTemplateCommand, isTrimAllowed);
+        return generateCmdFull(renderSettings);
+    }
     public static String generateCmdFull(RenderSettings renderSettings) {
         int clipCount = renderSettings.timeline.getAllClipCount();
-        return generateExportCmdPartially(renderSettings, clipCount, 0);
-    }
-    public static String generateCmdFull(RenderSettings renderSettings, int clipCount, int offset) {
+
         StringBuilder cmd = new StringBuilder();
         int renderingIndex = 0;
         if(renderSettings.settings.getClipCap() <= 0) return "Invalid argument: Clip Cap should be greater than 0";
@@ -895,7 +891,7 @@ public class FFmpegEdit {
             {
                 renderSettings.renderingIndex = renderingIndex;
                 renderSettings.isFinal = false;
-                cmd.append(generateExportCmdPartially( renderSettings, renderSettings.settings.getClipCap(), renderingIndex * renderSettings.settings.getClipCap()))
+                cmd.append(generateExportCmdPartially(renderSettings, renderSettings.settings.getClipCap(), renderingIndex * renderSettings.settings.getClipCap()))
                         .append(Constants.DEFAULT_MULTI_FFMPEG_COMMAND_REGEX);
 
                 clipCount -= renderSettings.settings.getClipCap();
@@ -919,30 +915,47 @@ public class FFmpegEdit {
      * @param startIndex Index for prevKeyframe. Put 0 for start.
      * @param valueType (scaleX, scaleY, posX, posY, Rot)
      * @return Expression for FFmpeg in String format.
+     *
      */
-    public static String getKeyframeFFmpegExpr(List<com.vanvatcorporation.doubleclips.data.editing.Keyframe> keyframes, Clip clip, int startIndex, VideoProperties.ValueType valueType)
+    public static String getKeyframeFFmpegExpr(List<Keyframe> keyframes, Clip clip, int startIndex, VideoProperties.ValueType valueType)
     {
         StringBuilder keyframeExprString = new StringBuilder();
 
-        if (keyframes.size() < 2 || startIndex >= keyframes.size() - 1)
-        {
-            return String.valueOf(clip.videoProperties.getValue(valueType));
-        }
+        // TODO: Add a 1.0 or fallback clip.videoProperties (reset properties) keyframe right after the clip duration, as it will filter out the keyframe 'else' ffmpeg.
+        if(startIndex + 1 >= keyframes.size()) return String.valueOf(keyframes.get(startIndex).value.getValue(valueType)); // Default value (prevKeyframe)
+//        if(startIndex + 1 >= keyframes.size()) return String.valueOf(clip.videoProperties.getValue(valueType)); // Default value
 
-        com.vanvatcorporation.doubleclips.data.editing.Keyframe prevKeyframe = keyframes.get(startIndex);
-        com.vanvatcorporation.doubleclips.data.editing.Keyframe nextKeyframe = keyframes.get(startIndex + 1);
+        Keyframe prevKeyframe = keyframes.get(startIndex);
+        Keyframe nextKeyframe = keyframes.get(startIndex + 1);
 
-        String timeUnit = "t";
-        boolean isTemporalRelativeThreshold = 
-                        valueType == VideoProperties.ValueType.Speed || valueType == VideoProperties.ValueType.Opacity;
+        // Input time for zoompan expression, time for other.
+//        String timeUnit =
+//                (valueType == VideoProperties.ValueType.ScaleX || valueType == VideoProperties.ValueType.ScaleY) ?
+//                        "it" :
+//                        valueType == VideoProperties.ValueType.Speed || valueType == VideoProperties.ValueType.Opacity ?
+//                                "T" : "t";
+        // TODO: If zooming feature is up, then use "it" for it. Scale isn't it based.
+        String timeUnit =
+                valueType == VideoProperties.ValueType.Speed || valueType == VideoProperties.ValueType.Opacity ?
+                        "T" : "t";
+
+        // Skipping matching value element
+        if(prevKeyframe.value.getValue(valueType) == nextKeyframe.value.getValue(valueType))
+            return String.valueOf(prevKeyframe.value.getValue(valueType));
 
         keyframeExprString
                 .append("if(")
+//                .append("gte(").append(timeUnit).append(",").append(prevKeyframe.getLocalTime()).append(")")
+//                .append("*")
+//                .append("lte(").append(timeUnit).append(",").append(nextKeyframe.getLocalTime()).append(")").append(",")
+
                 .append(getConditionThree(
                         timeUnit,
                         String.valueOf(getTimeInTimebase(timeUnit, valueType, prevKeyframe, clip)),
                         String.valueOf(getTimeInTimebase(timeUnit, valueType, nextKeyframe, clip)), "~")
                 ).append(",")
+                // insert the expr here
+                // previous: nextKeyframe.value.getValue(valueType)
                 .append(generateEasing(prevKeyframe, nextKeyframe, clip, valueType, timeUnit)).append(",")
                 .append(getKeyframeFFmpegExpr(keyframes, clip, startIndex + 1, valueType))
                 .append(")");
@@ -950,12 +963,18 @@ public class FFmpegEdit {
         return keyframeExprString.toString();
     }
 
-    public static String generateEasing(com.vanvatcorporation.doubleclips.data.editing.Keyframe prevKey, com.vanvatcorporation.doubleclips.data.editing.Keyframe nextKey, Clip clip, VideoProperties.ValueType type, String timeUnit)
+    public static String generateEasing(Keyframe prevKey, Keyframe nextKey, Clip clip, VideoProperties.ValueType type, String timeUnit)
     {
-        return generateEasing(prevKey.value.getValue(type), nextKey.value.getValue(type), getTimeInTimebase(timeUnit, type, prevKey, clip), nextKey.getLocalTime() - prevKey.getLocalTime(), nextKey.easing, timeUnit);
+        // Get global time for Speed as it use T as Timebase, global Time.
+        return generateEasing(prevKey.value.getValue(type),
+                nextKey.value.getValue(type),
+                getTimeInTimebase(timeUnit, type, prevKey, clip),
+                (nextKey.getLocalTime() - prevKey.getLocalTime()),
+                prevKey.easing,
+                timeUnit);
     }
 
-    public static String generateEasing(float prevValue, float nextValue, float offset, float duration, com.vanvatcorporation.doubleclips.data.editing.EasingType type, String timeUnit) {
+    public static String generateEasing(float prevValue, float nextValue, float offset, float duration, EasingType type, String timeUnit) {
         StringBuilder expr = new StringBuilder();
         String r = getClipRatio(offset, duration, timeUnit); // clip((t-offset)/duration,0,1)
 
@@ -1278,16 +1297,17 @@ public class FFmpegEdit {
     }
 
 
-    public static float getTimeInTimebase(String timebase, VideoProperties.ValueType type, com.vanvatcorporation.doubleclips.data.editing.Keyframe keyframe, Clip clip)
+    public static float getTimeInTimebase(String timebase, VideoProperties.ValueType type, Keyframe keyframe, Clip clip)
     {
-        if (timebase.equals("pts"))
-        {
-            return (keyframe.getLocalTime() - (clip.type == ClipType.VIDEO ? clip.startClipTrim : 0)) * 1000;
-        }
-        else
-        {
-            return (keyframe.getLocalTime() - (clip.type == ClipType.VIDEO ? clip.startClipTrim : 0));
-        }
+        return Objects.equals(timebase, "T") ||
+                // PosX PosY (Overlay expr) the t is actually the T, which mean it take the global timebase
+                // Edit 2: Scale too??? well idk but scale also need the T
+                Objects.equals(type, VideoProperties.ValueType.PosX) ||
+                Objects.equals(type, VideoProperties.ValueType.PosY) ||
+                Objects.equals(type, VideoProperties.ValueType.ScaleX) ||
+                Objects.equals(type, VideoProperties.ValueType.ScaleY) ?
+                keyframe.getGlobalTime(clip) :
+                keyframe.getLocalTime();
     }
 
 
@@ -1689,7 +1709,7 @@ public class FFmpegEdit {
  *
  *
  * public static String generateEasing(float prevValue, float nextValue, float offset, float duration,
- *                                     EditingActivity.EasingType type, String timeUnit) {
+ *                                     EasingType type, String timeUnit) {
  *     String r = "clip((t-" + offset + ")/" + duration + ",0,1)";
  *     StringBuilder expr = new StringBuilder();
  *
