@@ -63,6 +63,8 @@ public class EditorWindow extends Stage {
     private final VBox trackHeadersContainer = new VBox(0);
     private final VBox propertiesContent = new VBox(15);
     private Line playheadLine;
+    private Line ghostPlayheadLine;
+    private float tempTime = -1;
     private Slider zoomSlider;
 
     // --- Scroll sync ---
@@ -214,6 +216,10 @@ public class EditorWindow extends Stage {
         
         // Position relative to viewport left edge
         playheadLine.setTranslateX(currentTime * pixelsPerSecond - scrollX);
+
+        if (tempTime >= 0) {
+            ghostPlayheadLine.setTranslateX(tempTime * pixelsPerSecond - scrollX);
+        }
     }
 
     private String formatTimecode(float seconds) {
@@ -978,9 +984,17 @@ public class EditorWindow extends Stage {
         playheadLine = new Line(0, 0, 0, 1000);
         playheadLine.setStroke(Color.web("#FF3B30"));
         playheadLine.setStrokeWidth(2);
-        playheadLine.setManaged(false); // We handle position via setTranslateX
+        playheadLine.setManaged(false);
         
-        Pane playheadOverlay = new Pane(playheadLine);
+        ghostPlayheadLine = new Line(0, 0, 0, 1000);
+        ghostPlayheadLine.setStroke(Color.web("#FF3B30"));
+        ghostPlayheadLine.setStrokeWidth(1.5);
+        ghostPlayheadLine.setOpacity(0.5);
+        ghostPlayheadLine.getStrokeDashArray().addAll(4d, 4d);
+        ghostPlayheadLine.setVisible(false);
+        ghostPlayheadLine.setManaged(false);
+        
+        Pane playheadOverlay = new Pane(playheadLine, ghostPlayheadLine);
         playheadOverlay.setMouseTransparent(true);
         tracksWithPlayhead.getChildren().add(playheadOverlay);
 
@@ -996,6 +1010,7 @@ public class EditorWindow extends Stage {
 
         // Bind playhead height to container
         playheadLine.endYProperty().bind(tracksWithPlayhead.heightProperty());
+        ghostPlayheadLine.endYProperty().bind(tracksWithPlayhead.heightProperty());
 
         rulerAndTracks.getChildren().addAll(rulerScrollPane, tracksWithPlayhead);
 
@@ -1030,6 +1045,7 @@ public class EditorWindow extends Stage {
         Pane ruler = new Pane();
         ruler.setPrefWidth(8000);
         ruler.setPrefHeight(30);
+        ruler.setPickOnBounds(true);
         ruler.getStyleClass().add("timeline-ruler-pane");
 
         // Compute step interval based on zoom factor
@@ -1094,6 +1110,27 @@ public class EditorWindow extends Stage {
                 }
             }
         }
+
+        ruler.setOnMouseEntered(e -> ghostPlayheadLine.setVisible(true));
+        ruler.setOnMouseMoved(e -> {
+            double x = e.getX();
+            tempTime = (float)(x / pixelsPerSecond);
+            updatePlayheadPosition();
+            if (timelineRenderer != null) {
+                timelineRenderer.updateTime(tempTime, true);
+            }
+        });
+        ruler.setOnMouseExited(e -> {
+            ghostPlayheadLine.setVisible(false);
+            tempTime = -1;
+            updatePlayheadPosition();
+            if (timelineRenderer != null) {
+                timelineRenderer.updateTime(currentTime, !isPlaying);
+            }
+        });
+        ruler.setOnMouseClicked(e -> {
+            updateCurrentTime((float)(e.getX() / pixelsPerSecond));
+        });
 
         rulerScrollPane.setContent(ruler);
     }
