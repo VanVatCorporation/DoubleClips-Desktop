@@ -109,7 +109,10 @@ public class FFmpegEdit {
     public static void runAnyCommand(String cmd, String taskName, String successMessage, String failMessage, boolean includeFullReport,
                                      Runnable onSuccessRunnable, Runnable onFailRunnable,
                                      java.util.function.Consumer<String> onLogRunnable, java.util.function.Consumer<FfmpegStatistics> onStatisticsRunnable) {
-        
+        // Since Desktop version doesn't support new line for command, we discard the \n
+        cmd.replace('\n', ' ');
+
+
         LoggingManager.LogToPersistentDataPath(cmd);
 
         Executors.newSingleThreadExecutor().execute(() -> {

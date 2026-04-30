@@ -1,4 +1,4 @@
-/build
+build/
 local.properties
 bin/
 .idea/
