@@ -377,77 +377,86 @@ public class ExportWindow extends Stage {
 
 
         startExportRendering();
-        final String finalCmd = cmd;
 
-        appendLog("\n>>> STARTING EXPORT <<<");
-        appendLog("Binary: " + FFmpegEdit.getFfmpegPath() + "\n");
+        String[] cmdAfterSplit = cmd.split(Constants.DEFAULT_MULTI_FFMPEG_COMMAND_REGEX);
+        for (int i = 0; i < cmdAfterSplit.length; i++) {
 
-        FFmpegEdit.runAnyCommand(
-                finalCmd,
-                "Exporting — " + project.getProjectTitle(),
-                // onSuccess
-                () -> Platform.runLater(() -> {
+            appendLog("\n>>> STARTING EXPORT " + i + "/" + cmdAfterSplit.length + " <<<");
+            appendLog("Binary: " + FFmpegEdit.getFfmpegPath() + "\n");
 
-                    // Intermediate file in project folder
-                    File intermediateFile = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
+            String cmdEach = cmdAfterSplit[i];
+            FFmpegEdit.runAnyCommand(
+                    cmdEach,
+                    "Exporting — " + project.getProjectTitle(),
+                    (i == cmdAfterSplit.length - 1 ?
+                            // onSuccess
+                            () -> Platform.runLater(() -> {
 
-                    // Ask for output file location
-                    FileChooser fc = new FileChooser();
-                    fc.setTitle("Save Exported Video");
-                    fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
-                    fc.getExtensionFilters().add(
-                            new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
-                    File userDest = fc.showSaveDialog(this);
+                                // Intermediate file in project folder
+                                File intermediateFile = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
 
-                    String finalPath = intermediateFile.getAbsolutePath();
+                                // Ask for output file location
+                                FileChooser fc = new FileChooser();
+                                fc.setTitle("Save Exported Video");
+                                fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
+                                fc.getExtensionFilters().add(
+                                        new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
+                                File userDest = fc.showSaveDialog(this);
 
-                    if (userDest != null) {
-                        try {
-                            Files.move(intermediateFile.toPath(), userDest.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                            finalPath = userDest.getAbsolutePath();
-                        } catch (IOException e) {
-                            appendLog("Error moving file to destination: " + e.getMessage());
-                            // Fallback to intermediate path if move fails
+                                String finalPath = intermediateFile.getAbsolutePath();
+
+                                if (userDest != null) {
+                                    try {
+                                        Files.move(intermediateFile.toPath(), userDest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                                        finalPath = userDest.getAbsolutePath();
+                                    } catch (IOException e) {
+                                        appendLog("Error moving file to destination: " + e.getMessage());
+                                        // Fallback to intermediate path if move fails
+                                    }
+                                }
+
+                                finishExportRendering();
+                                taskStatusLabel.setText("Export Completed! ✓");
+                                taskProgressBar.setProgress(1.0);
+                                appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
+                                appendLog("Location: " + finalPath);
+
+                                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                                alert.initOwner(this);
+                                alert.setTitle("Export Complete");
+                                alert.setHeaderText("Success!");
+                                alert.setContentText("Your video has been exported to:\n" + finalPath);
+                                alert.showAndWait();
+                            }) : () -> {}),
+
+                    // onFail
+                    () -> Platform.runLater(() -> {
+                        finishExportRendering();
+                        taskStatusLabel.setText("Export Failed ✗");
+                        appendLog("\n>>> EXPORT FAILED <<<");
+                    }),
+                    // onLog
+                    log -> Platform.runLater(() -> {
+                        if (logCheckBox.isSelected()) {
+                            appendLog(log);
                         }
-                    }
+                    }),
+                    // onStatistics
+                    stats -> Platform.runLater(() -> {
+                        long progressMs = stats.getTimeInMs();
+                        long durationMs = project.getProjectDuration();
+                        if (durationMs > 0 && progressMs > 0) {
+                            double progress = Math.min(1.0, (double) progressMs / durationMs);
+                            taskProgressBar.setProgress(progress);
+                            taskStatusLabel.setText(String.format(
+                                    "Exporting: %d%%  (%s)", (int)(progress * 100), stats.getTime()));
+                        }
 
-                    finishExportRendering();
-                    taskStatusLabel.setText("Export Completed! ✓");
-                    taskProgressBar.setProgress(1.0);
-                    appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
-                    appendLog("Location: " + finalPath);
-
-                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                    alert.initOwner(this);
-                    alert.setTitle("Export Complete");
-                    alert.setHeaderText("Success!");
-                    alert.setContentText("Your video has been exported to:\n" + finalPath);
-                    alert.showAndWait();
-                }),
-                // onFail
-                () -> Platform.runLater(() -> {
-                    finishExportRendering();
-                    taskStatusLabel.setText("Export Failed ✗");
-                    appendLog("\n>>> EXPORT FAILED <<<");
-                }),
-                // onLog
-                log -> Platform.runLater(() -> {
-                    if (logCheckBox.isSelected()) {
-                        appendLog(log);
-                    }
-                }),
-                // onStatistics
-                stats -> Platform.runLater(() -> {
-                    long progressMs = stats.getTimeInMs();
-                    long durationMs = project.getProjectDuration();
-                    if (durationMs > 0 && progressMs > 0) {
-                        double progress = Math.min(1.0, (double) progressMs / durationMs);
-                        taskProgressBar.setProgress(progress);
-                        taskStatusLabel.setText(String.format(
-                                "Exporting: %d%%  (%s)", (int)(progress * 100), stats.getTime()));
-                    }
-                })
-        );
+                        globalProgressBar.setProgress((double) FFmpegEdit.queue.queueDone / FFmpegEdit.queue.totalQueue);
+                        globalStatusLabel.setText(String.format(
+                                "Remaining Task: %d/%d", FFmpegEdit.queue.queueDone, FFmpegEdit.queue.totalQueue));
+                    }));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

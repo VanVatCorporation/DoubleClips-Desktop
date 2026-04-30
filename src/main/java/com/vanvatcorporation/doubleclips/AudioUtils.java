@@ -126,7 +126,7 @@ public class AudioUtils {
         for (int b = 0; b < barCount; b++) {
             // Boost the amplitude for better visibility (common in editors)
             float amp = amps[b];
-            float boostedAmp = Math.min(1.0f, amp * 2.5f); 
+            float boostedAmp = Math.min(1.0f, amp * 1.125f); // TODO: Hardcoded 1.125f boosted, should be in settings
             float halfBar = Math.max(2f, boostedAmp * MAX_HALF);
             int left = b * STRIDE;
             int top = (int) (midY - halfBar);

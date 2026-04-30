@@ -4,6 +4,7 @@ import com.vanvatcorporation.doubleclips.AudioUtils;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.*;
 import com.vanvatcorporation.doubleclips.data.editing.*;
+import com.vanvatcorporation.doubleclips.helper.DateHelper;
 import com.vanvatcorporation.doubleclips.ui.renderer.TimelineRenderer;
 import com.vanvatcorporation.doubleclips.helper.MediaHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
@@ -46,6 +47,7 @@ public class EditorWindow extends Stage {
     // Editor State
     private float currentTime = 0f;
     private boolean isPlaying = false;
+    private boolean isPlayingInReverse = false;
     private float pixelsPerSecond = 100f; // 100px = 1s
     private final float TRACK_HEIGHT = 70f;
     private final float TRACK_SPACING = 5f;
@@ -212,6 +214,11 @@ public class EditorWindow extends Stage {
                 // Simple auto-scroll logic
                 tracksScrollPane.setHvalue(playheadX / scrollWidth);
             }
+
+            if ((currentTime >= timeline.duration) || (currentTime <= 0f && isPlayingInReverse)) {
+                currentTime = isPlayingInReverse ? timeline.duration : 0f;
+                stopPlayback();
+            }
         }
     }
 
@@ -231,6 +238,25 @@ public class EditorWindow extends Stage {
         if (tempTime >= 0) {
             ghostPlayheadLine.setTranslateX(tempTime * pixelsPerSecond - scrollX);
         }
+    }
+
+    void updateCurrentClipEnd()
+    {
+        float totalSeconds = 0;
+        // 🧠 Recalculate max right edge of all clips in all tracks
+        for (Track trackCpn : timeline.tracks) {
+            for (int i = 0; i < trackCpn.clips.size(); i++) {
+                Clip child = trackCpn.clips.get(i);
+                if (child != null) { // It's a clip
+                    if(totalSeconds < child.getStartTime() + child.getDuration()) {
+                        totalSeconds = child.getStartTime() + child.getDuration();
+                    }
+                }
+            }
+        }
+
+        durationLabel.setText(formatTimecode(totalSeconds));
+        timeline.duration = totalSeconds;
     }
 
     private String formatTimecode(float seconds) {
@@ -699,7 +725,7 @@ public class EditorWindow extends Stage {
         Label timeSep = new Label("/");
         timeSep.setStyle("-fx-text-fill: -color-fg-muted;");
         durationLabel.getStyleClass().add("timecode-label");
-        durationLabel.setText("00:00:10:00"); // Mock duration
+        durationLabel.setText(formatTimecode(timeline.duration)); // Mock duration
 
         Region pbLeft = new Region();
         HBox.setHgrow(pbLeft, Priority.ALWAYS);
@@ -1435,9 +1461,12 @@ public class EditorWindow extends Stage {
                 // Remove ghost
                 tracksPane.getChildren().remove(activeDrag.ghost);
 
+                durationLabel.setText(formatTimecode(currentTime));
                 // Update model
                 float newStartTime = (float)(finalX / pixelsPerSecond);
                 clip.startTime     = Math.max(0f, newStartTime);
+
+                updateCurrentClipEnd();
 
                 if (newTrackIdx != clip.trackIndex) {
                     timeline.tracks.get(clip.trackIndex).removeClip(clip);

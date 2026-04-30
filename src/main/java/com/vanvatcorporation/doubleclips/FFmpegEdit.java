@@ -50,6 +50,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class FFmpegEdit {
+    public static FfmpegRenderQueue queue = new FfmpegRenderQueue();
     public static String getFfmpegPath() {
         String os = System.getProperty("os.name").toLowerCase();
         String arch = System.getProperty("os.arch").toLowerCase();
@@ -115,55 +116,73 @@ public class FFmpegEdit {
 
         LoggingManager.LogToPersistentDataPath(cmd);
 
-        Executors.newSingleThreadExecutor().execute(() -> {
-            try {
-                String ffmpegPath = getFfmpegPath();
-                List<String> fullCmd = new ArrayList<>();
-                fullCmd.add(ffmpegPath);
-                
-                // Split command by space but respect quotes
-                Matcher m = Pattern.compile("([^ \"]\\S*|\".+?\")\\s*").matcher(cmd);
-                while (m.find()) {
-                    String part = m.group(1);
-                    if (part.startsWith("\"") && part.endsWith("\"")) {
-                        part = part.substring(1, part.length() - 1);
-                    }
-                    fullCmd.add(part);
-                }
 
-                ProcessBuilder pb = new ProcessBuilder(fullCmd);
-                pb.redirectErrorStream(true);
-                Process process = pb.start();
+        queue.enqueue(new FfmpegRenderQueue.FfmpegRenderQueueInfo(
+                taskName,
+                () -> {
+                    Executors.newSingleThreadExecutor().execute(() -> {
+                        try {
+                            String ffmpegPath = getFfmpegPath();
+                            List<String> fullCmd = new ArrayList<>();
+                            fullCmd.add(ffmpegPath);
 
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        String finalLine = line;
-                        onLogRunnable.accept(finalLine);
-                        
-                        // Parse progress
-                        if (finalLine.contains("time=")) {
-                            Matcher timeMatcher = Pattern.compile("time=([0-9:.]+)").matcher(finalLine);
-                            if (timeMatcher.find()) {
-                                onStatisticsRunnable.accept(new FfmpegStatistics(timeMatcher.group(1)));
+                            // Split command by space but respect quotes
+                            Matcher m = Pattern.compile("([^ \"]\\S*|\".+?\")\\s*").matcher(cmd);
+                            while (m.find()) {
+                                String part = m.group(1);
+                                if (part.startsWith("\"") && part.endsWith("\"")) {
+                                    part = part.substring(1, part.length() - 1);
+                                }
+                                fullCmd.add(part);
                             }
-                        }
-                    }
-                }
 
-                int exitCode = process.waitFor();
-                if (exitCode == 0) {
-                    LoggingManager.LogToPersistentDataPath(successMessage);
-                    onSuccessRunnable.run();
-                } else {
-                    LoggingManager.LogToPersistentDataPath(failMessage + " Exit code: " + exitCode);
-                    onFailRunnable.run();
+                            ProcessBuilder pb = new ProcessBuilder(fullCmd);
+                            pb.redirectErrorStream(true);
+                            Process process = pb.start();
+
+                            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                                String line;
+                                while ((line = reader.readLine()) != null) {
+                                    String finalLine = line;
+                                    onLogRunnable.accept(finalLine);
+
+                                    // Parse progress
+                                    if (finalLine.contains("time=")) {
+                                        Matcher timeMatcher = Pattern.compile("time=([0-9:.]+)").matcher(finalLine);
+                                        if (timeMatcher.find()) {
+                                            onStatisticsRunnable.accept(new FfmpegStatistics(timeMatcher.group(1)));
+                                        }
+                                    }
+                                }
+                            }
+
+                            int exitCode = process.waitFor();
+                            if (exitCode == 0) {
+                                LoggingManager.LogToPersistentDataPath(successMessage);
+                                onSuccessRunnable.run();
+                            } else {
+                                LoggingManager.LogToPersistentDataPath(failMessage + " Exit code: " + exitCode);
+                                onFailRunnable.run();
+                            }
+                        } catch (Exception e) {
+                            LoggingManager.LogToPersistentDataPath("Error executing FFmpeg: " + e.getMessage());
+                            onFailRunnable.run();
+                        }
+
+
+
+                        // TODO: Add a slightly user friendly delay (Execute next ffmpeg rendering part in 3, 2, 1), dynamically into logText
+                        Executors.newSingleThreadExecutor().execute(() -> {
+                            try {
+                                Thread.sleep(1000);
+                            } catch (InterruptedException ignored) {
+
+                            }
+                            queue.taskCompleted(); // Move to next task
+                        });
+                    });
                 }
-            } catch (Exception e) {
-                LoggingManager.LogToPersistentDataPath("Error executing FFmpeg: " + e.getMessage());
-                onFailRunnable.run();
-            }
-        });
+        ));
     }
 
     public static class FfmpegStatistics {

@@ -5,7 +5,7 @@ plugins {
 }
 
 group 'com.vanvatcorporation'
-version '1.0.0'
+version '1.2.0'
 
 dependencies {
     implementation 'io.github.mkpaz:atlantafx-base:2.0.1'
@@ -48,7 +48,7 @@ runtime {
 
     jpackage {
         imageName = 'DoubleClips'
-        appVersion = '1.0.0'
+        appVersion = '1.2.0'
 
         if (org.gradle.internal.os.OperatingSystem.current().macOsX) {
             imageOptions = [
@@ -88,7 +88,7 @@ tasks.register("copyFfmpegBinaries", Copy) {
     
     if (os.isWindows()) {
         binaryDir = arch.contains("aarch64") || arch.contains("arm") ? "windows-arm" : "windows"
-        binaryName = "ffmpeg.exe"
+        binaryName = "bin/ffmpeg.exe"
     } else if (os.isMacOsX()) {
         binaryDir = "macos"
         binaryName = "ffmpeg"
