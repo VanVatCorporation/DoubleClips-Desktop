@@ -4,6 +4,18 @@ import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.*;
 import com.vanvatcorporation.doubleclips.data.editing.*;
 import com.vanvatcorporation.doubleclips.ui.renderer.TimelineRenderer;
+import com.vanvatcorporation.doubleclips.helper.MediaHelper;
+import com.vanvatcorporation.doubleclips.helper.IOHelper;
+import com.vanvatcorporation.doubleclips.constants.Constants;
+import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import javafx.stage.FileChooser;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import javafx.concurrent.Task;
+import javafx.stage.Modality;
+import java.util.concurrent.CountDownLatch;
+import javafx.application.Platform;
 import java.util.ArrayList;
 import java.util.List;
 import javafx.animation.AnimationTimer;
@@ -158,6 +170,11 @@ public class EditorWindow extends Stage {
         isPlaying = false;
         playbackTimer.stop();
         lastTimerUpdate = 0;
+        
+        // Notify the renderer that we have paused
+        if (timelineRenderer != null) {
+            timelineRenderer.updateTime(currentTime, true);
+        }
     }
 
     private void updateCurrentTime(float newTime) {
@@ -303,8 +320,145 @@ public class EditorWindow extends Stage {
         emptyLabel.setAlignment(Pos.CENTER);
         mediaGrid.getChildren().add(emptyLabel);
 
+        importBtn.setOnAction(e -> handleImportMedia(mediaGrid));
+
         panel.getChildren().addAll(tabStrip, importBar, mediaGrid);
         return panel;
+    }
+
+    private void handleImportMedia(FlowPane mediaGrid) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Import Media");
+        List<File> files = chooser.showOpenMultipleDialog(this);
+        if (files == null || files.isEmpty()) return;
+
+        Dialog<ButtonType> progressDialog = new Dialog<>();
+        progressDialog.setTitle("Processing Media");
+        progressDialog.initOwner(this);
+        progressDialog.initModality(Modality.WINDOW_MODAL);
+        progressDialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
+        progressDialog.getDialogPane().lookupButton(ButtonType.CANCEL).setVisible(false);
+
+        VBox content = new VBox(10);
+        content.setAlignment(Pos.CENTER);
+        content.setPadding(new Insets(20));
+        Label desc = new Label("Processing...");
+        ProgressIndicator progress = new ProgressIndicator();
+        content.getChildren().addAll(desc, progress);
+        progressDialog.getDialogPane().setContent(content);
+
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                for (int i = 0; i < files.size(); i++) {
+                    File f = files.get(i);
+                    updateMessage("Processing: " + f.getName());
+
+                    String filename = f.getName();
+                    String clipDir = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_CLIP_DIRECTORY);
+                    File clipDirFile = new File(clipDir);
+                    if (!clipDirFile.exists()) clipDirFile.mkdirs();
+
+                    File targetFile = new File(clipDir, filename);
+                    Files.copy(f.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+                    MediaHelper.MediaInfo info = MediaHelper.probeMediaInfo(targetFile.getAbsolutePath());
+
+                    String mime = Files.probeContentType(targetFile.toPath());
+                    ClipType type = ClipType.VIDEO;
+                    if (mime != null) {
+                        if (mime.startsWith("audio")) type = ClipType.AUDIO;
+                        else if (mime.startsWith("image")) type = ClipType.IMAGE;
+                    } else {
+                        if (filename.endsWith(".mp3") || filename.endsWith(".wav")) type = ClipType.AUDIO;
+                        else if (filename.endsWith(".png") || filename.endsWith(".jpg")) type = ClipType.IMAGE;
+                    }
+
+                    Clip clip = new Clip(filename, 0, info.duration, 0, type, info.hasAudio, info.width, info.height);
+
+                    String previewDir = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY);
+                    File previewDirFile = new File(previewDir);
+                    if (!previewDirFile.exists()) previewDirFile.mkdirs();
+
+                    String previewClipPath = IOHelper.CombinePath(previewDir, filename);
+
+                    CountDownLatch latch = new CountDownLatch(1);
+
+                    if (type == ClipType.VIDEO) {
+                        String cmd = "-i \"" + targetFile.getAbsolutePath() + "\" -vf \"scale=1280:-2\" -c:v libx264 -preset ultrafast -crf 32 -x264-params keyint=1 -an -y \"" + previewClipPath + "\"";
+                        FFmpegEdit.runAnyCommand(cmd, "Preview Video",
+                            () -> latch.countDown(),
+                            () -> latch.countDown(),
+                            log -> {}, stats -> {
+                                if (stats.getTimeInMs() > 0 && info.duration > 0) {
+                                    updateProgress(stats.getTimeInMs() / 1000.0, info.duration);
+                                }
+                            });
+                        latch.await();
+
+                        if (info.hasAudio) {
+                            CountDownLatch audioLatch = new CountDownLatch(1);
+                            String audioPath = previewClipPath.substring(0, previewClipPath.lastIndexOf('.')) + ".wav";
+                            String cmdAudio = "-i \"" + targetFile.getAbsolutePath() + "\" -vn -ac 1 -ar 22050 -c:a pcm_s16le -y \"" + audioPath + "\"";
+                            FFmpegEdit.runAnyCommand(cmdAudio, "Preview Audio",
+                                () -> audioLatch.countDown(),
+                                () -> audioLatch.countDown(),
+                                log -> {}, stats -> {});
+                            audioLatch.await();
+                        }
+                    } else if (type == ClipType.AUDIO) {
+                        String audioPath = previewClipPath.substring(0, previewClipPath.lastIndexOf('.')) + ".wav";
+                        String cmdAudio = "-i \"" + targetFile.getAbsolutePath() + "\" -vn -ac 1 -ar 22050 -c:a pcm_s16le -y \"" + audioPath + "\"";
+                        FFmpegEdit.runAnyCommand(cmdAudio, "Preview Audio",
+                            () -> latch.countDown(),
+                            () -> latch.countDown(),
+                            log -> {}, stats -> {});
+                        latch.await();
+                    }
+
+                    Platform.runLater(() -> addClipToMediaGrid(mediaGrid, clip));
+                }
+                return null;
+            }
+        };
+
+        desc.textProperty().bind(task.messageProperty());
+        progress.progressProperty().bind(task.progressProperty());
+
+        task.setOnSucceeded(e -> progressDialog.setResult(ButtonType.OK));
+        task.setOnFailed(e -> progressDialog.setResult(ButtonType.CANCEL));
+        
+        Thread thread = new Thread(task);
+        thread.setDaemon(true);
+        thread.start();
+        
+        progressDialog.showAndWait();
+    }
+
+    private void addClipToMediaGrid(FlowPane mediaGrid, Clip clip) {
+        if (!mediaGrid.getChildren().isEmpty() && mediaGrid.getChildren().get(0) instanceof Label) {
+            mediaGrid.getChildren().clear();
+        }
+
+        VBox box = new VBox(4);
+        box.setAlignment(Pos.CENTER);
+        box.setPrefWidth(80);
+        box.setPrefHeight(80);
+        box.getStyleClass().add("media-grid-item");
+        box.setStyle("-fx-border-color: #555; -fx-border-radius: 4px; -fx-background-color: #222; -fx-padding: 4px;");
+
+        FontIcon icon = new FontIcon(clip.type == ClipType.VIDEO ? MaterialDesignM.MOVIE : clip.type == ClipType.AUDIO ? MaterialDesignM.MUSIC_NOTE : MaterialDesignI.IMAGE);
+        icon.setIconSize(32);
+        icon.setIconColor(Color.WHITE);
+
+        Label nameLbl = new Label(clip.getClipName());
+        nameLbl.setStyle("-fx-text-fill: white; -fx-font-size: 10px;");
+        nameLbl.setWrapText(true);
+        nameLbl.setMaxWidth(70);
+        nameLbl.setAlignment(Pos.CENTER);
+
+        box.getChildren().addAll(icon, nameLbl);
+        mediaGrid.getChildren().add(box);
     }
 
     // ====================================================================
