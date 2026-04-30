@@ -20,6 +20,11 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignK;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignU;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import com.vanvatcorporation.doubleclips.constants.Constants;
+
 
 /**
  * Desktop equivalent of Android's ExportActivity.
@@ -368,27 +373,13 @@ public class ExportWindow extends Stage {
             return;
         }
 
-        // Ask for output file location (mirrors Android file picker)
-        FileChooser fc = new FileChooser();
-        fc.setTitle("Save Exported Video");
-        fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
-        fc.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
-        File dest = fc.showSaveDialog(this);
-        if (dest == null) return; // user cancelled
+        // Rendering is done to the project folder by default (export.mp4)
 
-        // TODO: Output to project, at which the rendering is done, will move the export video into somewhere user what.
-//        // Append output path to command if it doesn't already end with one
-//        if (!cmd.contains(dest.getAbsolutePath())) {
-//            cmd = cmd + " \"" + dest.getAbsolutePath() + "\"";
-//            commandTextArea.setText(cmd + " \"" + dest.getAbsolutePath() + "\"");
-//        }
 
         startExportRendering();
         final String finalCmd = cmd;
 
         appendLog("\n>>> STARTING EXPORT <<<");
-        appendLog("Output: " + dest.getAbsolutePath());
         appendLog("Binary: " + FFmpegEdit.getFfmpegPath() + "\n");
 
         FFmpegEdit.runAnyCommand(
@@ -396,15 +387,41 @@ public class ExportWindow extends Stage {
                 "Exporting — " + project.getProjectTitle(),
                 // onSuccess
                 () -> Platform.runLater(() -> {
+
+                    // Intermediate file in project folder
+                    File intermediateFile = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
+
+                    // Ask for output file location
+                    FileChooser fc = new FileChooser();
+                    fc.setTitle("Save Exported Video");
+                    fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
+                    fc.getExtensionFilters().add(
+                            new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
+                    File userDest = fc.showSaveDialog(this);
+
+                    String finalPath = intermediateFile.getAbsolutePath();
+
+                    if (userDest != null) {
+                        try {
+                            Files.move(intermediateFile.toPath(), userDest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                            finalPath = userDest.getAbsolutePath();
+                        } catch (IOException e) {
+                            appendLog("Error moving file to destination: " + e.getMessage());
+                            // Fallback to intermediate path if move fails
+                        }
+                    }
+
                     finishExportRendering();
                     taskStatusLabel.setText("Export Completed! ✓");
                     taskProgressBar.setProgress(1.0);
                     appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
+                    appendLog("Location: " + finalPath);
+
                     Alert alert = new Alert(Alert.AlertType.INFORMATION);
                     alert.initOwner(this);
                     alert.setTitle("Export Complete");
                     alert.setHeaderText("Success!");
-                    alert.setContentText("Your video has been exported to:\n" + dest.getAbsolutePath());
+                    alert.setContentText("Your video has been exported to:\n" + finalPath);
                     alert.showAndWait();
                 }),
                 // onFail
