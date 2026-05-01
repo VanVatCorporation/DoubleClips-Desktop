@@ -2,6 +2,7 @@ package com.vanvatcorporation.doubleclips;
 
 import atlantafx.base.theme.CupertinoDark;
 import atlantafx.base.theme.CupertinoLight;
+import com.jthemedetecor.OsThemeDetector;
 import com.vanvatcorporation.doubleclips.data.AppSettings;
 import com.vanvatcorporation.doubleclips.ui.panes.*;
 import javafx.application.Application;
@@ -48,7 +49,22 @@ public class DoubleClipsDesktop extends Application {
     public void start(Stage stage) {
         instance = this;
         this.primaryStage = stage;
-        
+
+
+
+        // Detect register.
+        final OsThemeDetector detector = OsThemeDetector.getDetector();
+        detector.registerListener(isDark -> {
+            if("system".equalsIgnoreCase(AppSettings.getInstance().getThemeMode()))
+            {
+                if (isDark) {
+                    updateTheme("dark");
+                } else {
+                    updateTheme("light");
+                }
+            }
+        });
+
         // Use the AtlantaFX theme - set this early
         updateTheme(AppSettings.getInstance().getThemeMode());
 
@@ -197,11 +213,13 @@ public class DoubleClipsDesktop extends Application {
             Application.setUserAgentStylesheet(new CupertinoLight().getUserAgentStylesheet());
         } else if ("dark".equalsIgnoreCase(themeMode)) {
             Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
-        } else {
-            // "system" logic - for simplicity defaulting to dark or checking OS
-            // JavaFX doesn't have built-in system theme detection in older versions, 
-            // but for now let's just default to dark for "system" or try to be smart.
-            Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
+        }
+        // One time change.
+        else if ("system".equalsIgnoreCase(themeMode)){
+            if(OsThemeDetector.getDetector().isDark())
+                Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
+            else
+                Application.setUserAgentStylesheet(new CupertinoLight().getUserAgentStylesheet());
         }
     }
 
