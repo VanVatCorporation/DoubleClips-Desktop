@@ -20,6 +20,7 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignH;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignL;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 import com.vanvatcorporation.doubleclips.ui.overlays.LoginOverlay;
+import com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay;
 import javafx.scene.Node;
 
 public class ProfilePane extends VBox {
@@ -92,9 +93,16 @@ public class ProfilePane extends VBox {
         generalHeader.getStyleClass().add("settings-header");
         generalHeader.setPadding(new Insets(0, 0, 8, 4));
 
-        generalSettings.getChildren().addAll(
-                createSettingButton("App Settings", new FontIcon(MaterialDesignC.COG))
-        );
+        Button settingsBtn = createSettingButton("App Settings", new FontIcon(MaterialDesignC.COG));
+        settingsBtn.setOnAction(e -> {
+            final SettingsOverlay[] overlayRef = new SettingsOverlay[1];
+            overlayRef[0] = new SettingsOverlay(v -> {
+                DoubleClipsDesktop.getInstance().hideOverlay(overlayRef[0]);
+            });
+            DoubleClipsDesktop.getInstance().showOverlay(overlayRef[0]);
+        });
+        
+        generalSettings.getChildren().addAll(settingsBtn);
 
         // --- 4. Settings Group: Account ---
         accountSettingsGroup = new VBox(0);

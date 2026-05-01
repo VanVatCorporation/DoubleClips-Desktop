@@ -1,6 +1,8 @@
 package com.vanvatcorporation.doubleclips;
 
 import atlantafx.base.theme.CupertinoDark;
+import atlantafx.base.theme.CupertinoLight;
+import com.vanvatcorporation.doubleclips.data.AppSettings;
 import com.vanvatcorporation.doubleclips.ui.panes.*;
 import javafx.application.Application;
 import javafx.geometry.Insets;
@@ -48,7 +50,12 @@ public class DoubleClipsDesktop extends Application {
         this.primaryStage = stage;
         
         // Use the AtlantaFX theme - set this early
-        Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
+        updateTheme(AppSettings.getInstance().getThemeMode());
+
+        // Listen for theme changes
+        AppSettings.getInstance().themeModeProperty().addListener((obs, oldVal, newVal) -> {
+            updateTheme(newVal);
+        });
 
         // Initialize with an empty root layer so we can show the window instantly
         rootLayer = new StackPane();
@@ -183,6 +190,19 @@ public class DoubleClipsDesktop extends Application {
 
     public void hideOverlay(Node overlay) {
         rootLayer.getChildren().remove(overlay);
+    }
+
+    private void updateTheme(String themeMode) {
+        if ("light".equalsIgnoreCase(themeMode)) {
+            Application.setUserAgentStylesheet(new CupertinoLight().getUserAgentStylesheet());
+        } else if ("dark".equalsIgnoreCase(themeMode)) {
+            Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
+        } else {
+            // "system" logic - for simplicity defaulting to dark or checking OS
+            // JavaFX doesn't have built-in system theme detection in older versions, 
+            // but for now let's just default to dark for "system" or try to be smart.
+            Application.setUserAgentStylesheet(new CupertinoDark().getUserAgentStylesheet());
+        }
     }
 
     public static void main(String[] args) {
