@@ -939,7 +939,7 @@ public class EditorWindow extends Stage {
         // Right cluster (zoom, waveform toggle, snap)
         Label zoomLabel = new Label("Zoom");
         zoomLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");
-        zoomSlider = new Slider(50, 500, 100); // 50px to 500px per second
+        zoomSlider = new Slider(5, 2000, 100); // 5px to 1000px per second
         zoomSlider.setPrefWidth(100);
         zoomSlider.getStyleClass().add("timeline-zoom-slider");
         zoomSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
@@ -1082,6 +1082,26 @@ public class EditorWindow extends Stage {
         return timeline;
     }
 
+
+    private float getRulerInterval(float pixelsPerSecond)
+    {
+        float changedRulerInterval = 1f;
+        // Determine the best major-tick interval for the current zoom.
+        if(pixelsPerSecond < 10  && pixelsPerSecond > 5)    { changedRulerInterval = 32f;    }
+        if(pixelsPerSecond < 15  && pixelsPerSecond > 10)   { changedRulerInterval = 16f;    }
+        if(pixelsPerSecond < 25  && pixelsPerSecond > 15)   { changedRulerInterval = 8f;     }
+        if(pixelsPerSecond < 50  && pixelsPerSecond > 25)   { changedRulerInterval = 4f;     }
+        if(pixelsPerSecond < 100 && pixelsPerSecond > 50)   { changedRulerInterval = 2f;     }
+        if(pixelsPerSecond < 200 && pixelsPerSecond > 100)  { changedRulerInterval = 1f;     }
+        if(pixelsPerSecond < 500 && pixelsPerSecond > 200)  { changedRulerInterval = 0.5f;   }
+        if(pixelsPerSecond < 1000 && pixelsPerSecond > 500) { changedRulerInterval = 0.2f;   }
+        if(pixelsPerSecond < 2000 && pixelsPerSecond > 1000){ changedRulerInterval = 0.1f;   }
+        if(pixelsPerSecond < 5000 && pixelsPerSecond > 2000){ changedRulerInterval = 0.05f;  }
+        if(pixelsPerSecond < 10000 && pixelsPerSecond > 5000) { changedRulerInterval = 0.02f; }
+        if(pixelsPerSecond < 20000 && pixelsPerSecond > 10000){ changedRulerInterval = 0.01f; }
+        if(pixelsPerSecond < 50000 && pixelsPerSecond > 20000){ changedRulerInterval = 0.005f;}
+        return changedRulerInterval;
+    }
     private void buildRuler(double width) {
         Pane ruler = new Pane();
         ruler.setPrefWidth(width);
@@ -1090,10 +1110,10 @@ public class EditorWindow extends Stage {
         ruler.getStyleClass().add("timeline-ruler-pane");
 
         // Compute step interval based on zoom factor
-        float rulerInterval = 1f;
-        if (pixelsPerSecond >= 400) rulerInterval = 0.1f;
-        else if (pixelsPerSecond >= 200) rulerInterval = 0.2f;
-        else if (pixelsPerSecond >= 100) rulerInterval = 0.5f;
+        float rulerInterval = getRulerInterval(pixelsPerSecond);
+//        if (pixelsPerSecond >= 400) rulerInterval = 0.1f;
+//        else if (pixelsPerSecond >= 200) rulerInterval = 0.2f;
+//        else if (pixelsPerSecond >= 100) rulerInterval = 0.5f;
 
         float majorPixels = pixelsPerSecond * rulerInterval;
         float visibleDuration = (float) (width / pixelsPerSecond);
