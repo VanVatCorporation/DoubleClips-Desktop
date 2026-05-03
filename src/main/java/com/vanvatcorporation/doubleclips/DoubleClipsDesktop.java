@@ -10,14 +10,10 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.control.Button;
-import javafx.scene.control.ToggleButton;
-import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
-import javafx.scene.control.Alert;
-import javafx.scene.control.ButtonType;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 
@@ -109,6 +105,21 @@ public class DoubleClipsDesktop extends Application {
             try {
                 stage.getIcons().add(new Image(getClass().getResourceAsStream("/icons/app.png")));
             } catch (Exception ignored) {}
+
+            // Setup macOS preferences handler if supported
+            try {
+                if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.APP_PREFERENCES)) {
+                    java.awt.Desktop.getDesktop().setPreferencesHandler(e -> {
+                        javafx.application.Platform.runLater(() -> {
+                            final com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[] overlayRef = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[1];
+                            overlayRef[0] = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay(v -> {
+                                hideOverlay(overlayRef[0]);
+                            });
+                            showOverlay(overlayRef[0]);
+                        });
+                    });
+                }
+            } catch (Exception ignored) {}
         });
     }
 
@@ -128,6 +139,21 @@ public class DoubleClipsDesktop extends Application {
 
     private Region createMainLayout() {
         BorderPane root = new BorderPane();
+        
+        javafx.scene.control.MenuBar menuBar = new javafx.scene.control.MenuBar();
+        menuBar.setUseSystemMenuBar(true);
+        javafx.scene.control.Menu appMenu = new javafx.scene.control.Menu("File");
+        javafx.scene.control.MenuItem settingsItem = new javafx.scene.control.MenuItem("Preferences...");
+        settingsItem.setOnAction(ev -> {
+            final com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[] overlayRef = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[1];
+            overlayRef[0] = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay(v -> {
+                hideOverlay(overlayRef[0]);
+            });
+            showOverlay(overlayRef[0]);
+        });
+        appMenu.getItems().add(settingsItem);
+        menuBar.getMenus().add(appMenu);
+        root.setTop(menuBar);
 
         // 1. Sidebar Construction
         VBox sidebar = new VBox(8);

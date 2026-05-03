@@ -111,8 +111,8 @@ public class EditorWindow extends Stage {
         this.timeline = ProjectRepository.getInstance().loadTimeline(project);
         this.videoSettings = ProjectRepository.getInstance().loadVideoSettings(project);
 
-        BorderPane root = new BorderPane();
-        root.getStyleClass().add("editor-root");
+        BorderPane mainContent = new BorderPane();
+        mainContent.getStyleClass().add("editor-root");
 
         // === Main 3-column middle section ===
         HBox centerRow = new HBox();
@@ -127,13 +127,58 @@ public class EditorWindow extends Stage {
 
         // === Bottom Timeline ===
         VBox timelineArea = buildTimelineArea();
+        
+        StackPane root = new StackPane(mainContent);
 
-        root.setTop(buildTopBar());
-        root.setCenter(centerRow);
-        root.setBottom(timelineArea);
+        MenuBar menuBar = new MenuBar();
+        menuBar.setUseSystemMenuBar(true);
+        Menu appMenu = new Menu("DoubleClips");
+        MenuItem settingsItem = new MenuItem("Settings...");
+        settingsItem.setOnAction(ev -> {
+            final com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[] overlayRef = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[1];
+            overlayRef[0] = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay(v -> {
+                root.getChildren().remove(overlayRef[0]);
+            });
+            root.getChildren().add(overlayRef[0]);
+        });
+        appMenu.getItems().add(settingsItem);
+        menuBar.getMenus().add(appMenu);
+
+        mainContent.setTop(new VBox(menuBar, buildTopBar()));
+        mainContent.setCenter(centerRow);
+        mainContent.setBottom(timelineArea);
 
         Scene scene = new Scene(root);
         scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
+
+        scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
+            if (event.getTarget() instanceof javafx.scene.control.TextInputControl) return;
+
+            String deleteBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().getDeleteKeybind();
+            String selectAllBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().getSelectAllKeybind();
+            
+            boolean deleteMatched = false;
+            try {
+                if (javafx.scene.input.KeyCombination.valueOf(deleteBindingStr).match(event)) deleteMatched = true;
+            } catch (Exception e) {
+                if (event.getCode().name().equalsIgnoreCase(deleteBindingStr)) deleteMatched = true;
+            }
+
+            boolean selectAllMatched = false;
+            try {
+                if (javafx.scene.input.KeyCombination.valueOf(selectAllBindingStr).match(event)) selectAllMatched = true;
+            } catch (Exception e) {
+                if (event.getCode().name().equalsIgnoreCase(selectAllBindingStr)) selectAllMatched = true;
+            }
+
+            if (deleteMatched || (event.getCode() == javafx.scene.input.KeyCode.BACK_SPACE && deleteBindingStr.equalsIgnoreCase("DELETE"))) {
+                handleDelete();
+                event.consume();
+            } else if (selectAllMatched) {
+                System.out.println("Select All triggered - Multiple selection not yet supported by data model");
+                event.consume();
+            }
+        });
 
         this.setScene(scene);
         this.setOnCloseRequest(e -> {

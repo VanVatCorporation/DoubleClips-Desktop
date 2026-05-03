@@ -80,8 +80,14 @@ public class SettingsOverlay extends StackPane {
         notifyRow.getChildren().add(notifySwitch);
 
         generalGroup.getChildren().addAll(themeRow, new Separator(), adsRow, new Separator(), notifyRow);
+        
+        // --- KEYBOARD SHORTCUTS ---
+        VBox shortcutsGroup = createGroup("KEYBOARD SHORTCUTS");
+        HBox deleteRow = createKeybindRow("Delete Clip/Track", "Shortcut to delete selected items", settings.deleteKeybindProperty());
+        HBox selectAllRow = createKeybindRow("Select All", "Shortcut to select all clips", settings.selectAllKeybindProperty());
+        shortcutsGroup.getChildren().addAll(deleteRow, new Separator(), selectAllRow);
 
-        content.getChildren().addAll(generalGroup);
+        content.getChildren().addAll(generalGroup, shortcutsGroup);
         scrollPane.setContent(content);
 
         settingsCard.getChildren().addAll(header, scrollPane);
@@ -127,6 +133,58 @@ public class SettingsOverlay extends StackPane {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         
         row.getChildren().addAll(icon, textVBox, spacer);
+        return row;
+    }
+
+    private HBox createKeybindRow(String title, String description, javafx.beans.property.StringProperty bindProperty) {
+        HBox row = new HBox(15);
+        row.setAlignment(Pos.CENTER_LEFT);
+        
+        FontIcon icon = new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignK.KEYBOARD);
+        icon.setIconSize(24);
+        icon.setStyle("-fx-icon-color: -color-accent-fg;");
+        
+        VBox textVBox = new VBox(2);
+        Label titleLabel = new Label(title);
+        titleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: bold;");
+        Label descLabel = new Label(description);
+        descLabel.getStyleClass().add("text-muted");
+        descLabel.setStyle("-fx-font-size: 12px;");
+        textVBox.getChildren().addAll(titleLabel, descLabel);
+        
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        
+        Button keyBtn = new Button(bindProperty.get());
+        keyBtn.setMinWidth(100);
+        keyBtn.getStyleClass().add("button-transparent");
+        keyBtn.setStyle("-fx-border-color: -color-border-default; -fx-border-radius: 4;");
+        
+        keyBtn.setOnAction(e -> {
+            keyBtn.setText("Press key...");
+            keyBtn.setOnKeyPressed(ke -> {
+                String combo = "";
+                if (ke.isShortcutDown() && ke.getCode() != javafx.scene.input.KeyCode.CONTROL && ke.getCode() != javafx.scene.input.KeyCode.COMMAND && ke.getCode() != javafx.scene.input.KeyCode.META) {
+                    combo += "Shortcut+";
+                }
+                if (ke.isShiftDown() && ke.getCode() != javafx.scene.input.KeyCode.SHIFT) {
+                    combo += "Shift+";
+                }
+                if (ke.isAltDown() && ke.getCode() != javafx.scene.input.KeyCode.ALT) {
+                    combo += "Alt+";
+                }
+                if (!ke.getCode().isModifierKey()) {
+                    combo += ke.getCode().name();
+                    bindProperty.set(combo);
+                    keyBtn.setText(combo);
+                    keyBtn.setOnKeyPressed(null);
+                }
+            });
+        });
+        
+        bindProperty.addListener((obs, oldVal, newVal) -> keyBtn.setText(newVal));
+        
+        row.getChildren().addAll(icon, textVBox, spacer, keyBtn);
         return row;
     }
 
