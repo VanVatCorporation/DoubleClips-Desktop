@@ -54,6 +54,7 @@ public class EditorWindow extends Stage {
 
     private Clip selectedClip;
     private Track selectedTrack;
+    private Clip selectedTransitionSourceClip; // clip whose endTransition cube was clicked
 
     // Playback engine
     private AnimationTimer playbackTimer;
@@ -893,6 +894,160 @@ public class EditorWindow extends Stage {
         }));
 
         propertiesContent.getChildren().addAll(sectionTitle, fields);
+
+        // ─── Keyframes section ───────────────────────────────────────────────
+        if (selectedClip != null) {
+            VBox kfSection = buildKeyframesSection(selectedClip);
+            propertiesContent.getChildren().add(kfSection);
+        }
+
+        // ─── Transition section (when a transition cube was clicked) ──────────
+        if (selectedTransitionSourceClip != null && selectedTransitionSourceClip.endTransition != null) {
+            propertiesContent.getChildren().add(buildTransitionSection(selectedTransitionSourceClip));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Keyframes panel (right side)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private VBox buildKeyframesSection(Clip clip) {
+        VBox box = new VBox(8);
+        box.setPadding(new Insets(0, 0, 8, 0));
+
+        Label title = new Label("Keyframes");
+        title.setStyle("-fx-font-size: 13px; -fx-font-weight: bold;");
+
+        int count = clip.keyframes != null && clip.keyframes.keyframes != null
+                ? clip.keyframes.keyframes.size() : 0;
+        Label countLbl = new Label(count + " keyframe" + (count == 1 ? "" : "s"));
+        countLbl.getStyleClass().add("text-muted");
+        countLbl.setStyle("-fx-font-size: 11px;");
+
+        HBox btnRow = new HBox(6);
+        btnRow.setAlignment(Pos.CENTER_LEFT);
+
+        Button addBtn = new Button("+ Add at Playhead");
+        addBtn.getStyleClass().add("import-media-button");
+        addBtn.setOnAction(e -> handleAddKeyframe());
+
+        Button clearBtn = new Button("Clear All");
+        clearBtn.getStyleClass().add("tool-button");
+        clearBtn.setOnAction(e -> handleClearKeyframes());
+
+        btnRow.getChildren().addAll(addBtn, clearBtn);
+        box.getChildren().addAll(buildSectionDivider("Keyframes"), countLbl, btnRow);
+        return box;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Transition panel (right side)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private VBox buildTransitionSection(Clip clip) {
+        TransitionClip tc = clip.endTransition;
+        VBox box = new VBox(10);
+        box.getStyleClass().add("transition-properties-panel");
+
+        // ── Type picker ─────────────────────────────────────────────────────
+        VBox typePicker = new VBox(4);
+        Label typeLabel = new Label("Type");
+        typeLabel.getStyleClass().add("text-muted");
+        typeLabel.setStyle("-fx-font-size: 11px;");
+
+        ComboBox<String> typeCombo = new ComboBox<>();
+        // Populate from FXCommandEmitter.FXRegistry.transitionFXMap
+        com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap
+                .forEach((key, val) -> typeCombo.getItems().add(val));
+        typeCombo.getItems().sort(String::compareToIgnoreCase);
+
+        // Pre-select current effect
+        String currentFx = tc.effect != null ? tc.effect.style : "none";
+        com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap
+                .entrySet().stream()
+                .filter(e -> e.getKey().equals(currentFx))
+                .findFirst()
+                .ifPresent(e -> typeCombo.setValue(e.getValue()));
+
+        typeCombo.setMaxWidth(Double.MAX_VALUE);
+        typeCombo.setOnAction(e -> {
+            String chosen = typeCombo.getValue();
+            // reverse-lookup key
+            com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap
+                    .entrySet().stream()
+                    .filter(entry -> entry.getValue().equals(chosen))
+                    .findFirst()
+                    .ifPresent(entry -> {
+                        if (tc.effect == null)
+                            tc.effect = new com.vanvatcorporation.doubleclips.data.editing.EffectTemplate(entry.getKey(), tc.duration, tc.startTime);
+                        else
+                            tc.effect.style = entry.getKey();
+                        saveProject();
+                    });
+        });
+        typePicker.getChildren().addAll(typeLabel, typeCombo);
+
+        // ── Mode picker ─────────────────────────────────────────────────────
+        VBox modePicker = new VBox(4);
+        Label modeLabel = new Label("Mode");
+        modeLabel.getStyleClass().add("text-muted");
+        modeLabel.setStyle("-fx-font-size: 11px;");
+
+        ComboBox<String> modeCombo = new ComboBox<>();
+        modeCombo.getItems().addAll("End First", "Overlap", "Begin Second");
+        switch (tc.mode) {
+            case END_FIRST   -> modeCombo.setValue("End First");
+            case OVERLAP     -> modeCombo.setValue("Overlap");
+            case BEGIN_SECOND-> modeCombo.setValue("Begin Second");
+        }
+        modeCombo.setMaxWidth(Double.MAX_VALUE);
+        modeCombo.setOnAction(e -> {
+            switch (modeCombo.getValue()) {
+                case "End First"    -> tc.mode = TransitionClip.TransitionMode.END_FIRST;
+                case "Overlap"      -> tc.mode = TransitionClip.TransitionMode.OVERLAP;
+                case "Begin Second" -> tc.mode = TransitionClip.TransitionMode.BEGIN_SECOND;
+            }
+            saveProject();
+        });
+        modePicker.getChildren().addAll(modeLabel, modeCombo);
+
+        // ── Duration spinner ─────────────────────────────────────────────────
+        VBox durBox = new VBox(4);
+        Label durLabel = new Label("Duration (s)");
+        durLabel.getStyleClass().add("text-muted");
+        durLabel.setStyle("-fx-font-size: 11px;");
+
+        Spinner<Double> durSpinner = new Spinner<>(0.0, 10.0, tc.duration, 0.1);
+        durSpinner.setEditable(true);
+        durSpinner.setMaxWidth(Double.MAX_VALUE);
+        durSpinner.valueProperty().addListener((obs, old, nv) -> {
+            tc.duration = nv.floatValue();
+            if (tc.effect != null) tc.effect.duration = tc.duration;
+            saveProject();
+        });
+        durBox.getChildren().addAll(durLabel, durSpinner);
+
+        box.getChildren().addAll(buildSectionDivider("Transition"), typePicker, modePicker, durBox);
+        return box;
+    }
+
+    /** A titled horizontal rule used as a section separator in the properties panel. */
+    private HBox buildSectionDivider(String label) {
+        HBox row = new HBox(8);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(12, 0, 4, 0));
+
+        Label lbl = new Label(label);
+        lbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: -color-fg-subtle;");
+
+        Region line = new Region();
+        line.setPrefHeight(1);
+        line.setMaxHeight(1);
+        line.setStyle("-fx-background-color: -color-fg-subtle;");
+        HBox.setHgrow(line, Priority.ALWAYS);
+
+        row.getChildren().addAll(lbl, line);
+        return row;
     }
 
     private VBox buildPropertyField(String label, String value, java.util.function.Consumer<String> onUpdate) {
@@ -952,7 +1107,15 @@ public class EditorWindow extends Stage {
             refreshTimelineUI();
         });
 
-        toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, toolSpacer, zoomLabel, zoomSlider);
+        Button keyframeBtn = buildToolBtn(MaterialDesignD.DIAMOND);
+        keyframeBtn.setTooltip(new Tooltip("Add Keyframe at Playhead"));
+        keyframeBtn.setOnAction(e -> handleAddKeyframe());
+
+        Button clearKfBtn = buildToolBtn(MaterialDesignD.DIAMOND_OUTLINE);
+        clearKfBtn.setTooltip(new Tooltip("Clear All Keyframes"));
+        clearKfBtn.setOnAction(e -> handleClearKeyframes());
+
+        toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, keyframeBtn, clearKfBtn, toolSpacer, zoomLabel, zoomSlider);
 
         // --- Ruler + Track content ---
         HBox trackLayout = new HBox(0);
@@ -1413,8 +1576,118 @@ public class EditorWindow extends Stage {
         tracksPane.getChildren().add(node);
         clip.viewRef = node;
 
+        // Render keyframe diamonds
+        node.updateKeyframes(pixelsPerSecond);
+
+        // Transition cube: show between this clip and the next if they are touching
+        renderTransitionCubeIfNeeded(track, clip);
+
         // Start generating thumbnails for this node
         generateThumbnailsForNode(node);
+    }
+
+    // =========================================================================
+    //  Transition cube rendering
+    // =========================================================================
+
+    private static final double TRANSITION_CUBE_SIZE = 16.0;
+    private static final double SNAP_TOLERANCE = 0.05f; // seconds — clips this close are "touching"
+
+    /**
+     * If {@code clip} is immediately followed by another clip in the same track
+     * (gap ≤ SNAP_TOLERANCE seconds), draw a small cube at the join point.
+     * Clicking the cube selects the transition and shows its properties.
+     */
+    private void renderTransitionCubeIfNeeded(Track track, Clip clip) {
+        // Find the next clip in this track (sorted by startTime)
+        Clip next = null;
+        for (Clip c : track.clips) {
+            if (c == clip) continue;
+            float gap = c.startTime - (clip.startTime + clip.duration);
+            if (gap >= -SNAP_TOLERANCE && gap <= SNAP_TOLERANCE) {
+                if (next == null || c.startTime < next.startTime) next = c;
+            }
+        }
+        if (next == null) return;
+
+        // Ensure the transition data object exists on the source clip
+        if (clip.endTransition == null) {
+            clip.endTransition = new TransitionClip(clip, next, 0.5f);
+        }
+        clip.endTransitionEnabled = true;
+
+        // Position of the cube: horizontally at the right edge of clip, vertically centred
+        double trackY = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
+        double cubeX  = (clip.startTime + clip.duration) * pixelsPerSecond - TRANSITION_CUBE_SIZE / 2.0;
+        double cubeY  = trackY + (TRACK_HEIGHT / 2.0) - (TRANSITION_CUBE_SIZE / 2.0);
+
+        Rectangle cube = new Rectangle(cubeX, cubeY, TRANSITION_CUBE_SIZE, TRANSITION_CUBE_SIZE);
+        cube.setArcWidth(3);
+        cube.setArcHeight(3);
+        cube.getStyleClass().add("transition-cube");
+        cube.setFill(Color.web("#5C67FF"));
+        cube.setStroke(Color.web("#9BA3FF"));
+        cube.setStrokeWidth(1.5);
+        cube.setUserData(clip); // tag so we know which clip owns it
+
+        // Hover highlight
+        cube.setOnMouseEntered(e -> cube.setFill(Color.web("#7B85FF")));
+        cube.setOnMouseExited(e  -> cube.setFill(Color.web("#5C67FF")));
+
+        // Click → select transition and show in right panel
+        Clip finalClip = clip;
+        cube.setOnMouseClicked(e -> {
+            selectedTransitionSourceClip = finalClip;
+            selectedClip = null; // deselect any clip
+            updatePropertiesPane();
+            e.consume();
+        });
+
+        tracksPane.getChildren().add(cube);
+    }
+
+    // =========================================================================
+    //  Keyframe helpers
+    // =========================================================================
+
+    private void handleAddKeyframe() {
+        if (selectedClip == null) return;
+        Clip clip = selectedClip;
+
+        // localTime of playhead within this clip
+        float localTime = currentTime - clip.startTime;
+        if (localTime < 0 || localTime > clip.duration) return;
+
+        // Build keyframe snapshot from current clip properties (copy constructor)
+        Keyframe kf = new Keyframe(localTime,
+                new VideoProperties(clip.videoProperties),
+                EasingType.NONE);
+
+        // Prevent duplicate at same time
+        boolean exists = clip.keyframes.keyframes.stream()
+                .anyMatch(k -> Math.abs(k.getLocalTime() - localTime) < 0.001f);
+        if (exists) return;
+
+        clip.keyframes.keyframes.add(kf);
+        clip.keyframes.sortKeyframe();
+
+        // Refresh the diamond on the node without a full UI rebuild
+        if (clip.viewRef instanceof ClipNode cn) {
+            cn.updateKeyframes(pixelsPerSecond);
+        }
+
+        saveProject();
+        updatePropertiesPane();
+    }
+
+    private void handleClearKeyframes() {
+        if (selectedClip == null) return;
+        selectedClip.keyframes.keyframes.clear();
+        if (selectedClip.viewRef instanceof ClipNode cn) {
+            cn.clearKeyframeKnots();
+        }
+        saveProject();
+        updatePropertiesPane();
     }
 
     // =========================================================================

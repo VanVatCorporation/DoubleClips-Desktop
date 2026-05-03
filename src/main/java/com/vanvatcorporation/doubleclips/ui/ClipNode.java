@@ -1,12 +1,15 @@
 package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
+import com.vanvatcorporation.doubleclips.data.editing.Keyframe;
 import javafx.scene.control.Label;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A timeline clip node with a CapCut-style repeating thumbnail strip.
@@ -145,6 +148,59 @@ public class ClipNode extends Pane {
     }
 
     public Clip getContainerClip() { return clip; }
+
+    // ── Keyframe diamonds ──────────────────────────────────────────────────────
+
+    /**
+     * Rebuild keyframe diamond knots from the clip's keyframe list.
+     * Called by EditorWindow after any keyframe add/remove and on zoom changes.
+     */
+    public void updateKeyframes(float pixelsPerSecond) {
+        // Remove existing knots first
+        clearKeyframeKnots();
+
+        if (clip.keyframes == null || clip.keyframes.keyframes == null) return;
+
+        double h = getHeight() > 0 ? getHeight() : getPrefHeight();
+        double knotSize = 10.0;
+
+        for (Keyframe kf : clip.keyframes.keyframes) {
+            Rectangle knot = new Rectangle(knotSize, knotSize);
+            knot.setFill(Color.WHITE);
+            knot.setStroke(Color.web("#00D4FF"));
+            knot.setStrokeWidth(1.5);
+            knot.setArcWidth(0);
+            knot.setArcHeight(0);
+            knot.setRotate(45);
+            knot.setMouseTransparent(false);
+            knot.getStyleClass().add("keyframe-knot");
+
+            // Tag so we can identify and remove these later
+            knot.setUserData(kf);
+
+            // Position: X = localTime * pps centred, Y = vertical centre
+            double cx = kf.getLocalTime() * pixelsPerSecond;
+            double cy = h / 2.0;
+
+            // A rotated 10×10 square has a visual diagonal of √2 * 10 ≈ 14
+            // LayoutX/Y refer to the top-left of the un-rotated bounding box
+            knot.setLayoutX(cx - knotSize / 2.0);
+            knot.setLayoutY(cy - knotSize / 2.0);
+
+            getChildren().add(knot);
+        }
+    }
+
+    /** Remove all keyframe diamond knots (Rectangle nodes tagged with a Keyframe). */
+    public void clearKeyframeKnots() {
+        List<javafx.scene.Node> toRemove = new ArrayList<>();
+        for (javafx.scene.Node n : getChildren()) {
+            if (n instanceof Rectangle r && r.getUserData() instanceof Keyframe) {
+                toRemove.add(n);
+            }
+        }
+        getChildren().removeAll(toRemove);
+    }
 
     // ── Thumbnail management ───────────────────────────────────────────────────
 
