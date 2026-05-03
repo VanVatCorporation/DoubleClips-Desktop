@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
+import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import javafx.beans.property.ListProperty;
 import javafx.beans.property.SimpleListProperty;
 import javafx.collections.FXCollections;
@@ -201,7 +202,7 @@ public class ProjectRepository {
         // Update Project Data matching Android tracking logic
         data.setProjectTimestamp(new Date().getTime());
         data.setProjectDuration((long) (timeline.duration * 1000));
-        // Simple file size calculation skip for now, we just save props.
+        data.setProjectSize(IOHelper.getFileSize(data.getProjectPath()));
         saveProjectProperties(data);
 
         // Save Settings
@@ -223,7 +224,6 @@ public class ProjectRepository {
                 e.printStackTrace();
             }
         }
-        
         // Refresh project list visually so last edited jumps top
         refreshProjects();
     }

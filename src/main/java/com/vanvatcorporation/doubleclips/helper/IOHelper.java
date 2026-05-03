@@ -1,6 +1,7 @@
 package com.vanvatcorporation.doubleclips.helper;
 
 import com.vanvatcorporation.doubleclips.data.storage.StorageHelper;
+import com.vanvatcorporation.doubleclips.manager.LoggingManager;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -30,6 +31,36 @@ public class IOHelper {
         }
         return newFilePath;
     }
+    public static int getFileSize(String filePath)
+    {
+        File workingFile = new File(filePath);
+        if (!workingFile.exists())
+        {
+            workingFile.getParentFile().mkdirs();
+            return 0;
+        }
+        int size = 0;
+        try {
+            if(workingFile.isDirectory())
+            {
+                for (File file : workingFile.listFiles()) {
+                    size += getFileSize(file.getPath());
+                }
+            }
+            else {
+                size = (int) workingFile.length();
+            }
+            return size;
+        }
+        catch (Exception e)
+        {
+            System.err.println("Error reading file: " + filePath);
+            e.printStackTrace();
+        }
+
+        return 0;
+    }
+
 
     public static void createEmptyFile(String filePath) {
         try {

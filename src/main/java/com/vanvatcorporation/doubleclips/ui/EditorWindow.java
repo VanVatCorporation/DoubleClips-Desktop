@@ -136,9 +136,7 @@ public class EditorWindow extends Stage {
 
         this.setScene(scene);
         this.setOnCloseRequest(e -> {
-            stopPlayback();
-            saveProject();
-            DoubleClipsDesktop.getInstance().closeEditor(this);
+            closeWindow();
         });
 
         initPlaybackTimer();
@@ -267,6 +265,13 @@ public class EditorWindow extends Stage {
         return String.format("%02d:%02d:%02d:%02d", h, m, s, f);
     }
 
+
+
+    private void closeWindow() {
+        stopPlayback();
+        saveProject();
+        DoubleClipsDesktop.getInstance().closeEditor(this);
+    }
     // ====================================================================
     //  TOP BAR
     // ====================================================================
@@ -279,7 +284,7 @@ public class EditorWindow extends Stage {
         Button backBtn = new Button();
         backBtn.setGraphic(new FontIcon(MaterialDesignK.KEYBOARD_RETURN));
         backBtn.getStyleClass().add("button-transparent");
-        backBtn.setOnAction(e -> DoubleClipsDesktop.getInstance().closeEditor(this));
+        backBtn.setOnAction(e -> closeWindow());
 
         Label title = new Label(project.getProjectTitle());
         title.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
@@ -1083,24 +1088,38 @@ public class EditorWindow extends Stage {
     }
 
 
-    private float getRulerInterval(float pixelsPerSecond)
-    {
-        float changedRulerInterval = 1f;
-        // Determine the best major-tick interval for the current zoom.
-        if(pixelsPerSecond < 10  && pixelsPerSecond > 5)    { changedRulerInterval = 32f;    }
-        if(pixelsPerSecond < 15  && pixelsPerSecond > 10)   { changedRulerInterval = 16f;    }
-        if(pixelsPerSecond < 25  && pixelsPerSecond > 15)   { changedRulerInterval = 8f;     }
-        if(pixelsPerSecond < 50  && pixelsPerSecond > 25)   { changedRulerInterval = 4f;     }
-        if(pixelsPerSecond < 100 && pixelsPerSecond > 50)   { changedRulerInterval = 2f;     }
-        if(pixelsPerSecond < 200 && pixelsPerSecond > 100)  { changedRulerInterval = 1f;     }
-        if(pixelsPerSecond < 500 && pixelsPerSecond > 200)  { changedRulerInterval = 0.5f;   }
-        if(pixelsPerSecond < 1000 && pixelsPerSecond > 500) { changedRulerInterval = 0.2f;   }
-        if(pixelsPerSecond < 2000 && pixelsPerSecond > 1000){ changedRulerInterval = 0.1f;   }
-        if(pixelsPerSecond < 5000 && pixelsPerSecond > 2000){ changedRulerInterval = 0.05f;  }
-        if(pixelsPerSecond < 10000 && pixelsPerSecond > 5000) { changedRulerInterval = 0.02f; }
-        if(pixelsPerSecond < 20000 && pixelsPerSecond > 10000){ changedRulerInterval = 0.01f; }
-        if(pixelsPerSecond < 50000 && pixelsPerSecond > 20000){ changedRulerInterval = 0.005f;}
-        return changedRulerInterval;
+    private float getRulerInterval(float pixelsPerSecond) {
+        // Preferred intervals in seconds
+        float[] intervals = {
+            1/30f, 2/30f, 5/30f, 10/30f, 15/30f, // Frames: 1, 2, 5, 10, 15
+            1f, 2f, 4f, 8f, 16f, 32f, 64f, 128f, 256f, 512f, 1024f // Seconds: Doubling
+        };
+
+        // Aim for at least 80 pixels between major ticks for readability
+        float minSpacing = 80f;
+        for (float interval : intervals) {
+            if (interval * pixelsPerSecond >= minSpacing) {
+                return interval;
+            }
+        }
+        return intervals[intervals.length - 1];
+    }
+
+    private String formatRulerLabel(float t, float interval) {
+        int totalFrames = Math.round(t * 30f);
+        int sec = totalFrames / 30;
+        int f = totalFrames % 30;
+
+        if (interval >= 1.0f) {
+            if (sec == 0 && f == 0) return "0s";
+            int m = sec / 60;
+            int s = sec % 60;
+            if (m > 0) return m + "m" + s + "s";
+            return s + "s";
+        } else {
+            if (f == 0) return sec + "s";
+            return f + "f";
+        }
     }
     private void buildRuler(double width) {
         Pane ruler = new Pane();
@@ -1109,65 +1128,56 @@ public class EditorWindow extends Stage {
         ruler.setPickOnBounds(true);
         ruler.getStyleClass().add("timeline-ruler-pane");
 
-        // Compute step interval based on zoom factor
         float rulerInterval = getRulerInterval(pixelsPerSecond);
-//        if (pixelsPerSecond >= 400) rulerInterval = 0.1f;
-//        else if (pixelsPerSecond >= 200) rulerInterval = 0.2f;
-//        else if (pixelsPerSecond >= 100) rulerInterval = 0.5f;
-
         float majorPixels = pixelsPerSecond * rulerInterval;
         float visibleDuration = (float) (width / pixelsPerSecond);
-        long steps = (long) Math.ceil((visibleDuration + 1f) / rulerInterval);
+        long steps = (long) Math.ceil(visibleDuration / rulerInterval);
         
-        int subCount = 0;
-        if (majorPixels >= 60f) subCount = 4;
-        else if (majorPixels >= 28f) subCount = 1;
+        int framesInInterval = Math.round(rulerInterval * 30f);
+        float pixelsPerFrame = pixelsPerSecond / 30f;
 
         for (long step = 0; step <= steps; step++) {
             float t = step * rulerInterval;
             double x = t * pixelsPerSecond;
 
-            // Check if it's near a whole second
-            float frac = t - (float) Math.floor(t);
-            float tol = rulerInterval * 0.02f;
-            boolean isWholeSecond = (frac < tol || frac > (1f - tol));
-
-            Line tick = new Line(x, isWholeSecond ? 10 : 18, x, 30);
-            tick.getStyleClass().add(isWholeSecond ? "ruler-tick-major" : "ruler-tick-minor");
+            // Major tick
+            Line tick = new Line(x, 10, x, 30);
+            tick.getStyleClass().add("ruler-tick-major");
             ruler.getChildren().add(tick);
 
-            if (isWholeSecond) {
-                int sec = Math.round(t);
-                String lbl = sec == 0 ? "0s"
-                        : sec < 60 ? sec + "s"
-                        : (sec / 60) + "m" + (sec % 60) + "s";
-                
-                javafx.scene.text.Text label = new javafx.scene.text.Text(x + 2, 9, lbl);
-                label.getStyleClass().add("ruler-text");
-                ruler.getChildren().add(label);
-            } else {
-                // Frame number within the current second (assume 30fps)
-                int frameInSec = Math.max(1, Math.round(frac * 30));
-                String lbl = frameInSec + "f";
-                
-                if (majorPixels >= 14f) {
-                    javafx.scene.text.Text label = new javafx.scene.text.Text(x + 1.5, 9, lbl);
-                    label.getStyleClass().add("ruler-text");
-                    label.setStyle("-fx-opacity: 0.7;"); // Medium tick fade
-                    ruler.getChildren().add(label);
-                }
-            }
+            // Label
+            String lbl = formatRulerLabel(t, rulerInterval);
+            javafx.scene.text.Text label = new javafx.scene.text.Text(x + 2, 9, lbl);
+            label.getStyleClass().add("ruler-text");
+            ruler.getChildren().add(label);
 
-            // Small subticks
-            if (subCount > 0 && step < steps) {
-                float subInterval = rulerInterval / (subCount + 1);
-                for (int s = 1; s <= subCount; s++) {
-                    float subT = t + subInterval * s;
+            // Minor ticks (frames) between this major tick and the next
+            if (step < steps) {
+                for (int f = 1; f < framesInInterval; f++) {
+                    float subT = t + (f / 30f);
                     double subX = subT * pixelsPerSecond;
-                    Line subTick = new Line(subX, 22, subX, 30);
-                    subTick.getStyleClass().add("ruler-tick-minor");
-                    subTick.setStyle("-fx-opacity: 0.5;");
-                    ruler.getChildren().add(subTick);
+                    
+                    // Only draw if there's enough space (at least 4px between minor ticks)
+                    if (pixelsPerFrame >= 4f) {
+                        Line subTick = new Line(subX, 18, subX, 30);
+                        subTick.getStyleClass().add("ruler-tick-minor");
+                        subTick.setStyle("-fx-opacity: 0.5;");
+                        ruler.getChildren().add(subTick);
+                        
+                        // Optional: Frame labels if very zoomed in
+                        if (pixelsPerFrame >= 40f && framesInInterval > 1) {
+                            javafx.scene.text.Text subLabel = new javafx.scene.text.Text(subX + 1.5, 9, f + "f");
+                            subLabel.getStyleClass().add("ruler-text");
+                            subLabel.setStyle("-fx-opacity: 0.6;");
+                            ruler.getChildren().add(subLabel);
+                        }
+                    } else if (framesInInterval >= 10 && f % (framesInInterval / 2) == 0) {
+                        // Midpoint tick if too dense for every frame but wide enough for one
+                        Line subTick = new Line(subX, 22, subX, 30);
+                        subTick.getStyleClass().add("ruler-tick-minor");
+                        subTick.setStyle("-fx-opacity: 0.4;");
+                        ruler.getChildren().add(subTick);
+                    }
                 }
             }
         }
@@ -1176,6 +1186,7 @@ public class EditorWindow extends Stage {
         ruler.setOnMouseMoved(e -> {
             double x = e.getX();
             tempTime = (float)(x / pixelsPerSecond);
+            currentTimeLabel.setText(formatTimecode(tempTime));
             updatePlayheadPosition();
             if (timelineRenderer != null) {
                 timelineRenderer.updateTime(tempTime, true);
@@ -1184,6 +1195,7 @@ public class EditorWindow extends Stage {
         ruler.setOnMouseExited(e -> {
             ghostPlayheadLine.setVisible(false);
             tempTime = -1;
+            currentTimeLabel.setText(formatTimecode(currentTime));
             updatePlayheadPosition();
             if (timelineRenderer != null) {
                 timelineRenderer.updateTime(currentTime, !isPlaying);
