@@ -81,6 +81,8 @@ public class EditorWindow extends Stage {
     private float tempTime = -1;
     private Slider zoomSlider;
     private FlowPane mediaGrid;
+    private ToggleButton mediaTab;
+    private VBox mediaDropOverlay;
 
     // --- Scroll sync ---
     private final ScrollPane rulerScrollPane = new ScrollPane();
@@ -394,7 +396,8 @@ public class EditorWindow extends Stage {
             tb.setMaxWidth(Double.MAX_VALUE);
             tabStrip.getChildren().add(tb);
         }
-        ((ToggleButton) tabStrip.getChildren().get(0)).setSelected(true);
+        mediaTab = (ToggleButton) tabStrip.getChildren().get(0);
+        mediaTab.setSelected(true);
 
         // --- Media import bar
         HBox importBar = new HBox(8);
@@ -437,7 +440,37 @@ public class EditorWindow extends Stage {
                 "-fx-background-color: transparent; -fx-control-inner-background: transparent; -fx-border-color: transparent;");
         VBox.setVgrow(mediaGridScroll, Priority.ALWAYS);
 
-        panel.getChildren().addAll(tabStrip, importBar, mediaGridScroll);
+        StackPane leftStack = new StackPane(mediaGridScroll);
+        VBox.setVgrow(leftStack, Priority.ALWAYS);
+
+        // --- Drop Overlay
+        mediaDropOverlay = new VBox(20);
+        mediaDropOverlay.setAlignment(Pos.CENTER);
+        mediaDropOverlay.setStyle("-fx-background-color: rgba(0,0,0,0.7);");
+        mediaDropOverlay.setVisible(false);
+        mediaDropOverlay.setMouseTransparent(true);
+
+        ImageView dropIcon = new ImageView(new Image(getClass().getResourceAsStream("/icons/import_media_graphic.png")));
+        dropIcon.setFitWidth(150);
+        dropIcon.setPreserveRatio(true);
+
+        Label dropLabel = new Label("Drop here to import media");
+        dropLabel.setStyle("-fx-text-fill: white; -fx-font-size: 16px; -fx-font-weight: bold;");
+
+        mediaDropOverlay.getChildren().addAll(dropIcon, dropLabel);
+        leftStack.getChildren().add(mediaDropOverlay);
+
+        panel.getChildren().addAll(tabStrip, importBar, leftStack);
+
+        leftStack.setOnDragEntered(event -> {
+            if (event.getDragboard().hasFiles() && mediaTab.isSelected()) {
+                mediaDropOverlay.setVisible(true);
+            }
+        });
+
+        leftStack.setOnDragExited(event -> {
+            mediaDropOverlay.setVisible(false);
+        });
 
         panel.setOnDragOver(event -> {
             if (event.getGestureSource() != panel && event.getDragboard().hasFiles()) {
@@ -447,6 +480,7 @@ public class EditorWindow extends Stage {
         });
 
         panel.setOnDragDropped(event -> {
+            mediaDropOverlay.setVisible(false);
             javafx.scene.input.Dragboard db = event.getDragboard();
             boolean success = false;
             if (db.hasFiles()) {
