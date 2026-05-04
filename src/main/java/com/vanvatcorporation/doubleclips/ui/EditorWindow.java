@@ -41,7 +41,7 @@ public class EditorWindow extends Stage {
     private final ProjectData project;
     private Timeline timeline;
     private VideoSettings videoSettings;
-    
+
     private TimelineRenderer timelineRenderer;
 
     // Editor State
@@ -61,14 +61,14 @@ public class EditorWindow extends Stage {
     private long lastTimerUpdate = 0;
 
     // Background operations
-    private final java.util.concurrent.ExecutorService thumbnailExecutor = java.util.concurrent.Executors.newFixedThreadPool(
-        Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
-        r -> {
-            Thread t = new Thread(r, "ThumbnailGenerator");
-            t.setDaemon(true);
-            return t;
-        }
-    );
+    private final java.util.concurrent.ExecutorService thumbnailExecutor = java.util.concurrent.Executors
+            .newFixedThreadPool(
+                    Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
+                    r -> {
+                        Thread t = new Thread(r, "ThumbnailGenerator");
+                        t.setDaemon(true);
+                        return t;
+                    });
 
     // UI Components for logic access
     private final Label currentTimeLabel = new Label("00:00:00:00");
@@ -80,6 +80,7 @@ public class EditorWindow extends Stage {
     private Line ghostPlayheadLine;
     private float tempTime = -1;
     private Slider zoomSlider;
+    private FlowPane mediaGrid;
 
     // --- Scroll sync ---
     private final ScrollPane rulerScrollPane = new ScrollPane();
@@ -90,13 +91,14 @@ public class EditorWindow extends Stage {
 
     /** Mutable drag state — one active drag at a time. */
     private static class DragContext {
-        Clip      clip;
-        ClipNode  ghost;          // semi-transparent clone in tracksPane
-        int       currentTrackIdx;
-        double    dragOffsetX;    // mouse X offset from clip left edge
-        boolean   dragging;       // becomes true once mouse moves > 0 px
-        boolean   isNewClip;      // true if dragging from media browser
+        Clip clip;
+        ClipNode ghost; // semi-transparent clone in tracksPane
+        int currentTrackIdx;
+        double dragOffsetX; // mouse X offset from clip left edge
+        boolean dragging; // becomes true once mouse moves > 0 px
+        boolean isNewClip; // true if dragging from media browser
     }
+
     private final DragContext activeDrag = new DragContext();
 
     public EditorWindow(ProjectData project) {
@@ -118,7 +120,7 @@ public class EditorWindow extends Stage {
         HBox centerRow = new HBox();
         HBox.setHgrow(centerRow, Priority.ALWAYS);
 
-        VBox leftPanel  = buildLeftPanel();
+        VBox leftPanel = buildLeftPanel();
         VBox previewPanel = buildPreviewPanel();
         VBox rightPanel = buildRightPanel();
 
@@ -127,7 +129,7 @@ public class EditorWindow extends Stage {
 
         // === Bottom Timeline ===
         VBox timelineArea = buildTimelineArea();
-        
+
         StackPane root = new StackPane(mainContent);
 
         MenuBar menuBar = new MenuBar();
@@ -152,26 +154,34 @@ public class EditorWindow extends Stage {
         scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
 
         scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
-            if (event.getTarget() instanceof javafx.scene.control.TextInputControl) return;
+            if (event.getTarget() instanceof javafx.scene.control.TextInputControl)
+                return;
 
-            String deleteBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().getDeleteKeybind();
-            String selectAllBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().getSelectAllKeybind();
-            
+            String deleteBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance()
+                    .getDeleteKeybind();
+            String selectAllBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance()
+                    .getSelectAllKeybind();
+
             boolean deleteMatched = false;
             try {
-                if (javafx.scene.input.KeyCombination.valueOf(deleteBindingStr).match(event)) deleteMatched = true;
+                if (javafx.scene.input.KeyCombination.valueOf(deleteBindingStr).match(event))
+                    deleteMatched = true;
             } catch (Exception e) {
-                if (event.getCode().name().equalsIgnoreCase(deleteBindingStr)) deleteMatched = true;
+                if (event.getCode().name().equalsIgnoreCase(deleteBindingStr))
+                    deleteMatched = true;
             }
 
             boolean selectAllMatched = false;
             try {
-                if (javafx.scene.input.KeyCombination.valueOf(selectAllBindingStr).match(event)) selectAllMatched = true;
+                if (javafx.scene.input.KeyCombination.valueOf(selectAllBindingStr).match(event))
+                    selectAllMatched = true;
             } catch (Exception e) {
-                if (event.getCode().name().equalsIgnoreCase(selectAllBindingStr)) selectAllMatched = true;
+                if (event.getCode().name().equalsIgnoreCase(selectAllBindingStr))
+                    selectAllMatched = true;
             }
 
-            if (deleteMatched || (event.getCode() == javafx.scene.input.KeyCode.BACK_SPACE && deleteBindingStr.equalsIgnoreCase("DELETE"))) {
+            if (deleteMatched || (event.getCode() == javafx.scene.input.KeyCode.BACK_SPACE
+                    && deleteBindingStr.equalsIgnoreCase("DELETE"))) {
                 handleDelete();
                 event.consume();
             } else if (selectAllMatched) {
@@ -186,7 +196,7 @@ public class EditorWindow extends Stage {
         });
 
         initPlaybackTimer();
-        
+
         if (this.timeline.tracks.isEmpty()) {
             addNewTrack("Video 1");
             addNewTrack("Audio 1");
@@ -218,7 +228,8 @@ public class EditorWindow extends Stage {
     }
 
     private void startPlayback() {
-        if (isPlaying) return;
+        if (isPlaying)
+            return;
         isPlaying = true;
         lastTimerUpdate = System.nanoTime();
         playbackTimer.start();
@@ -226,11 +237,12 @@ public class EditorWindow extends Stage {
     }
 
     private void stopPlayback() {
-        if (!isPlaying) return;
+        if (!isPlaying)
+            return;
         isPlaying = false;
         playbackTimer.stop();
         lastTimerUpdate = 0;
-        
+
         // Notify the renderer that we have paused
         if (timelineRenderer != null) {
             timelineRenderer.updateTime(currentTime, true);
@@ -240,7 +252,7 @@ public class EditorWindow extends Stage {
     private void updateCurrentTime(float newTime) {
         this.currentTime = Math.max(0, newTime);
         currentTimeLabel.setText(formatTimecode(currentTime));
-        
+
         // Update playhead position
         updatePlayheadPosition();
 
@@ -253,7 +265,7 @@ public class EditorWindow extends Stage {
             double playheadX = currentTime * pixelsPerSecond;
             double scrollWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
             double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
-            
+
             if (playheadX > viewportWidth * 0.8) {
                 // Simple auto-scroll logic
                 tracksScrollPane.setHvalue(playheadX / scrollWidth);
@@ -267,15 +279,16 @@ public class EditorWindow extends Stage {
     }
 
     private void updatePlayheadPosition() {
-        if (playheadLine == null || tracksScrollPane == null || tracksPane == null) return;
-        
+        if (playheadLine == null || tracksScrollPane == null || tracksPane == null)
+            return;
+
         double contentWidth = tracksPane.getPrefWidth();
         double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
         double hValue = tracksScrollPane.getHvalue();
-        
+
         // scrollX is the pixel offset of the left edge of the viewport
         double scrollX = hValue * (contentWidth - viewportWidth);
-        
+
         // Position relative to viewport left edge
         playheadLine.setTranslateX(currentTime * pixelsPerSecond - scrollX);
 
@@ -284,15 +297,14 @@ public class EditorWindow extends Stage {
         }
     }
 
-    void updateCurrentClipEnd()
-    {
+    void updateCurrentClipEnd() {
         float totalSeconds = 0;
         // 🧠 Recalculate max right edge of all clips in all tracks
         for (Track trackCpn : timeline.tracks) {
             for (int i = 0; i < trackCpn.clips.size(); i++) {
                 Clip child = trackCpn.clips.get(i);
                 if (child != null) { // It's a clip
-                    if(totalSeconds < child.getStartTime() + child.getDuration()) {
+                    if (totalSeconds < child.getStartTime() + child.getDuration()) {
                         totalSeconds = child.getStartTime() + child.getDuration();
                     }
                 }
@@ -304,22 +316,21 @@ public class EditorWindow extends Stage {
     }
 
     private String formatTimecode(float seconds) {
-        int h = (int)(seconds / 3600);
-        int m = (int)((seconds % 3600) / 60);
-        int s = (int)(seconds % 60);
-        int f = (int)((seconds % 1) * 30); // 30fps assumption for display
+        int h = (int) (seconds / 3600);
+        int m = (int) ((seconds % 3600) / 60);
+        int s = (int) (seconds % 60);
+        int f = (int) ((seconds % 1) * 30); // 30fps assumption for display
         return String.format("%02d:%02d:%02d:%02d", h, m, s, f);
     }
-
-
 
     private void closeWindow() {
         stopPlayback();
         saveProject();
         DoubleClipsDesktop.getInstance().closeEditor(this);
     }
+
     // ====================================================================
-    //  TOP BAR
+    // TOP BAR
     // ====================================================================
     private HBox buildTopBar() {
         HBox bar = new HBox(10);
@@ -360,7 +371,7 @@ public class EditorWindow extends Stage {
     }
 
     // ====================================================================
-    //  LEFT PANEL — Media Browser
+    // LEFT PANEL — Media Browser
     // ====================================================================
     private VBox buildLeftPanel() {
         VBox panel = new VBox();
@@ -370,7 +381,7 @@ public class EditorWindow extends Stage {
         panel.getStyleClass().add("editor-left-panel");
 
         // --- Tool tab strip
-        String[] tabLabels = {"Media", "Audio", "Text", "Stickers", "Effects", "Transitions"};
+        String[] tabLabels = { "Media", "Audio", "Text", "Stickers", "Effects", "Transitions" };
         HBox tabStrip = new HBox(0);
         tabStrip.getStyleClass().add("editor-tab-strip");
         ToggleGroup tabGroup = new ToggleGroup();
@@ -405,7 +416,7 @@ public class EditorWindow extends Stage {
         importBar.getChildren().addAll(importBtn, ibSpacer, searchBtn);
 
         // --- Media grid (placeholder)
-        FlowPane mediaGrid = new FlowPane(8, 8);
+        mediaGrid = new FlowPane(8, 8);
         mediaGrid.setPadding(new Insets(8));
         VBox.setVgrow(mediaGrid, Priority.ALWAYS);
         mediaGrid.getStyleClass().add("media-grid");
@@ -422,40 +433,69 @@ public class EditorWindow extends Stage {
         ScrollPane mediaGridScroll = new ScrollPane(mediaGrid);
         mediaGridScroll.setFitToWidth(true);
         mediaGridScroll.getStyleClass().add("edge-to-edge");
-        mediaGridScroll.setStyle("-fx-background-color: transparent; -fx-control-inner-background: transparent; -fx-border-color: transparent;");
+        mediaGridScroll.setStyle(
+                "-fx-background-color: transparent; -fx-control-inner-background: transparent; -fx-border-color: transparent;");
         VBox.setVgrow(mediaGridScroll, Priority.ALWAYS);
 
         panel.getChildren().addAll(tabStrip, importBar, mediaGridScroll);
+
+        panel.setOnDragOver(event -> {
+            if (event.getGestureSource() != panel && event.getDragboard().hasFiles()) {
+                event.acceptTransferModes(javafx.scene.input.TransferMode.COPY);
+            }
+            event.consume();
+        });
+
+        panel.setOnDragDropped(event -> {
+            javafx.scene.input.Dragboard db = event.getDragboard();
+            boolean success = false;
+            if (db.hasFiles()) {
+                handleImportFiles(db.getFiles(), mediaGrid, -1f, -1);
+                success = true;
+            }
+            event.setDropCompleted(success);
+            event.consume();
+        });
+
         return panel;
     }
 
     private void loadMediaGrid(FlowPane mediaGrid) {
         String clipDir = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_CLIP_DIRECTORY);
         File dir = new File(clipDir);
-        if (!dir.exists() || !dir.isDirectory()) return;
+        if (!dir.exists() || !dir.isDirectory())
+            return;
 
         File[] files = dir.listFiles();
-        if (files == null || files.length == 0) return;
+        if (files == null || files.length == 0)
+            return;
 
         Task<List<Clip>> task = new Task<>() {
             @Override
             protected List<Clip> call() throws Exception {
                 List<Clip> loadedClips = new ArrayList<>();
                 for (File f : files) {
-                    if (f.isDirectory() || f.getName().startsWith(".")) continue;
-                    
+                    if (f.isDirectory() || f.getName().startsWith("."))
+                        continue;
+
                     String filename = f.getName();
+                    MediaHelper.MediaInfo info = MediaHelper.probeMediaInfo(f.getAbsolutePath());
+
                     String mime = Files.probeContentType(f.toPath());
                     ClipType type = ClipType.VIDEO;
                     if (mime != null) {
-                        if (mime.startsWith("audio")) type = ClipType.AUDIO;
-                        else if (mime.startsWith("image")) type = ClipType.IMAGE;
+                        if (mime.startsWith("audio"))
+                            type = ClipType.AUDIO;
+                        else if (mime.startsWith("image"))
+                            type = ClipType.IMAGE;
                     } else {
-                        if (filename.endsWith(".mp3") || filename.endsWith(".wav")) type = ClipType.AUDIO;
-                        else if (filename.endsWith(".png") || filename.endsWith(".jpg")) type = ClipType.IMAGE;
+                        if (filename.endsWith(".mp3") || filename.endsWith(".wav"))
+                            type = ClipType.AUDIO;
+                        else if (filename.endsWith(".png") || filename.endsWith(".jpg"))
+                            type = ClipType.IMAGE;
                     }
-                    
-                    Clip clip = new Clip(filename, 0, 0, 0, type, false, 0, 0);
+
+                    Clip clip = new Clip(filename, 0, info.duration, 0, type, info.hasAudio, info.width, info.height);
                     loadedClips.add(clip);
                 }
                 return loadedClips;
@@ -467,7 +507,7 @@ public class EditorWindow extends Stage {
                 addClipToMediaGrid(mediaGrid, c);
             }
         });
-        
+
         Thread t = new Thread(task);
         t.setDaemon(true);
         t.start();
@@ -477,8 +517,12 @@ public class EditorWindow extends Stage {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Import Media");
         List<File> files = chooser.showOpenMultipleDialog(this);
-        if (files == null || files.isEmpty()) return;
+        if (files == null || files.isEmpty())
+            return;
+        handleImportFiles(files, mediaGrid, -1f, -1);
+    }
 
+    private void handleImportFiles(List<File> files, FlowPane mediaGrid, float startTime, int trackIdx) {
         Dialog<ButtonType> progressDialog = new Dialog<>();
         progressDialog.setTitle("Processing Media");
         progressDialog.initOwner(this);
@@ -504,7 +548,8 @@ public class EditorWindow extends Stage {
                     String filename = f.getName();
                     String clipDir = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_CLIP_DIRECTORY);
                     File clipDirFile = new File(clipDir);
-                    if (!clipDirFile.exists()) clipDirFile.mkdirs();
+                    if (!clipDirFile.exists())
+                        clipDirFile.mkdirs();
 
                     File targetFile = new File(clipDir, filename);
                     Files.copy(f.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
@@ -514,18 +559,24 @@ public class EditorWindow extends Stage {
                     String mime = Files.probeContentType(targetFile.toPath());
                     ClipType type = ClipType.VIDEO;
                     if (mime != null) {
-                        if (mime.startsWith("audio")) type = ClipType.AUDIO;
-                        else if (mime.startsWith("image")) type = ClipType.IMAGE;
+                        if (mime.startsWith("audio"))
+                            type = ClipType.AUDIO;
+                        else if (mime.startsWith("image"))
+                            type = ClipType.IMAGE;
                     } else {
-                        if (filename.endsWith(".mp3") || filename.endsWith(".wav")) type = ClipType.AUDIO;
-                        else if (filename.endsWith(".png") || filename.endsWith(".jpg")) type = ClipType.IMAGE;
+                        if (filename.endsWith(".mp3") || filename.endsWith(".wav"))
+                            type = ClipType.AUDIO;
+                        else if (filename.endsWith(".png") || filename.endsWith(".jpg"))
+                            type = ClipType.IMAGE;
                     }
 
                     Clip clip = new Clip(filename, 0, info.duration, 0, type, info.hasAudio, info.width, info.height);
 
-                    String previewDir = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY);
+                    String previewDir = IOHelper.CombinePath(project.getProjectPath(),
+                            Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY);
                     File previewDirFile = new File(previewDir);
-                    if (!previewDirFile.exists()) previewDirFile.mkdirs();
+                    if (!previewDirFile.exists())
+                        previewDirFile.mkdirs();
 
                     String previewClipPath = IOHelper.CombinePath(previewDir, filename);
 
@@ -533,45 +584,70 @@ public class EditorWindow extends Stage {
 
                     if (type == ClipType.VIDEO) {
                         CountDownLatch thumbLatch = new CountDownLatch(1);
-                        String cmdThumb = "-i \"" + targetFile.getAbsolutePath() + "\" -vframes 1 -s 128x128 -y \"" + previewClipPath + ".jpg\"";
+                        String cmdThumb = "-i \"" + targetFile.getAbsolutePath() + "\" -vframes 1 -s 128x128 -y \""
+                                + previewClipPath + ".jpg\"";
                         FFmpegEdit.runAnyCommand(cmdThumb, "Preview Thumb",
-                            () -> thumbLatch.countDown(),
-                            () -> thumbLatch.countDown(),
-                            log -> {}, stats -> {});
+                                () -> thumbLatch.countDown(),
+                                () -> thumbLatch.countDown(),
+                                log -> {
+                                }, stats -> {
+                                });
                         thumbLatch.await();
 
-                        String cmd = "-i \"" + targetFile.getAbsolutePath() + "\" -vf \"scale=1280:-2\" -c:v libx264 -preset ultrafast -crf 32 -x264-params keyint=1 -an -y \"" + previewClipPath + "\"";
+                        String cmd = "-i \"" + targetFile.getAbsolutePath()
+                                + "\" -vf \"scale=1280:-2\" -c:v libx264 -preset ultrafast -crf 32 -x264-params keyint=1 -an -y \""
+                                + previewClipPath + "\"";
                         FFmpegEdit.runAnyCommand(cmd, "Preview Video",
-                            () -> latch.countDown(),
-                            () -> latch.countDown(),
-                            log -> {}, stats -> {
-                                if (stats.getTimeInMs() > 0 && info.duration > 0) {
-                                    updateProgress(stats.getTimeInMs() / 1000.0, info.duration);
-                                }
-                            });
+                                () -> latch.countDown(),
+                                () -> latch.countDown(),
+                                log -> {
+                                }, stats -> {
+                                    if (stats.getTimeInMs() > 0 && info.duration > 0) {
+                                        updateProgress(stats.getTimeInMs() / 1000.0, info.duration);
+                                    }
+                                });
                         latch.await();
 
                         if (info.hasAudio) {
                             CountDownLatch audioLatch = new CountDownLatch(1);
                             String audioPath = previewClipPath.substring(0, previewClipPath.lastIndexOf('.')) + ".wav";
-                            String cmdAudio = "-i \"" + targetFile.getAbsolutePath() + "\" -vn -ac 1 -ar 22050 -c:a pcm_s16le -y \"" + audioPath + "\"";
+                            String cmdAudio = "-i \"" + targetFile.getAbsolutePath()
+                                    + "\" -vn -ac 1 -ar 22050 -c:a pcm_s16le -y \"" + audioPath + "\"";
                             FFmpegEdit.runAnyCommand(cmdAudio, "Preview Audio",
-                                () -> audioLatch.countDown(),
-                                () -> audioLatch.countDown(),
-                                log -> {}, stats -> {});
+                                    () -> audioLatch.countDown(),
+                                    () -> audioLatch.countDown(),
+                                    log -> {
+                                    }, stats -> {
+                                    });
                             audioLatch.await();
                         }
                     } else if (type == ClipType.AUDIO) {
                         String audioPath = previewClipPath.substring(0, previewClipPath.lastIndexOf('.')) + ".wav";
-                        String cmdAudio = "-i \"" + targetFile.getAbsolutePath() + "\" -vn -ac 1 -ar 22050 -c:a pcm_s16le -y \"" + audioPath + "\"";
+                        String cmdAudio = "-i \"" + targetFile.getAbsolutePath()
+                                + "\" -vn -ac 1 -ar 22050 -c:a pcm_s16le -y \"" + audioPath + "\"";
                         FFmpegEdit.runAnyCommand(cmdAudio, "Preview Audio",
-                            () -> latch.countDown(),
-                            () -> latch.countDown(),
-                            log -> {}, stats -> {});
+                                () -> latch.countDown(),
+                                () -> latch.countDown(),
+                                log -> {
+                                }, stats -> {
+                                });
                         latch.await();
                     }
 
-                    Platform.runLater(() -> addClipToMediaGrid(mediaGrid, clip));
+                    Platform.runLater(() -> {
+                        addClipToMediaGrid(mediaGrid, clip);
+                        if (startTime >= 0 && trackIdx >= 0) {
+                            clip.startTime = startTime;
+                            clip.trackIndex = trackIdx;
+                            while (timeline.tracks.size() <= trackIdx) {
+                                addNewTrack("Track " + (timeline.tracks.size() + 1));
+                            }
+                            timeline.tracks.get(trackIdx).addClip(clip);
+                            timeline.tracks.get(trackIdx).sortClips();
+                            saveProject();
+                            refreshTimelineUI();
+                        }
+                    });
                 }
                 return null;
             }
@@ -582,11 +658,11 @@ public class EditorWindow extends Stage {
 
         task.setOnSucceeded(e -> progressDialog.setResult(ButtonType.OK));
         task.setOnFailed(e -> progressDialog.setResult(ButtonType.CANCEL));
-        
+
         Thread thread = new Thread(task);
         thread.setDaemon(true);
         thread.start();
-        
+
         progressDialog.showAndWait();
     }
 
@@ -607,11 +683,12 @@ public class EditorWindow extends Stage {
         if (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE) {
             String imagePath;
             if (clip.type == ClipType.VIDEO) {
-                imagePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY, clip.getClipName() + ".jpg");
+                imagePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY,
+                        clip.getClipName() + ".jpg");
             } else {
                 imagePath = clip.getAbsolutePath(project);
             }
-            
+
             File imgFile = new File(imagePath);
             if (imgFile.exists()) {
                 Image img = new Image("file:" + imgFile.getAbsolutePath(), 60, 60, true, true);
@@ -621,13 +698,15 @@ public class EditorWindow extends Stage {
                 imageView.setPreserveRatio(true);
                 graphicNode = imageView;
             } else {
-                FontIcon icon = new FontIcon(clip.type == ClipType.VIDEO ? MaterialDesignM.MOVIE : MaterialDesignI.IMAGE);
+                FontIcon icon = new FontIcon(
+                        clip.type == ClipType.VIDEO ? MaterialDesignM.MOVIE : MaterialDesignI.IMAGE);
                 icon.setIconSize(32);
                 icon.setIconColor(Color.WHITE);
                 graphicNode = icon;
             }
         } else {
-            FontIcon icon = new FontIcon(clip.type == ClipType.AUDIO ? MaterialDesignM.MUSIC_NOTE : MaterialDesignF.FILE_QUESTION);
+            FontIcon icon = new FontIcon(
+                    clip.type == ClipType.AUDIO ? MaterialDesignM.MUSIC_NOTE : MaterialDesignF.FILE_QUESTION);
             icon.setIconSize(32);
             icon.setIconColor(Color.WHITE);
             graphicNode = icon;
@@ -646,7 +725,7 @@ public class EditorWindow extends Stage {
         box.setOnMousePressed(e -> {
             Clip copyClip = new Clip(clip);
             copyClip.trackIndex = 0;
-            
+
             activeDrag.clip = copyClip;
             activeDrag.currentTrackIdx = 0;
             activeDrag.dragOffsetX = e.getX();
@@ -657,7 +736,8 @@ public class EditorWindow extends Stage {
         });
 
         box.setOnMouseDragged(e -> {
-            if (activeDrag.clip == null || !activeDrag.isNewClip) return;
+            if (activeDrag.clip == null || !activeDrag.isNewClip)
+                return;
 
             if (!activeDrag.dragging) {
                 activeDrag.dragging = true;
@@ -695,17 +775,19 @@ public class EditorWindow extends Stage {
         });
 
         box.setOnMouseReleased(e -> {
-            if (activeDrag.clip == null || !activeDrag.isNewClip) return;
+            if (activeDrag.clip == null || !activeDrag.isNewClip)
+                return;
 
             if (activeDrag.dragging && activeDrag.ghost != null) {
-                double finalX   = activeDrag.ghost.getLayoutX();
-                int    newTrackIdx = activeDrag.currentTrackIdx;
+                double finalX = activeDrag.ghost.getLayoutX();
+                int newTrackIdx = activeDrag.currentTrackIdx;
 
                 tracksPane.getChildren().remove(activeDrag.ghost);
 
                 javafx.geometry.Point2D spLocal = tracksScrollPane.sceneToLocal(e.getSceneX(), e.getSceneY());
-                if (spLocal.getX() >= 0 && spLocal.getY() >= 0 && spLocal.getX() <= tracksScrollPane.getWidth() && spLocal.getY() <= tracksScrollPane.getHeight()) {
-                    float newStartTime = (float)(finalX / pixelsPerSecond);
+                if (spLocal.getX() >= 0 && spLocal.getY() >= 0 && spLocal.getX() <= tracksScrollPane.getWidth()
+                        && spLocal.getY() <= tracksScrollPane.getHeight()) {
+                    float newStartTime = (float) (finalX / pixelsPerSecond);
                     activeDrag.clip.startTime = Math.max(0f, newStartTime);
                     activeDrag.clip.trackIndex = newTrackIdx;
 
@@ -715,14 +797,14 @@ public class EditorWindow extends Stage {
 
                     timeline.tracks.get(newTrackIdx).addClip(activeDrag.clip);
                     timeline.tracks.get(newTrackIdx).sortClips();
-                    
+
                     saveProject();
                     refreshTimelineUI();
                 }
             }
 
-            activeDrag.clip    = null;
-            activeDrag.ghost   = null;
+            activeDrag.clip = null;
+            activeDrag.ghost = null;
             activeDrag.dragging = false;
             activeDrag.isNewClip = false;
             e.consume();
@@ -730,7 +812,7 @@ public class EditorWindow extends Stage {
     }
 
     // ====================================================================
-    //  CENTER — Preview Player
+    // CENTER — Preview Player
     // ====================================================================
     private VBox buildPreviewPanel() {
         VBox panel = new VBox();
@@ -753,13 +835,14 @@ public class EditorWindow extends Stage {
         canvas.layoutBoundsProperty().addListener((obs, oldBounds, newBounds) -> {
             double w = newBounds.getWidth() - 32;
             double h = newBounds.getHeight() - 32;
-            if (w <= 0 || h <= 0) return;
-            
+            if (w <= 0 || h <= 0)
+                return;
+
             double scale = Math.min(w / videoSettings.videoWidth, h / videoSettings.videoHeight);
-            
+
             renderPane.setScaleX(scale);
             renderPane.setScaleY(scale);
-            
+
             // Center the group in the canvas based on the unscaled dimensions
             renderGroup.setLayoutX(newBounds.getWidth() / 2.0 - videoSettings.videoWidth / 2.0);
             renderGroup.setLayoutY(newBounds.getHeight() / 2.0 - videoSettings.videoHeight / 2.0);
@@ -809,10 +892,9 @@ public class EditorWindow extends Stage {
         fullScreenBtn.getStyleClass().add("button-transparent");
 
         controls.getChildren().addAll(
-            currentTimeLabel, timeSep, durationLabel,
-            pbLeft, playBtn, pbRight,
-            fpsLabel, resLabel, hdrLabel, fullScreenBtn
-        );
+                currentTimeLabel, timeSep, durationLabel,
+                pbLeft, playBtn, pbRight,
+                fpsLabel, resLabel, hdrLabel, fullScreenBtn);
 
         panel.getChildren().addAll(canvas, controls);
         return panel;
@@ -826,7 +908,7 @@ public class EditorWindow extends Stage {
     }
 
     // ====================================================================
-    //  RIGHT PANEL — Properties / Smart Suggestions
+    // RIGHT PANEL — Properties / Smart Suggestions
     // ====================================================================
     private VBox buildRightPanel() {
         VBox panel = new VBox(0);
@@ -839,7 +921,7 @@ public class EditorWindow extends Stage {
         HBox tabs = new HBox(0);
         tabs.getStyleClass().add("editor-tab-strip");
         ToggleGroup tg = new ToggleGroup();
-        for (String t : new String[]{"Project", "Details"}) {
+        for (String t : new String[] { "Project", "Details" }) {
             ToggleButton tb = new ToggleButton(t);
             tb.setToggleGroup(tg);
             tb.getStyleClass().add("editor-tab");
@@ -870,7 +952,8 @@ public class EditorWindow extends Stage {
         geTitle.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
         globalEdits.getChildren().add(geTitle);
 
-        String[] edits = {"Make colors better", "Make colors consistent", "Make volume consistent", "Make voice clearer"};
+        String[] edits = { "Make colors better", "Make colors consistent", "Make volume consistent",
+                "Make voice clearer" };
         for (String edit : edits) {
             HBox row = new HBox(10);
             row.setAlignment(Pos.CENTER_LEFT);
@@ -892,17 +975,17 @@ public class EditorWindow extends Stage {
         rightScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
         panel.getChildren().addAll(tabs, rightScroll);
-        
+
         // Setup initial properties view
         updatePropertiesPane();
-        
+
         return panel;
     }
 
     private void updatePropertiesPane() {
         propertiesContent.getChildren().clear();
         propertiesContent.setPadding(new Insets(16));
-        
+
         if (selectedClip == null) {
             Label placeholder = new Label("Select a clip to view properties");
             placeholder.getStyleClass().add("text-muted");
@@ -927,7 +1010,8 @@ public class EditorWindow extends Stage {
                 selectedClip.startTime = Float.parseFloat(newValue);
                 refreshTimelineUI();
                 saveProject();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }));
 
         fields.getChildren().add(buildPropertyField("Duration", String.valueOf(selectedClip.duration), newValue -> {
@@ -935,7 +1019,8 @@ public class EditorWindow extends Stage {
                 selectedClip.duration = Float.parseFloat(newValue);
                 refreshTimelineUI();
                 saveProject();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }));
 
         propertiesContent.getChildren().addAll(sectionTitle, fields);
@@ -953,7 +1038,7 @@ public class EditorWindow extends Stage {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Keyframes panel (right side)
+    // Keyframes panel (right side)
     // ─────────────────────────────────────────────────────────────────────────
 
     private VBox buildKeyframesSection(Clip clip) {
@@ -964,7 +1049,8 @@ public class EditorWindow extends Stage {
         title.setStyle("-fx-font-size: 13px; -fx-font-weight: bold;");
 
         int count = clip.keyframes != null && clip.keyframes.keyframes != null
-                ? clip.keyframes.keyframes.size() : 0;
+                ? clip.keyframes.keyframes.size()
+                : 0;
         Label countLbl = new Label(count + " keyframe" + (count == 1 ? "" : "s"));
         countLbl.getStyleClass().add("text-muted");
         countLbl.setStyle("-fx-font-size: 11px;");
@@ -986,7 +1072,7 @@ public class EditorWindow extends Stage {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Transition panel (right side)
+    // Transition panel (right side)
     // ─────────────────────────────────────────────────────────────────────────
 
     private VBox buildTransitionSection(Clip clip) {
@@ -1024,7 +1110,8 @@ public class EditorWindow extends Stage {
                     .findFirst()
                     .ifPresent(entry -> {
                         if (tc.effect == null)
-                            tc.effect = new com.vanvatcorporation.doubleclips.data.editing.EffectTemplate(entry.getKey(), tc.duration, tc.startTime);
+                            tc.effect = new com.vanvatcorporation.doubleclips.data.editing.EffectTemplate(
+                                    entry.getKey(), tc.duration, tc.startTime);
                         else
                             tc.effect.style = entry.getKey();
                         saveProject();
@@ -1041,15 +1128,15 @@ public class EditorWindow extends Stage {
         ComboBox<String> modeCombo = new ComboBox<>();
         modeCombo.getItems().addAll("End First", "Overlap", "Begin Second");
         switch (tc.mode) {
-            case END_FIRST   -> modeCombo.setValue("End First");
-            case OVERLAP     -> modeCombo.setValue("Overlap");
-            case BEGIN_SECOND-> modeCombo.setValue("Begin Second");
+            case END_FIRST -> modeCombo.setValue("End First");
+            case OVERLAP -> modeCombo.setValue("Overlap");
+            case BEGIN_SECOND -> modeCombo.setValue("Begin Second");
         }
         modeCombo.setMaxWidth(Double.MAX_VALUE);
         modeCombo.setOnAction(e -> {
             switch (modeCombo.getValue()) {
-                case "End First"    -> tc.mode = TransitionClip.TransitionMode.END_FIRST;
-                case "Overlap"      -> tc.mode = TransitionClip.TransitionMode.OVERLAP;
+                case "End First" -> tc.mode = TransitionClip.TransitionMode.END_FIRST;
+                case "Overlap" -> tc.mode = TransitionClip.TransitionMode.OVERLAP;
                 case "Begin Second" -> tc.mode = TransitionClip.TransitionMode.BEGIN_SECOND;
             }
             saveProject();
@@ -1067,7 +1154,8 @@ public class EditorWindow extends Stage {
         durSpinner.setMaxWidth(Double.MAX_VALUE);
         durSpinner.valueProperty().addListener((obs, old, nv) -> {
             tc.duration = nv.floatValue();
-            if (tc.effect != null) tc.effect.duration = tc.duration;
+            if (tc.effect != null)
+                tc.effect.duration = tc.duration;
             saveProject();
         });
         durBox.getChildren().addAll(durLabel, durSpinner);
@@ -1076,7 +1164,9 @@ public class EditorWindow extends Stage {
         return box;
     }
 
-    /** A titled horizontal rule used as a section separator in the properties panel. */
+    /**
+     * A titled horizontal rule used as a section separator in the properties panel.
+     */
     private HBox buildSectionDivider(String label) {
         HBox row = new HBox(8);
         row.setAlignment(Pos.CENTER_LEFT);
@@ -1106,7 +1196,8 @@ public class EditorWindow extends Stage {
         tf.setOnAction(e -> onUpdate.accept(tf.getText()));
         // Also update on focus loss
         tf.focusedProperty().addListener((obs, oldVal, newVal) -> {
-            if (!newVal) onUpdate.accept(tf.getText());
+            if (!newVal)
+                onUpdate.accept(tf.getText());
         });
 
         box.getChildren().addAll(lbl, tf);
@@ -1114,7 +1205,7 @@ public class EditorWindow extends Stage {
     }
 
     // ====================================================================
-    //  BOTTOM — Timeline
+    // BOTTOM — Timeline
     // ====================================================================
     private VBox buildTimelineArea() {
         VBox timeline = new VBox(0);
@@ -1130,11 +1221,11 @@ public class EditorWindow extends Stage {
 
         // Selection / trim tools (left cluster)
         Button selectTool = buildToolBtn(MaterialDesignC.CURSOR_DEFAULT_OUTLINE);
-        Button sliceTool  = buildToolBtn(MaterialDesignS.SCISSORS_CUTTING);
+        Button sliceTool = buildToolBtn(MaterialDesignS.SCISSORS_CUTTING);
         sliceTool.setOnAction(e -> handleSplit());
-        
-        Button trimLeft   = buildToolBtn(MaterialDesignF.FORMAT_INDENT_DECREASE);
-        Button trimRight  = buildToolBtn(MaterialDesignF.FORMAT_INDENT_INCREASE);
+
+        Button trimLeft = buildToolBtn(MaterialDesignF.FORMAT_INDENT_DECREASE);
+        Button trimRight = buildToolBtn(MaterialDesignF.FORMAT_INDENT_INCREASE);
         Button deleteTool = buildToolBtn(MaterialDesignT.TRASH_CAN_OUTLINE);
         deleteTool.setOnAction(e -> handleDelete());
 
@@ -1160,7 +1251,8 @@ public class EditorWindow extends Stage {
         clearKfBtn.setTooltip(new Tooltip("Clear All Keyframes"));
         clearKfBtn.setOnAction(e -> handleClearKeyframes());
 
-        toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, keyframeBtn, clearKfBtn, toolSpacer, zoomLabel, zoomSlider);
+        toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, keyframeBtn, clearKfBtn,
+                toolSpacer, zoomLabel, zoomSlider);
 
         // --- Ruler + Track content ---
         HBox trackLayout = new HBox(0);
@@ -1225,6 +1317,81 @@ public class EditorWindow extends Stage {
         tracksPane.setPrefHeight(0); // Will be updated by refreshTimelineUI
 
         tracksPane.setOnMouseClicked(e -> deselectAll());
+
+        tracksPane.setOnDragOver(event -> {
+            if (event.getGestureSource() != tracksPane && event.getDragboard().hasFiles()) {
+                event.acceptTransferModes(javafx.scene.input.TransferMode.COPY);
+
+                ghostPlayheadLine.setVisible(true);
+
+                javafx.geometry.Point2D local = tracksPane.sceneToLocal(event.getSceneX(), event.getSceneY());
+                double rawX = local.getX();
+                double clampedX = Math.max(0, rawX);
+                int trackIdx = trackIdxFromLocalY(local.getY());
+
+                tempTime = (float) (clampedX / pixelsPerSecond);
+                updatePlayheadPosition();
+
+                if (activeDrag.ghost == null) {
+                    Clip ghostClip = new Clip("Importing...", 0, 5.0f, 0, ClipType.VIDEO, false, 1280, 720);
+                    ClipNode ghost = new ClipNode(ghostClip);
+                    ghost.getStyleClass().add("clip-node-ghost");
+                    ghost.setOpacity(0.4);
+                    double targetWidth = 5.0f * pixelsPerSecond;
+                    ghost.setPrefWidth(targetWidth);
+                    ghost.setPrefHeight(TRACK_HEIGHT);
+                    ghost.setMinWidth(targetWidth);
+                    ghost.setMinHeight(TRACK_HEIGHT);
+                    ghost.setMaxWidth(targetWidth);
+                    ghost.setMaxHeight(TRACK_HEIGHT);
+                    ghost.setMouseTransparent(true);
+                    tracksPane.getChildren().add(ghost);
+                    activeDrag.ghost = ghost;
+                }
+
+                activeDrag.ghost.setLayoutX(clampedX);
+                activeDrag.ghost.setLayoutY(trackIdx * (TRACK_HEIGHT + TRACK_SPACING) + 3);
+            }
+            event.consume();
+        });
+
+        tracksPane.setOnDragExited(event -> {
+            if (event.getDragboard().hasFiles()) {
+                ghostPlayheadLine.setVisible(false);
+                tempTime = -1;
+                updatePlayheadPosition();
+                if (activeDrag.ghost != null) {
+                    tracksPane.getChildren().remove(activeDrag.ghost);
+                    activeDrag.ghost = null;
+                }
+            }
+            event.consume();
+        });
+
+        tracksPane.setOnDragDropped(event -> {
+            javafx.scene.input.Dragboard db = event.getDragboard();
+            boolean success = false;
+            if (db.hasFiles()) {
+                javafx.geometry.Point2D local = tracksPane.sceneToLocal(event.getSceneX(), event.getSceneY());
+                float dropTime = (float) (Math.max(0, local.getX()) / pixelsPerSecond);
+                int dropTrack = trackIdxFromLocalY(local.getY());
+
+                handleImportFiles(db.getFiles(), this.mediaGrid, dropTime, dropTrack);
+                success = true;
+            }
+
+            ghostPlayheadLine.setVisible(false);
+            tempTime = -1;
+            updatePlayheadPosition();
+            if (activeDrag.ghost != null) {
+                tracksPane.getChildren().remove(activeDrag.ghost);
+                activeDrag.ghost = null;
+            }
+
+            event.setDropCompleted(success);
+            event.consume();
+        });
+
         tracksScrollPane.setContent(tracksPane);
 
         // Playhead overlay
@@ -1236,7 +1403,7 @@ public class EditorWindow extends Stage {
         playheadLine.setStroke(Color.web("#FF3B30"));
         playheadLine.setStrokeWidth(2);
         playheadLine.setManaged(false);
-        
+
         ghostPlayheadLine = new Line(0, 0, 0, 1000);
         ghostPlayheadLine.setStroke(Color.web("#FF3B30"));
         ghostPlayheadLine.setStrokeWidth(1.5);
@@ -1244,7 +1411,7 @@ public class EditorWindow extends Stage {
         ghostPlayheadLine.getStrokeDashArray().addAll(4d, 4d);
         ghostPlayheadLine.setVisible(false);
         ghostPlayheadLine.setManaged(false);
-        
+
         Pane playheadOverlay = new Pane(playheadLine, ghostPlayheadLine);
         playheadOverlay.setMouseTransparent(true);
         tracksWithPlayhead.getChildren().add(playheadOverlay);
@@ -1252,10 +1419,10 @@ public class EditorWindow extends Stage {
         // --- Playhead Sync Listeners ---
         // Update position when scrolling
         tracksScrollPane.hvalueProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
-        
+
         // Update position when resizing viewport
         tracksScrollPane.viewportBoundsProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
-        
+
         // Update position when content width changes (e.g. zoom)
         tracksPane.widthProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
 
@@ -1281,7 +1448,7 @@ public class EditorWindow extends Stage {
                 double delta = e.getDeltaY();
                 // Map the delta dynamically (standard mouse notch is +/- 40 = 1.1 scale)
                 double zoomFactor = 1.0 + (delta / 400.0);
-                
+
                 if (zoomFactor != 1.0 && zoomFactor > 0) {
                     double newZoom = zoomSlider.getValue() * zoomFactor;
                     zoomSlider.setValue(Math.min(zoomSlider.getMax(), Math.max(zoomSlider.getMin(), newZoom)));
@@ -1295,12 +1462,11 @@ public class EditorWindow extends Stage {
         return timeline;
     }
 
-
     private float getRulerInterval(float pixelsPerSecond) {
         // Preferred intervals in seconds
         float[] intervals = {
-            1/30f, 2/30f, 5/30f, 10/30f, 15/30f, // Frames: 1, 2, 5, 10, 15
-            1f, 2f, 4f, 8f, 16f, 32f, 64f, 128f, 256f, 512f, 1024f // Seconds: Doubling
+                1 / 30f, 2 / 30f, 5 / 30f, 10 / 30f, 15 / 30f, // Frames: 1, 2, 5, 10, 15
+                1f, 2f, 4f, 8f, 16f, 32f, 64f, 128f, 256f, 512f, 1024f // Seconds: Doubling
         };
 
         // Aim for at least 80 pixels between major ticks for readability
@@ -1319,16 +1485,20 @@ public class EditorWindow extends Stage {
         int f = totalFrames % 30;
 
         if (interval >= 1.0f) {
-            if (sec == 0 && f == 0) return "0s";
+            if (sec == 0 && f == 0)
+                return "0s";
             int m = sec / 60;
             int s = sec % 60;
-            if (m > 0) return m + "m" + s + "s";
+            if (m > 0)
+                return m + "m" + s + "s";
             return s + "s";
         } else {
-            if (f == 0) return sec + "s";
+            if (f == 0)
+                return sec + "s";
             return f + "f";
         }
     }
+
     private void buildRuler(double width) {
         Pane ruler = new Pane();
         ruler.setPrefWidth(width);
@@ -1340,7 +1510,7 @@ public class EditorWindow extends Stage {
         float majorPixels = pixelsPerSecond * rulerInterval;
         float visibleDuration = (float) (width / pixelsPerSecond);
         long steps = (long) Math.ceil(visibleDuration / rulerInterval);
-        
+
         int framesInInterval = Math.round(rulerInterval * 30f);
         float pixelsPerFrame = pixelsPerSecond / 30f;
 
@@ -1364,14 +1534,14 @@ public class EditorWindow extends Stage {
                 for (int f = 1; f < framesInInterval; f++) {
                     float subT = t + (f / 30f);
                     double subX = subT * pixelsPerSecond;
-                    
+
                     // Only draw if there's enough space (at least 4px between minor ticks)
                     if (pixelsPerFrame >= 4f) {
                         Line subTick = new Line(subX, 18, subX, 30);
                         subTick.getStyleClass().add("ruler-tick-minor");
                         subTick.setStyle("-fx-opacity: 0.5;");
                         ruler.getChildren().add(subTick);
-                        
+
                         // Optional: Frame labels if very zoomed in
                         if (pixelsPerFrame >= 40f && framesInInterval > 1) {
                             javafx.scene.text.Text subLabel = new javafx.scene.text.Text(subX + 1.5, 9, f + "f");
@@ -1393,7 +1563,7 @@ public class EditorWindow extends Stage {
         ruler.setOnMouseEntered(e -> ghostPlayheadLine.setVisible(true));
         ruler.setOnMouseMoved(e -> {
             double x = e.getX();
-            tempTime = (float)(x / pixelsPerSecond);
+            tempTime = (float) (x / pixelsPerSecond);
             currentTimeLabel.setText(formatTimecode(tempTime));
             updatePlayheadPosition();
             if (timelineRenderer != null) {
@@ -1410,7 +1580,7 @@ public class EditorWindow extends Stage {
             }
         });
         ruler.setOnMouseClicked(e -> {
-            updateCurrentTime((float)(e.getX() / pixelsPerSecond));
+            updateCurrentTime((float) (e.getX() / pixelsPerSecond));
         });
 
         rulerScrollPane.setContent(ruler);
@@ -1428,18 +1598,17 @@ public class EditorWindow extends Stage {
         Rectangle band = new Rectangle(0, y, 8000, TRACK_HEIGHT);
         band.getStyleClass().add((timeline.tracks.size() - 1) % 2 == 0 ? "track-band-even" : "track-band-odd");
         tracksPane.getChildren().add(band);
-        
+
         // Ensure tracksPane height is synced with headers
         tracksPane.setPrefHeight(timeline.tracks.size() * (TRACK_HEIGHT + TRACK_SPACING));
 
-        
         track.viewRef = band; // Keep reference if needed
 
         // Add a sample clip to the first track for visualization
         if (timeline.tracks.size() == 1) {
             addClipToTrack(track, new Clip("Sample Video", 1.2f, 5.0f, 0, ClipType.VIDEO, true, 1920, 1080));
         }
-        
+
         saveProject(); // Auto-save on track creation
     }
 
@@ -1453,14 +1622,16 @@ public class EditorWindow extends Stage {
         if (clip.type == ClipType.VIDEO) {
             thumbnailExecutor.submit(() -> {
                 int tileCount = node.getTileCount();
-                if (tileCount <= 0) return;
-                    float tileDuration = (float) (clip.duration / tileCount);
-                    for (int i = 0; i < tileCount; i++) {
-                        // Stop extracting if node was removed or hidden
-                        if (node.getParent() == null) return;
+                if (tileCount <= 0)
+                    return;
+                float tileDuration = (float) (clip.duration / tileCount);
+                for (int i = 0; i < tileCount; i++) {
+                    // Stop extracting if node was removed or hidden
+                    if (node.getParent() == null)
+                        return;
 
-                        float time = clip.startClipTrim + (i * tileDuration);
-                        Image img = decodeVideoFrame(clip, time);
+                    float time = clip.startClipTrim + (i * tileDuration);
+                    Image img = decodeVideoFrame(clip, time);
                     if (img != null) {
                         int finalI = i;
                         javafx.application.Platform.runLater(() -> node.setThumbnailImage(finalI, img));
@@ -1470,7 +1641,8 @@ public class EditorWindow extends Stage {
         } else if (clip.type == ClipType.AUDIO) {
             thumbnailExecutor.submit(() -> {
                 Image img = AudioUtils.generateAudioWaveformImage(
-                        clip.getAbsolutePreviewPath(project, ".wav"), clip, pixelsPerSecond, (int) TRACK_HEIGHT, 1, 0); // 2 1
+                        clip.getAbsolutePreviewPath(project, ".wav"), clip, pixelsPerSecond, (int) TRACK_HEIGHT, 1, 0); // 2
+                                                                                                                        // 1
                 if (img != null) {
                     javafx.application.Platform.runLater(() -> node.setSingleThumbnail(img));
                 }
@@ -1483,13 +1655,16 @@ public class EditorWindow extends Stage {
                         Image img = new Image(file.toURI().toString(), -1, TRACK_HEIGHT, true, true);
                         javafx.application.Platform.runLater(() -> node.setSingleThumbnail(img));
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             });
         } else {
             thumbnailExecutor.submit(() -> {
                 javafx.scene.image.WritableImage empty = new javafx.scene.image.WritableImage(1, (int) TRACK_HEIGHT);
-                javafx.scene.paint.Color fill = clip.type == ClipType.TEXT ? javafx.scene.paint.Color.web("#AAFF0000") : javafx.scene.paint.Color.web("#AAFFFF00");
-                for (int y = 0; y < TRACK_HEIGHT; y++) empty.getPixelWriter().setColor(0, y, fill);
+                javafx.scene.paint.Color fill = clip.type == ClipType.TEXT ? javafx.scene.paint.Color.web("#AAFF0000")
+                        : javafx.scene.paint.Color.web("#AAFFFF00");
+                for (int y = 0; y < TRACK_HEIGHT; y++)
+                    empty.getPixelWriter().setColor(0, y, fill);
                 javafx.application.Platform.runLater(() -> node.setSingleThumbnail(empty));
             });
         }
@@ -1506,27 +1681,37 @@ public class EditorWindow extends Stage {
                 previewFile = mp4File;
             } else {
                 previewFile = new java.io.File(clip.getAbsolutePath(project));
-                if (!previewFile.exists()) return null;
+                if (!previewFile.exists())
+                    return null;
             }
         }
 
         // Standard low-res for thumbnails - Ensure EVEN dimensions for FFmpeg
         int sampleSize = com.vanvatcorporation.doubleclips.constants.Constants.SAMPLE_SIZE_PREVIEW_CLIP;
         int w = (1280 / sampleSize) & ~1; // Force even
-        int h = (720 / sampleSize) & ~1;  // Force even
-        if (w <= 0) w = 80;
-        if (h <= 0) h = 45; // Wait, 45 is odd. Let's use 44 or 46.
-        if ((h % 2) != 0) h++;
+        int h = (720 / sampleSize) & ~1; // Force even
+        if (w <= 0)
+            w = 80;
+        if (h <= 0)
+            h = 45; // Wait, 45 is odd. Let's use 44 or 46.
+        if ((h % 2) != 0)
+            h++;
 
         java.util.List<String> cmd = new java.util.ArrayList<>();
         cmd.add(com.vanvatcorporation.doubleclips.FFmpegEdit.getFfmpegPath());
         cmd.add("-accurate_seek");
-        cmd.add("-ss"); cmd.add(String.format(java.util.Locale.US, "%.6f", clipTime));
-        cmd.add("-i"); cmd.add(previewFile.getAbsolutePath());
-        cmd.add("-vframes"); cmd.add("1");
-        cmd.add("-vf"); cmd.add("scale=" + w + ":" + h);
-        cmd.add("-f");        cmd.add("rawvideo");
-        cmd.add("-pix_fmt");  cmd.add("bgra");
+        cmd.add("-ss");
+        cmd.add(String.format(java.util.Locale.US, "%.6f", clipTime));
+        cmd.add("-i");
+        cmd.add(previewFile.getAbsolutePath());
+        cmd.add("-vframes");
+        cmd.add("1");
+        cmd.add("-vf");
+        cmd.add("scale=" + w + ":" + h);
+        cmd.add("-f");
+        cmd.add("rawvideo");
+        cmd.add("-pix_fmt");
+        cmd.add("bgra");
         cmd.add("pipe:1");
 
         try {
@@ -1552,13 +1737,14 @@ public class EditorWindow extends Stage {
                     pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
                 }
                 javafx.scene.image.WritableImage fxImage = new javafx.scene.image.WritableImage(w, h);
-                fxImage.getPixelWriter().setPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(), pixels, 0, w);
+                fxImage.getPixelWriter().setPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(),
+                        pixels, 0, w);
                 return fxImage;
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return null;
     }
-
 
     private void refreshTimelineUI() {
         timeline.recalculateDuration();
@@ -1566,15 +1752,14 @@ public class EditorWindow extends Stage {
 
         double totalDuration = timeline.duration;
         double contentWidth = Math.max(1200, totalDuration * pixelsPerSecond + 1000); // Add 1000px padding at end
-        
+
         // Refresh Ruler
         buildRuler(contentWidth);
-        
+
         // Refresh Clips and Tracks
         tracksPane.getChildren().clear();
         tracksPane.setPrefWidth(contentWidth);
         tracksPane.setPrefHeight(timeline.tracks.size() * (TRACK_HEIGHT + TRACK_SPACING));
-
 
         for (Track track : timeline.tracks) {
             // Add track band
@@ -1589,12 +1774,12 @@ public class EditorWindow extends Stage {
                 renderClipUI(track, clip);
             }
         }
-        
+
         // Rebuild TimelineRenderer
         if (timelineRenderer != null) {
             timelineRenderer.buildTimeline(timeline);
         }
-        
+
         // Update playhead
         updateCurrentTime(currentTime);
     }
@@ -1615,7 +1800,8 @@ public class EditorWindow extends Stage {
         node.setMaxWidth(w);
         node.setMaxHeight(h);
 
-        if (selectedClip == clip) node.setSelected(true);
+        if (selectedClip == clip)
+            node.setSelected(true);
 
         setupClipInteraction(node);
         tracksPane.getChildren().add(node);
@@ -1632,7 +1818,7 @@ public class EditorWindow extends Stage {
     }
 
     // =========================================================================
-    //  Transition cube rendering
+    // Transition cube rendering
     // =========================================================================
 
     private static final double TRANSITION_CUBE_SIZE = 16.0;
@@ -1647,13 +1833,16 @@ public class EditorWindow extends Stage {
         // Find the next clip in this track (sorted by startTime)
         Clip next = null;
         for (Clip c : track.clips) {
-            if (c == clip) continue;
+            if (c == clip)
+                continue;
             float gap = c.startTime - (clip.startTime + clip.duration);
             if (gap >= -SNAP_TOLERANCE && gap <= SNAP_TOLERANCE) {
-                if (next == null || c.startTime < next.startTime) next = c;
+                if (next == null || c.startTime < next.startTime)
+                    next = c;
             }
         }
-        if (next == null) return;
+        if (next == null)
+            return;
 
         // Ensure the transition data object exists on the source clip
         if (clip.endTransition == null) {
@@ -1661,10 +1850,11 @@ public class EditorWindow extends Stage {
         }
         clip.endTransitionEnabled = true;
 
-        // Position of the cube: horizontally at the right edge of clip, vertically centred
+        // Position of the cube: horizontally at the right edge of clip, vertically
+        // centred
         double trackY = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
-        double cubeX  = (clip.startTime + clip.duration) * pixelsPerSecond - TRANSITION_CUBE_SIZE / 2.0;
-        double cubeY  = trackY + (TRACK_HEIGHT / 2.0) - (TRANSITION_CUBE_SIZE / 2.0);
+        double cubeX = (clip.startTime + clip.duration) * pixelsPerSecond - TRANSITION_CUBE_SIZE / 2.0;
+        double cubeY = trackY + (TRACK_HEIGHT / 2.0) - (TRANSITION_CUBE_SIZE / 2.0);
 
         Rectangle cube = new Rectangle(cubeX, cubeY, TRANSITION_CUBE_SIZE, TRANSITION_CUBE_SIZE);
         cube.setArcWidth(3);
@@ -1677,7 +1867,7 @@ public class EditorWindow extends Stage {
 
         // Hover highlight
         cube.setOnMouseEntered(e -> cube.setFill(Color.web("#7B85FF")));
-        cube.setOnMouseExited(e  -> cube.setFill(Color.web("#5C67FF")));
+        cube.setOnMouseExited(e -> cube.setFill(Color.web("#5C67FF")));
 
         // Click → select transition and show in right panel
         Clip finalClip = clip;
@@ -1692,16 +1882,18 @@ public class EditorWindow extends Stage {
     }
 
     // =========================================================================
-    //  Keyframe helpers
+    // Keyframe helpers
     // =========================================================================
 
     private void handleAddKeyframe() {
-        if (selectedClip == null) return;
+        if (selectedClip == null)
+            return;
         Clip clip = selectedClip;
 
         // localTime of playhead within this clip
         float localTime = currentTime - clip.startTime;
-        if (localTime < 0 || localTime > clip.duration) return;
+        if (localTime < 0 || localTime > clip.duration)
+            return;
 
         // Build keyframe snapshot from current clip properties (copy constructor)
         Keyframe kf = new Keyframe(localTime,
@@ -1711,7 +1903,8 @@ public class EditorWindow extends Stage {
         // Prevent duplicate at same time
         boolean exists = clip.keyframes.keyframes.stream()
                 .anyMatch(k -> Math.abs(k.getLocalTime() - localTime) < 0.001f);
-        if (exists) return;
+        if (exists)
+            return;
 
         clip.keyframes.keyframes.add(kf);
         clip.keyframes.sortKeyframe();
@@ -1726,7 +1919,8 @@ public class EditorWindow extends Stage {
     }
 
     private void handleClearKeyframes() {
-        if (selectedClip == null) return;
+        if (selectedClip == null)
+            return;
         selectedClip.keyframes.keyframes.clear();
         if (selectedClip.viewRef instanceof ClipNode cn) {
             cn.clearKeyframeKnots();
@@ -1736,7 +1930,7 @@ public class EditorWindow extends Stage {
     }
 
     // =========================================================================
-    //  Clip Interaction — CapCut-style: click = select, drag = immediate move
+    // Clip Interaction — CapCut-style: click = select, drag = immediate move
     // =========================================================================
     private void setupClipInteraction(ClipNode node) {
         Clip clip = node.getContainerClip();
@@ -1746,22 +1940,23 @@ public class EditorWindow extends Stage {
             selectClip(clip);
 
             // Prepare drag context
-            activeDrag.clip          = clip;
+            activeDrag.clip = clip;
             activeDrag.currentTrackIdx = clip.trackIndex;
-            activeDrag.dragOffsetX   = e.getX();   // offset within the node
-            activeDrag.dragging      = false;
-            activeDrag.ghost         = null;
-            activeDrag.isNewClip     = false;
+            activeDrag.dragOffsetX = e.getX(); // offset within the node
+            activeDrag.dragging = false;
+            activeDrag.ghost = null;
+            activeDrag.isNewClip = false;
             e.consume();
         });
 
         node.setOnMouseDragged(e -> {
-            if (activeDrag.clip != clip || activeDrag.isNewClip) return;
+            if (activeDrag.clip != clip || activeDrag.isNewClip)
+                return;
 
             // Create ghost on first drag pixel (CapCut style — no threshold)
             if (!activeDrag.dragging) {
                 activeDrag.dragging = true;
-                node.setVisible(false);             // hide original
+                node.setVisible(false); // hide original
                 ClipNode ghost = new ClipNode(clip);
                 ghost.getStyleClass().add("clip-node-ghost");
                 ghost.setOpacity(0.55);
@@ -1801,20 +1996,21 @@ public class EditorWindow extends Stage {
         });
 
         node.setOnMouseReleased(e -> {
-            if (activeDrag.clip != clip || activeDrag.isNewClip) return;
+            if (activeDrag.clip != clip || activeDrag.isNewClip)
+                return;
 
             if (activeDrag.dragging && activeDrag.ghost != null) {
-                double finalX   = activeDrag.ghost.getLayoutX();
-                double finalY   = activeDrag.ghost.getLayoutY();
-                int    newTrackIdx = activeDrag.currentTrackIdx;
+                double finalX = activeDrag.ghost.getLayoutX();
+                double finalY = activeDrag.ghost.getLayoutY();
+                int newTrackIdx = activeDrag.currentTrackIdx;
 
                 // Remove ghost
                 tracksPane.getChildren().remove(activeDrag.ghost);
 
                 durationLabel.setText(formatTimecode(currentTime));
                 // Update model
-                float newStartTime = (float)(finalX / pixelsPerSecond);
-                clip.startTime     = Math.max(0f, newStartTime);
+                float newStartTime = (float) (finalX / pixelsPerSecond);
+                clip.startTime = Math.max(0f, newStartTime);
 
                 updateCurrentClipEnd();
 
@@ -1829,8 +2025,8 @@ public class EditorWindow extends Stage {
             }
 
             // Reset drag state
-            activeDrag.clip    = null;
-            activeDrag.ghost   = null;
+            activeDrag.clip = null;
+            activeDrag.ghost = null;
             activeDrag.dragging = false;
             node.setVisible(true);
 
@@ -1842,7 +2038,7 @@ public class EditorWindow extends Stage {
 
     /** Map a Y position in tracksPane-local coords to a track index. */
     private int trackIdxFromLocalY(double localY) {
-        int idx = (int)(localY / (TRACK_HEIGHT + TRACK_SPACING));
+        int idx = (int) (localY / (TRACK_HEIGHT + TRACK_SPACING));
         return Math.max(0, Math.min(timeline.tracks.size() - 1, idx));
     }
 
@@ -1855,19 +2051,25 @@ public class EditorWindow extends Stage {
 
         // 1. Snap to playhead
         double playheadX = currentTime * pixelsPerSecond;
-        if (Math.abs(ghostX   - playheadX) < SNAP_THRESHOLD) return playheadX;
-        if (Math.abs(ghostEnd - playheadX) < SNAP_THRESHOLD) return playheadX - ghostWidth;
+        if (Math.abs(ghostX - playheadX) < SNAP_THRESHOLD)
+            return playheadX;
+        if (Math.abs(ghostEnd - playheadX) < SNAP_THRESHOLD)
+            return playheadX - ghostWidth;
 
         // 2. Snap to clip edges on current + neighbour tracks
         for (int j = 0; j < timeline.tracks.size(); j++) {
-            if (Math.abs(j - currentTrackIdx) > 1) continue;  // only neighbours
+            if (Math.abs(j - currentTrackIdx) > 1)
+                continue; // only neighbours
             for (Clip other : timeline.tracks.get(j).clips) {
-                if (other == activeDrag.clip) continue;
+                if (other == activeDrag.clip)
+                    continue;
                 double otherStart = other.startTime * pixelsPerSecond;
-                double otherEnd   = (other.startTime + other.duration) * pixelsPerSecond;
+                double otherEnd = (other.startTime + other.duration) * pixelsPerSecond;
 
-                if (Math.abs(ghostX   - otherEnd)   < SNAP_THRESHOLD) return otherEnd;
-                if (Math.abs(ghostEnd - otherStart)  < SNAP_THRESHOLD) return otherStart - ghostWidth;
+                if (Math.abs(ghostX - otherEnd) < SNAP_THRESHOLD)
+                    return otherEnd;
+                if (Math.abs(ghostEnd - otherStart) < SNAP_THRESHOLD)
+                    return otherStart - ghostWidth;
             }
         }
         return ghostX;
@@ -1879,7 +2081,7 @@ public class EditorWindow extends Stage {
             prev.setSelected(false);
         }
 
-        selectedClip  = clip;
+        selectedClip = clip;
         selectedTrack = timeline.tracks.get(clip.trackIndex);
 
         if (clip.viewRef instanceof ClipNode cn) {
@@ -1893,7 +2095,7 @@ public class EditorWindow extends Stage {
         if (selectedClip != null && selectedClip.viewRef instanceof ClipNode cn) {
             cn.setSelected(false);
         }
-        selectedClip  = null;
+        selectedClip = null;
         selectedTrack = null;
         updatePropertiesPane();
     }
@@ -1925,12 +2127,12 @@ public class EditorWindow extends Stage {
         // Model logic
         Track track = timeline.tracks.get(clip.trackIndex);
         float localSplitTime = currentTime - clip.startTime;
-        
+
         Clip secondPart = new Clip(clip);
         secondPart.startTime = currentTime;
         secondPart.duration = clip.duration - localSplitTime;
         clip.duration = localSplitTime;
-        
+
         track.addClip(secondPart);
         track.sortClips();
     }
@@ -1952,7 +2154,6 @@ public class EditorWindow extends Stage {
         refreshTimelineUI();
         saveProject(); // Auto-save on delete
     }
-
 
     private HBox buildTrackHeader(String name) {
         HBox header = new HBox(6);
