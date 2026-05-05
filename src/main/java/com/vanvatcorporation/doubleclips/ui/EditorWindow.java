@@ -1621,6 +1621,27 @@ public class EditorWindow extends Stage {
             easingCombo.setDisable(true);
         }
 
+        Runnable updater = () -> {
+            float currentTime = this.currentTime;
+
+            if (tempTime >= 0) {
+                currentTime = tempTime;
+            }
+
+
+            if (clip != null && clip.keyframes != null) {
+                Keyframe updaterKf = clip.keyframes.getKeyframeAtTime(clip, currentTime);
+                if (updaterKf != null) {
+                    easingCombo.setValue(updaterKf.easing);
+                    easingCombo.setDisable(false);
+                } else {
+                    easingCombo.setDisable(true);
+                }
+            }
+        };
+
+        propertyUpdaters.add(updater);
+
         easingCombo.setOnAction(e -> {
             if (currentKf != null) {
                 EasingType oldEasing = currentKf.easing;
