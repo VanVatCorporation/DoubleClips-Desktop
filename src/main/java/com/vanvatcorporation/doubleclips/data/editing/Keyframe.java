@@ -18,6 +18,10 @@ public class Keyframe implements Serializable {
         return time;
     }
 
+    public void setLocalTime(float time) {
+        this.time = time;
+    }
+
     public float getGlobalTime(Clip clip) {
         return time + clip.startTime;
     }

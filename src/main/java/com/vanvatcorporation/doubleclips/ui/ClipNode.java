@@ -36,6 +36,9 @@ public class ClipNode extends Pane {
     private final Label   nameLabel;
     private final Label   timecodeLabel;
     private final Rectangle selBorder;
+    
+    private java.util.function.Consumer<Keyframe> onKeyframeClicked;
+    private Runnable onKeyframesModified;
 
     public ClipNode(Clip clip) {
         this.clip = clip;
@@ -148,6 +151,9 @@ public class ClipNode extends Pane {
     }
 
     public Clip getContainerClip() { return clip; }
+    
+    public void setOnKeyframeClicked(java.util.function.Consumer<Keyframe> handler) { this.onKeyframeClicked = handler; }
+    public void setOnKeyframesModified(Runnable handler) { this.onKeyframesModified = handler; }
 
     // ── Keyframe diamonds ──────────────────────────────────────────────────────
 
@@ -186,6 +192,54 @@ public class ClipNode extends Pane {
             // LayoutX/Y refer to the top-left of the un-rotated bounding box
             knot.setLayoutX(cx - knotSize / 2.0);
             knot.setLayoutY(cy - knotSize / 2.0);
+
+            // Interaction
+            knot.setOnMouseClicked(e -> {
+                if (e.isStillSincePress() && onKeyframeClicked != null) {
+                    onKeyframeClicked.accept(kf);
+                    e.consume();
+                }
+            });
+
+            final double[] dragStartX = new double[1];
+            final double[] originalKnotX = new double[1];
+
+            knot.setOnMousePressed(e -> {
+                dragStartX[0] = e.getSceneX();
+                originalKnotX[0] = knot.getLayoutX();
+                e.consume();
+            });
+
+            knot.setOnMouseDragged(e -> {
+                double deltaX = e.getSceneX() - dragStartX[0];
+                double newLayoutX = originalKnotX[0] + deltaX;
+                
+                // Clamp to clip bounds (0 to width)
+                double minX = -knotSize / 2.0;
+                double maxX = getWidth() - knotSize / 2.0;
+                newLayoutX = Math.max(minX, Math.min(maxX, newLayoutX));
+                
+                knot.setLayoutX(newLayoutX);
+                
+                // Update keyframe time temporarily
+                double newCx = newLayoutX + knotSize / 2.0;
+                double newLocalTime = newCx / pixelsPerSecond;
+                kf.setLocalTime((float) newLocalTime);
+                
+                e.consume();
+            });
+
+            knot.setOnMouseReleased(e -> {
+                if (!e.isStillSincePress()) {
+                    if (clip.keyframes != null) {
+                        clip.keyframes.sortKeyframe();
+                    }
+                    if (onKeyframesModified != null) {
+                        onKeyframesModified.run();
+                    }
+                }
+                e.consume();
+            });
 
             getChildren().add(knot);
         }

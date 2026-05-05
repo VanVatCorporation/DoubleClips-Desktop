@@ -2123,6 +2123,15 @@ public class EditorWindow extends Stage {
             node.setSelected(true);
 
         setupClipInteraction(node);
+        node.setOnKeyframeClicked(kf -> {
+            updateCurrentTime(kf.getGlobalTime(clip));
+            refreshTimelineUI();
+        });
+        node.setOnKeyframesModified(() -> {
+            saveProject();
+            refreshTimelineUI();
+            updatePropertiesPane();
+        });
         tracksPane.getChildren().add(node);
         clip.viewRef = node;
 
