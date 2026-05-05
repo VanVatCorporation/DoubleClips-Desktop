@@ -17,6 +17,8 @@ public class AppSettings {
     
     private final StringProperty deleteKeybind = new SimpleStringProperty();
     private final StringProperty selectAllKeybind = new SimpleStringProperty();
+    private final StringProperty undoKeybind = new SimpleStringProperty();
+    private final StringProperty redoKeybind = new SimpleStringProperty();
 
     private AppSettings() {
         prefs = Preferences.userNodeForPackage(AppSettings.class);
@@ -27,6 +29,8 @@ public class AppSettings {
         earlyAccessNotifications.set(prefs.getBoolean("early_access_notifications", true));
         deleteKeybind.set(prefs.get("delete_keybind", "DELETE"));
         selectAllKeybind.set(prefs.get("select_all_keybind", "Shortcut+A"));
+        undoKeybind.set(prefs.get("undo_keybind", "Shortcut+Z"));
+        redoKeybind.set(prefs.get("redo_keybind", "Shortcut+Shift+Z"));
 
         // Save on change
         themeMode.addListener((obs, oldVal, newVal) -> prefs.put("theme_mode", newVal));
@@ -34,6 +38,8 @@ public class AppSettings {
         earlyAccessNotifications.addListener((obs, oldVal, newVal) -> prefs.putBoolean("early_access_notifications", newVal));
         deleteKeybind.addListener((obs, oldVal, newVal) -> prefs.put("delete_keybind", newVal));
         selectAllKeybind.addListener((obs, oldVal, newVal) -> prefs.put("select_all_keybind", newVal));
+        undoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("undo_keybind", newVal));
+        redoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("redo_keybind", newVal));
     }
 
     public static AppSettings getInstance() {
@@ -59,4 +65,12 @@ public class AppSettings {
     public String getSelectAllKeybind() { return selectAllKeybind.get(); }
     public void setSelectAllKeybind(String value) { selectAllKeybind.set(value); }
     public StringProperty selectAllKeybindProperty() { return selectAllKeybind; }
+
+    public String getUndoKeybind() { return undoKeybind.get(); }
+    public void setUndoKeybind(String value) { undoKeybind.set(value); }
+    public StringProperty undoKeybindProperty() { return undoKeybind; }
+
+    public String getRedoKeybind() { return redoKeybind.get(); }
+    public void setRedoKeybind(String value) { redoKeybind.set(value); }
+    public StringProperty redoKeybindProperty() { return redoKeybind; }
 }

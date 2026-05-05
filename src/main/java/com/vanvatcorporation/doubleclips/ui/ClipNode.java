@@ -39,6 +39,8 @@ public class ClipNode extends Pane {
     
     private java.util.function.Consumer<Keyframe> onKeyframeClicked;
     private Runnable onKeyframesModified;
+    public interface KeyframeMoveHandler { void onKeyframeMoved(Keyframe kf, float oldTime, float newTime); }
+    private KeyframeMoveHandler onKeyframeMoved;
 
     public ClipNode(Clip clip) {
         this.clip = clip;
@@ -154,6 +156,7 @@ public class ClipNode extends Pane {
     
     public void setOnKeyframeClicked(java.util.function.Consumer<Keyframe> handler) { this.onKeyframeClicked = handler; }
     public void setOnKeyframesModified(Runnable handler) { this.onKeyframesModified = handler; }
+    public void setOnKeyframeMoved(KeyframeMoveHandler handler) { this.onKeyframeMoved = handler; }
 
     // ── Keyframe diamonds ──────────────────────────────────────────────────────
 
@@ -203,10 +206,12 @@ public class ClipNode extends Pane {
 
             final double[] dragStartX = new double[1];
             final double[] originalKnotX = new double[1];
+            final float[] oldTime = new float[1];
 
             knot.setOnMousePressed(e -> {
                 dragStartX[0] = e.getSceneX();
                 originalKnotX[0] = knot.getLayoutX();
+                oldTime[0] = kf.getLocalTime();
                 e.consume();
             });
 
@@ -233,6 +238,9 @@ public class ClipNode extends Pane {
                 if (!e.isStillSincePress()) {
                     if (clip.keyframes != null) {
                         clip.keyframes.sortKeyframe();
+                    }
+                    if (onKeyframeMoved != null) {
+                        onKeyframeMoved.onKeyframeMoved(kf, oldTime[0], kf.getLocalTime());
                     }
                     if (onKeyframesModified != null) {
                         onKeyframesModified.run();

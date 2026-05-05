@@ -4,6 +4,7 @@ import com.vanvatcorporation.doubleclips.AudioUtils;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.*;
 import com.vanvatcorporation.doubleclips.data.editing.*;
+import com.vanvatcorporation.doubleclips.history.*;
 import com.vanvatcorporation.doubleclips.helper.DateHelper;
 import com.vanvatcorporation.doubleclips.ui.renderer.TimelineRenderer;
 import com.vanvatcorporation.doubleclips.helper.MediaHelper;
@@ -43,6 +44,7 @@ public class EditorWindow extends Stage {
     private VideoSettings videoSettings;
 
     private TimelineRenderer timelineRenderer;
+    private final HistoryManager historyManager = new HistoryManager();
 
     // Editor State
     private float currentTime = 0f;
@@ -183,7 +185,32 @@ public class EditorWindow extends Stage {
                     selectAllMatched = true;
             }
 
-            if (deleteMatched || (event.getCode() == javafx.scene.input.KeyCode.BACK_SPACE
+            String undoBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance()
+                    .getUndoKeybind();
+            String redoBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance()
+                    .getRedoKeybind();
+
+            boolean undoMatched = false;
+            try {
+                if (javafx.scene.input.KeyCombination.valueOf(undoBindingStr).match(event))
+                    undoMatched = true;
+            } catch (Exception e) {
+            }
+
+            boolean redoMatched = false;
+            try {
+                if (javafx.scene.input.KeyCombination.valueOf(redoBindingStr).match(event))
+                    redoMatched = true;
+            } catch (Exception e) {
+            }
+
+            if (undoMatched) {
+                historyManager.undo();
+                event.consume();
+            } else if (redoMatched) {
+                historyManager.redo();
+                event.consume();
+            } else if (deleteMatched || (event.getCode() == javafx.scene.input.KeyCode.BACK_SPACE
                     && deleteBindingStr.equalsIgnoreCase("DELETE"))) {
                 handleDelete();
                 event.consume();
@@ -384,10 +411,14 @@ public class EditorWindow extends Stage {
         Button undoBtn = new Button();
         undoBtn.setGraphic(new FontIcon(MaterialDesignU.UNDO));
         undoBtn.getStyleClass().add("button-transparent");
+        undoBtn.disableProperty().bind(historyManager.canUndoProperty().not());
+        undoBtn.setOnAction(e -> historyManager.undo());
 
         Button redoBtn = new Button();
         redoBtn.setGraphic(new FontIcon(MaterialDesignR.REDO));
         redoBtn.getStyleClass().add("button-transparent");
+        redoBtn.disableProperty().bind(historyManager.canRedoProperty().not());
+        redoBtn.setOnAction(e -> historyManager.redo());
 
         Region spacer2 = new Region();
         spacer2.setPrefWidth(32);
@@ -854,15 +885,11 @@ public class EditorWindow extends Stage {
                     activeDrag.clip.startTime = Math.max(0f, newStartTime);
                     activeDrag.clip.trackIndex = newTrackIdx;
 
-                    while (timeline.tracks.size() <= newTrackIdx) {
-                        addNewTrack("Track " + (timeline.tracks.size() + 1));
-                    }
-
-                    timeline.tracks.get(newTrackIdx).addClip(activeDrag.clip);
-                    timeline.tracks.get(newTrackIdx).sortClips();
-
-                    saveProject();
-                    refreshTimelineUI();
+                    historyManager.execute(new AddClipCommand(timeline, activeDrag.clip, newTrackIdx, () -> {
+                        updateCurrentClipEnd();
+                        refreshTimelineUI();
+                        saveProject();
+                    }));
                 }
             }
 
@@ -1065,25 +1092,51 @@ public class EditorWindow extends Stage {
         fields.getChildren().add(buildSectionDivider("Basic"));
 
         fields.getChildren().add(buildPropertyField("Name", selectedClip.getClipName(), newValue -> {
-            selectedClip.setClipName(newValue);
-            refreshTimelineUI();
-            saveProject();
+            String oldVal = selectedClip.getClipName();
+            if (newValue.equals(oldVal)) return;
+            executePropertyChange("Change Name", () -> {
+                selectedClip.setClipName(newValue);
+                refreshTimelineUI();
+                saveProject();
+            }, () -> {
+                selectedClip.setClipName(oldVal);
+                refreshTimelineUI();
+                saveProject();
+            });
         }));
 
         fields.getChildren().add(buildPropertyField("Start Time", String.valueOf(selectedClip.startTime), newValue -> {
             try {
-                selectedClip.startTime = Float.parseFloat(newValue);
-                refreshTimelineUI();
-                saveProject();
+                float val = Float.parseFloat(newValue);
+                float oldVal = selectedClip.startTime;
+                if (val == oldVal) return;
+                executePropertyChange("Change Start Time", () -> {
+                    selectedClip.startTime = val;
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.startTime = oldVal;
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {
             }
         }));
 
         fields.getChildren().add(buildPropertyField("Duration", String.valueOf(selectedClip.duration), newValue -> {
             try {
-                selectedClip.duration = Float.parseFloat(newValue);
-                refreshTimelineUI();
-                saveProject();
+                float val = Float.parseFloat(newValue);
+                float oldVal = selectedClip.duration;
+                if (val == oldVal) return;
+                executePropertyChange("Change Duration", () -> {
+                    selectedClip.duration = val;
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.duration = oldVal;
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {
             }
         }));
@@ -1093,50 +1146,95 @@ public class EditorWindow extends Stage {
         fields.getChildren().add(buildKeyframeablePropertyField("Position X", String.valueOf(selectedClip.videoProperties.valuePosX), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valuePosX = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosX, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valuePosX;
+                if (val == oldVal) return;
+                executePropertyChange("Change Position X", () -> {
+                    selectedClip.videoProperties.valuePosX = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosX, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valuePosX = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosX, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.PosX));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Position Y", String.valueOf(selectedClip.videoProperties.valuePosY), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valuePosY = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosY, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valuePosY;
+                if (val == oldVal) return;
+                executePropertyChange("Change Position Y", () -> {
+                    selectedClip.videoProperties.valuePosY = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosY, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valuePosY = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosY, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.PosY));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Rotation", String.valueOf(selectedClip.videoProperties.valueRot), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueRot = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Rot, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueRot;
+                if (val == oldVal) return;
+                executePropertyChange("Change Rotation", () -> {
+                    selectedClip.videoProperties.valueRot = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Rot, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueRot = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Rot, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.Rot));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Scale X", String.valueOf(selectedClip.videoProperties.valueScaleX), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueScaleX = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleX, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueScaleX;
+                if (val == oldVal) return;
+                executePropertyChange("Change Scale X", () -> {
+                    selectedClip.videoProperties.valueScaleX = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleX, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueScaleX = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleX, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.ScaleX));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Scale Y", String.valueOf(selectedClip.videoProperties.valueScaleY), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueScaleY = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleY, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueScaleY;
+                if (val == oldVal) return;
+                executePropertyChange("Change Scale Y", () -> {
+                    selectedClip.videoProperties.valueScaleY = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleY, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueScaleY = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleY, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.ScaleY));
 
@@ -1145,81 +1243,159 @@ public class EditorWindow extends Stage {
         fields.getChildren().add(buildKeyframeablePropertyField("Opacity", String.valueOf(selectedClip.videoProperties.valueOpacity), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueOpacity = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Opacity, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueOpacity;
+                if (val == oldVal) return;
+                executePropertyChange("Change Opacity", () -> {
+                    selectedClip.videoProperties.valueOpacity = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Opacity, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueOpacity = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Opacity, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.Opacity));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Speed", String.valueOf(selectedClip.videoProperties.valueSpeed), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueSpeed = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Speed, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueSpeed;
+                if (val == oldVal) return;
+                executePropertyChange("Change Speed", () -> {
+                    selectedClip.videoProperties.valueSpeed = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Speed, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueSpeed = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Speed, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.Speed));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Hue", String.valueOf(selectedClip.videoProperties.valueHue), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueHue = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Hue, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueHue;
+                if (val == oldVal) return;
+                executePropertyChange("Change Hue", () -> {
+                    selectedClip.videoProperties.valueHue = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Hue, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueHue = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Hue, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.Hue));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Saturation", String.valueOf(selectedClip.videoProperties.valueSaturation), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueSaturation = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Saturation, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueSaturation;
+                if (val == oldVal) return;
+                executePropertyChange("Change Saturation", () -> {
+                    selectedClip.videoProperties.valueSaturation = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Saturation, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueSaturation = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Saturation, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.Saturation));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Brightness", String.valueOf(selectedClip.videoProperties.valueBrightness), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueBrightness = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Brightness, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueBrightness;
+                if (val == oldVal) return;
+                executePropertyChange("Change Brightness", () -> {
+                    selectedClip.videoProperties.valueBrightness = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Brightness, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueBrightness = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Brightness, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.Brightness));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Temperature", String.valueOf(selectedClip.videoProperties.valueTemperature), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                selectedClip.videoProperties.valueTemperature = val;
-                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Temperature, val);
-                refreshTimelineUI();
-                saveProject();
+                float oldVal = selectedClip.videoProperties.valueTemperature;
+                if (val == oldVal) return;
+                executePropertyChange("Change Temperature", () -> {
+                    selectedClip.videoProperties.valueTemperature = val;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Temperature, val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.videoProperties.valueTemperature = oldVal;
+                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Temperature, oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.Temperature));
 
         fields.getChildren().add(buildSectionDivider("Toggles"));
 
         fields.getChildren().add(buildTogglePropertyField("Mute Audio", selectedClip.isMute, newValue -> {
-            selectedClip.isMute = newValue;
-            refreshTimelineUI();
-            saveProject();
+            boolean oldVal = selectedClip.isMute;
+            if (newValue == oldVal) return;
+            executePropertyChange("Toggle Mute", () -> {
+                selectedClip.isMute = newValue;
+                refreshTimelineUI();
+                saveProject();
+            }, () -> {
+                selectedClip.isMute = oldVal;
+                refreshTimelineUI();
+                saveProject();
+            });
         }));
 
         fields.getChildren().add(buildTogglePropertyField("Reverse", selectedClip.isReverse, newValue -> {
-            selectedClip.isReverse = newValue;
-            refreshTimelineUI();
-            saveProject();
+            boolean oldVal = selectedClip.isReverse;
+            if (newValue == oldVal) return;
+            executePropertyChange("Toggle Reverse", () -> {
+                selectedClip.isReverse = newValue;
+                refreshTimelineUI();
+                saveProject();
+            }, () -> {
+                selectedClip.isReverse = oldVal;
+                refreshTimelineUI();
+                saveProject();
+            });
         }));
 
         fields.getChildren().add(buildTogglePropertyField("Remove Background", selectedClip.removeBackground, newValue -> {
-            selectedClip.removeBackground = newValue;
-            refreshTimelineUI();
-            saveProject();
+            boolean oldVal = selectedClip.removeBackground;
+            if (newValue == oldVal) return;
+            executePropertyChange("Toggle Remove Background", () -> {
+                selectedClip.removeBackground = newValue;
+                refreshTimelineUI();
+                saveProject();
+            }, () -> {
+                selectedClip.removeBackground = oldVal;
+                refreshTimelineUI();
+                saveProject();
+            });
         }));
 
         propertiesContent.getChildren().addAll(sectionTitle, fields);
@@ -1907,28 +2083,17 @@ public class EditorWindow extends Stage {
 
     private void addNewTrack(String name) {
         Track track = new Track();
-        timeline.addTrack(track);
-
-        // UI: Sidebar Header
-        trackHeadersContainer.getChildren().add(buildTrackHeader(name));
-
-        // UI: Track Band (alternating colors)
-        double y = (timeline.tracks.size() - 1) * (TRACK_HEIGHT + TRACK_SPACING);
-        Rectangle band = new Rectangle(0, y, 8000, TRACK_HEIGHT);
-        band.getStyleClass().add((timeline.tracks.size() - 1) % 2 == 0 ? "track-band-even" : "track-band-odd");
-        tracksPane.getChildren().add(band);
-
-        // Ensure tracksPane height is synced with headers
-        tracksPane.setPrefHeight(timeline.tracks.size() * (TRACK_HEIGHT + TRACK_SPACING));
-
-        track.viewRef = band; // Keep reference if needed
-
-        // Add a sample clip to the first track for visualization
-        if (timeline.tracks.size() == 1) {
-            addClipToTrack(track, new Clip("Sample Video", 1.2f, 5.0f, 0, ClipType.VIDEO, true, 1920, 1080));
-        }
-
-        saveProject(); // Auto-save on track creation
+        executePropertyChange("Add Track", () -> {
+            timeline.addTrack(track);
+            refreshTrackHeaders();
+            refreshTimelineUI();
+            saveProject();
+        }, () -> {
+            timeline.removeTrack(track);
+            refreshTrackHeaders();
+            refreshTimelineUI();
+            saveProject();
+        });
     }
 
     private void addClipToTrack(Track track, Clip clip) {
@@ -2127,6 +2292,22 @@ public class EditorWindow extends Stage {
             updateCurrentTime(kf.getGlobalTime(clip));
             refreshTimelineUI();
         });
+        node.setOnKeyframeMoved((kf, oldTime, newTime) -> {
+            if (oldTime == newTime) return;
+            executePropertyChange("Move Keyframe", () -> {
+                kf.setLocalTime(newTime);
+                clip.keyframes.sortKeyframe();
+                refreshTimelineUI();
+                updatePropertiesPane();
+                saveProject();
+            }, () -> {
+                kf.setLocalTime(oldTime);
+                clip.keyframes.sortKeyframe();
+                refreshTimelineUI();
+                updatePropertiesPane();
+                saveProject();
+            });
+        });
         node.setOnKeyframesModified(() -> {
             saveProject();
             refreshTimelineUI();
@@ -2234,27 +2415,46 @@ public class EditorWindow extends Stage {
         if (exists)
             return;
 
-        clip.keyframes.keyframes.add(kf);
-        clip.keyframes.sortKeyframe();
-
-        // Refresh the diamond on the node without a full UI rebuild
-        if (clip.viewRef instanceof ClipNode cn) {
-            cn.updateKeyframes(pixelsPerSecond);
-        }
-
-        saveProject();
-        updatePropertiesPane();
+        executePropertyChange("Add Keyframe", () -> {
+            clip.keyframes.keyframes.add(kf);
+            clip.keyframes.sortKeyframe();
+            if (clip.viewRef instanceof ClipNode cn) {
+                cn.updateKeyframes(pixelsPerSecond);
+            }
+            saveProject();
+            updatePropertiesPane();
+        }, () -> {
+            clip.keyframes.keyframes.remove(kf);
+            if (clip.viewRef instanceof ClipNode cn) {
+                cn.updateKeyframes(pixelsPerSecond);
+            }
+            saveProject();
+            updatePropertiesPane();
+        });
     }
 
     private void handleClearKeyframes() {
         if (selectedClip == null)
             return;
-        selectedClip.keyframes.keyframes.clear();
-        if (selectedClip.viewRef instanceof ClipNode cn) {
-            cn.clearKeyframeKnots();
-        }
-        saveProject();
-        updatePropertiesPane();
+        Clip clip = selectedClip;
+        java.util.List<Keyframe> oldKfs = new java.util.ArrayList<>(clip.keyframes.keyframes);
+
+        executePropertyChange("Clear Keyframes", () -> {
+            clip.keyframes.keyframes.clear();
+            if (clip.viewRef instanceof ClipNode cn) {
+                cn.clearKeyframeKnots();
+            }
+            saveProject();
+            updatePropertiesPane();
+        }, () -> {
+            clip.keyframes.keyframes.addAll(oldKfs);
+            clip.keyframes.sortKeyframe();
+            if (clip.viewRef instanceof ClipNode cn) {
+                cn.updateKeyframes(pixelsPerSecond);
+            }
+            saveProject();
+            updatePropertiesPane();
+        });
     }
 
     // =========================================================================
@@ -2328,28 +2528,19 @@ public class EditorWindow extends Stage {
                 return;
 
             if (activeDrag.dragging && activeDrag.ghost != null) {
-                double finalX = activeDrag.ghost.getLayoutX();
-                double finalY = activeDrag.ghost.getLayoutY();
-                int newTrackIdx = activeDrag.currentTrackIdx;
+                float oldStartTime = clip.startTime;
+                int oldTrackIndex = clip.trackIndex;
+                float newStartTime = (float) (activeDrag.ghost.getLayoutX() / pixelsPerSecond);
+                int newTrackIndex = activeDrag.currentTrackIdx;
 
                 // Remove ghost
                 tracksPane.getChildren().remove(activeDrag.ghost);
 
-                durationLabel.setText(formatTimecode(currentTime));
-                // Update model
-                float newStartTime = (float) (finalX / pixelsPerSecond);
-                clip.startTime = Math.max(0f, newStartTime);
-
-                updateCurrentClipEnd();
-
-                if (newTrackIdx != clip.trackIndex) {
-                    timeline.tracks.get(clip.trackIndex).removeClip(clip);
-                    clip.trackIndex = newTrackIdx;
-                    timeline.tracks.get(clip.trackIndex).addClip(clip);
-                }
-                timeline.tracks.get(clip.trackIndex).sortClips();
-
-                saveProject();
+                historyManager.execute(new MoveClipCommand(timeline, clip, oldStartTime, newStartTime, oldTrackIndex, newTrackIndex, () -> {
+                    updateCurrentClipEnd();
+                    refreshTimelineUI();
+                    saveProject();
+                }));
             }
 
             // Reset drag state
@@ -2451,36 +2642,49 @@ public class EditorWindow extends Stage {
         saveProject(); // Auto-save on split
     }
 
+    private void executePropertyChange(String name, Runnable redo, Runnable undo) {
+        historyManager.execute(new PropertyChangeCommand(name, redo, undo));
+    }
+
     private void splitClipProxy(Clip clip) {
-        // Model logic
-        Track track = timeline.tracks.get(clip.trackIndex);
-        float localSplitTime = currentTime - clip.startTime;
+        historyManager.execute(new SplitClipCommand(timeline, clip, currentTime, () -> {
+            refreshTimelineUI();
+            saveProject();
+        }));
+    }
 
-        Clip secondPart = new Clip(clip);
-        secondPart.startTime = currentTime;
-        secondPart.duration = clip.duration - localSplitTime;
-        clip.duration = localSplitTime;
-
-        track.addClip(secondPart);
-        track.sortClips();
+    private void refreshTrackHeaders() {
+        trackHeadersContainer.getChildren().clear();
+        for (Track t : timeline.tracks) {
+            trackHeadersContainer.getChildren().add(buildTrackHeader("Track " + (t.timelineIndex + 1)));
+        }
     }
 
     private void handleDelete() {
         if (selectedClip != null) {
-            Track t = timeline.tracks.get(selectedClip.trackIndex);
-            t.removeClip(selectedClip);
+            Clip clipToDelete = selectedClip;
+            historyManager.execute(new DeleteClipCommand(timeline, clipToDelete, () -> {
+                refreshTimelineUI();
+                saveProject();
+            }));
             selectedClip = null;
         } else if (selectedTrack != null) {
-            timeline.removeTrack(selectedTrack);
-            selectedTrack = null;
-            // update headers
-            trackHeadersContainer.getChildren().clear();
-            for (Track t : timeline.tracks) {
-                trackHeadersContainer.getChildren().add(buildTrackHeader("Track " + (t.timelineIndex + 1)));
-            }
+            Track trackToDelete = selectedTrack;
+            historyManager.execute(new PropertyChangeCommand("Delete Track",
+                    () -> {
+                        timeline.removeTrack(trackToDelete);
+                        selectedTrack = null;
+                        refreshTrackHeaders();
+                        refreshTimelineUI();
+                        saveProject();
+                    },
+                    () -> {
+                        timeline.addTrack(trackToDelete);
+                        refreshTrackHeaders();
+                        refreshTimelineUI();
+                        saveProject();
+                    }));
         }
-        refreshTimelineUI();
-        saveProject(); // Auto-save on delete
     }
 
     private HBox buildTrackHeader(String name) {

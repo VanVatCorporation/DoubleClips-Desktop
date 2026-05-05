@@ -83,9 +83,11 @@ public class SettingsOverlay extends StackPane {
         
         // --- KEYBOARD SHORTCUTS ---
         VBox shortcutsGroup = createGroup("KEYBOARD SHORTCUTS");
+        HBox undoRow = createKeybindRow("Undo", "Shortcut to revert last action", settings.undoKeybindProperty());
+        HBox redoRow = createKeybindRow("Redo", "Shortcut to re-apply reverted action", settings.redoKeybindProperty());
         HBox deleteRow = createKeybindRow("Delete Clip/Track", "Shortcut to delete selected items", settings.deleteKeybindProperty());
         HBox selectAllRow = createKeybindRow("Select All", "Shortcut to select all clips", settings.selectAllKeybindProperty());
-        shortcutsGroup.getChildren().addAll(deleteRow, new Separator(), selectAllRow);
+        shortcutsGroup.getChildren().addAll(undoRow, new Separator(), redoRow, new Separator(), deleteRow, new Separator(), selectAllRow);
 
         content.getChildren().addAll(generalGroup, shortcutsGroup);
         scrollPane.setContent(content);
