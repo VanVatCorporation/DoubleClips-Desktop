@@ -84,9 +84,10 @@ public class EditorWindow extends Stage {
     private ToggleButton mediaTab;
     private VBox mediaDropOverlay;
 
-    // --- Scroll sync ---
+    // --- Scroll sync & Updaters ---
     private final ScrollPane rulerScrollPane = new ScrollPane();
     private final ScrollPane tracksScrollPane = new ScrollPane();
+    private final List<Runnable> propertyUpdaters = new ArrayList<>();
 
     // --- Drag & Drop ---
     private static final double SNAP_THRESHOLD = 8.0;
@@ -276,6 +277,9 @@ public class EditorWindow extends Stage {
         if (timelineRenderer != null) {
             timelineRenderer.updateTime(currentTime, !isPlaying);
         }
+
+        // Dynamically update property panel fields
+        propertyUpdaters.forEach(Runnable::run);
 
         // Auto-scroll if playing
         if (isPlaying) {
@@ -1040,6 +1044,7 @@ public class EditorWindow extends Stage {
     private void updatePropertiesPane() {
         propertiesContent.getChildren().clear();
         propertiesContent.setPadding(new Insets(16));
+        propertyUpdaters.clear();
 
         if (selectedClip == null) {
             Label placeholder = new Label("Select a clip to view properties");
@@ -1053,6 +1058,7 @@ public class EditorWindow extends Stage {
         sectionTitle.setStyle("-fx-font-size: 16px;");
 
         VBox fields = new VBox(10);
+        fields.getChildren().add(buildSectionDivider("Basic"));
 
         fields.getChildren().add(buildPropertyField("Name", selectedClip.getClipName(), newValue -> {
             selectedClip.setClipName(newValue);
@@ -1077,6 +1083,8 @@ public class EditorWindow extends Stage {
             } catch (Exception ignored) {
             }
         }));
+
+        fields.getChildren().add(buildSectionDivider("Transform"));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Position X", String.valueOf(selectedClip.videoProperties.valuePosX), newValue -> {
             try {
@@ -1127,6 +1135,8 @@ public class EditorWindow extends Stage {
                 saveProject();
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.ScaleY));
+
+        fields.getChildren().add(buildSectionDivider("Color & Effects"));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Opacity", String.valueOf(selectedClip.videoProperties.valueOpacity), newValue -> {
             try {
@@ -1187,6 +1197,8 @@ public class EditorWindow extends Stage {
                 saveProject();
             } catch (Exception ignored) {}
         }, selectedClip, VideoProperties.ValueType.Temperature));
+
+        fields.getChildren().add(buildSectionDivider("Toggles"));
 
         fields.getChildren().add(buildTogglePropertyField("Mute Audio", selectedClip.isMute, newValue -> {
             selectedClip.isMute = newValue;
@@ -1251,6 +1263,37 @@ public class EditorWindow extends Stage {
 
         btnRow.getChildren().addAll(addBtn, clearBtn);
         box.getChildren().addAll(buildSectionDivider("Keyframes"), countLbl, btnRow);
+
+        if (count > 0) {
+            VBox kfList = new VBox(4);
+            for (Keyframe k : clip.keyframes.keyframes) {
+                HBox kfRow = new HBox(8);
+                kfRow.setAlignment(Pos.CENTER_LEFT);
+                kfRow.setPadding(new Insets(6, 8, 6, 8));
+                kfRow.setStyle("-fx-background-color: transparent; -fx-background-radius: 4px; -fx-cursor: hand;");
+
+                FontIcon icon = new FontIcon(MaterialDesignR.RHOMBUS);
+                icon.setIconColor(Color.valueOf("#4A90E2"));
+                icon.setIconSize(12);
+
+                Label timeLbl = new Label(String.format("Keyframe at %.2fs", k.getLocalTime()));
+                timeLbl.setStyle("-fx-font-size: 11px;");
+
+                kfRow.getChildren().addAll(icon, timeLbl);
+
+                kfRow.setOnMouseClicked(e -> {
+                    updateCurrentTime(k.getGlobalTime(clip));
+                    refreshTimelineUI();
+                });
+
+                kfRow.setOnMouseEntered(e -> kfRow.setStyle("-fx-background-color: -color-bg-subtle; -fx-background-radius: 4px; -fx-cursor: hand;"));
+                kfRow.setOnMouseExited(e -> kfRow.setStyle("-fx-background-color: transparent; -fx-background-radius: 4px; -fx-cursor: hand;"));
+
+                kfList.getChildren().add(kfRow);
+            }
+            box.getChildren().add(kfList);
+        }
+
         return box;
     }
 
@@ -1384,12 +1427,16 @@ public class EditorWindow extends Stage {
         });
 
         box.getChildren().addAll(lbl, tf);
+        
+        // Expose TextField dynamically
+        box.setUserData(tf);
         return box;
     }
 
     private HBox buildKeyframeablePropertyField(String label, String value, java.util.function.Consumer<String> onUpdate, Clip clip, VideoProperties.ValueType vType) {
         VBox fieldBox = buildPropertyField(label, value, onUpdate);
         HBox.setHgrow(fieldBox, Priority.ALWAYS);
+        TextField tf = (TextField) fieldBox.getUserData();
 
         Button kfBtn = new Button();
         kfBtn.getStyleClass().add("tool-button");
@@ -1404,6 +1451,23 @@ public class EditorWindow extends Stage {
         diamondIcon.setIconSize(14);
         diamondIcon.setIconColor(hasKf ? Color.valueOf("#4A90E2") : Color.valueOf("#888888"));
         kfBtn.setGraphic(diamondIcon);
+
+        Runnable updater = () -> {
+            if (clip.keyframes != null && !tf.isFocused()) {
+                float interpolated = clip.keyframes.getValueAtTime(clip, currentTime, vType);
+                
+                // Format to remove trailing zeros and decimals when unneeded
+                String displayStr = (interpolated == (long) interpolated) 
+                    ? String.format("%d", (long) interpolated) 
+                    : String.format("%.2f", interpolated).replaceAll("0*$", "").replaceAll("\\.$", "");
+                
+                tf.setText(displayStr);
+            }
+            boolean currentHasKf = clip.keyframes != null && clip.keyframes.getKeyframeAtTime(clip, currentTime) != null;
+            diamondIcon.setIconColor(currentHasKf ? Color.valueOf("#4A90E2") : Color.valueOf("#888888"));
+            diamondIcon.setIconCode(currentHasKf ? MaterialDesignR.RHOMBUS : MaterialDesignR.RHOMBUS_OUTLINE);
+        };
+        propertyUpdaters.add(updater);
 
         kfBtn.setOnAction(e -> {
             if (clip.keyframes == null) clip.keyframes = new AnimatedProperty();
