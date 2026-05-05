@@ -8,6 +8,7 @@ import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
 
 import javafx.application.Platform;
+import javafx.scene.effect.ColorAdjust;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.PixelFormat;
@@ -62,6 +63,9 @@ public class ClipRenderer {
     private float scaleX = 1, scaleY = 1;
     private float rot = 0;
     private float opacity = 1;
+    private float hue = 0;
+    private float saturation = 1;
+    private float brightness = 0;
 
     public boolean isPlaying = false;
 
@@ -349,6 +353,9 @@ public class ClipRenderer {
         float sx = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.ScaleX);
         float sy = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.ScaleY);
         float o = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Opacity);
+        float h = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Hue);
+        float s = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Saturation);
+        float b = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Brightness);
 
         if (x != -1) posX = x;
         if (y != -1) posY = y;
@@ -356,6 +363,9 @@ public class ClipRenderer {
         if (sx != -1) scaleX = sx;
         if (sy != -1) scaleY = sy;
         if (o >= 0) opacity = o;
+        if (h != -1) hue = h;
+        if (s != -1) saturation = s;
+        if (b != -1) brightness = b;
 
         Platform.runLater(this::applyTransformation);
     }
@@ -368,6 +378,15 @@ public class ClipRenderer {
         viewNode.setScaleY(scaleY);
         viewNode.setRotate(rot);
         viewNode.setOpacity(opacity);
+
+        ColorAdjust colorAdjust = (ColorAdjust) viewNode.getEffect();
+        if (colorAdjust == null) {
+            colorAdjust = new ColorAdjust();
+            viewNode.setEffect(colorAdjust);
+        }
+        colorAdjust.setHue(hue);
+        colorAdjust.setSaturation(saturation - 1.0); // 1.0 is neutral in model, 0.0 is neutral in JavaFX
+        colorAdjust.setBrightness(brightness);
     }
 
     public void release() {
