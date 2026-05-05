@@ -951,7 +951,14 @@ public class FFmpegEdit {
 //        if(startIndex + 1 >= keyframes.size()) return String.valueOf(clip.videoProperties.getValue(valueType)); // Default value
 
         Keyframe prevKeyframe = keyframes.get(startIndex);
-        Keyframe nextKeyframe = keyframes.get(startIndex + 1);
+
+        // Find the furthest keyframe with the same value to optimize the expression by merging segments
+        int nextIndex = startIndex + 1;
+        while (nextIndex + 1 < keyframes.size() &&
+                keyframes.get(nextIndex + 1).value.getValue(valueType) == prevKeyframe.value.getValue(valueType)) {
+            nextIndex++;
+        }
+        Keyframe nextKeyframe = keyframes.get(nextIndex);
 
         // Input time for zoompan expression, time for other.
 //        String timeUnit =
@@ -965,7 +972,9 @@ public class FFmpegEdit {
                         "T" : "t";
 
         // Skipping matching value element
-        if(prevKeyframe.value.getValue(valueType) == nextKeyframe.value.getValue(valueType))
+        // Only return a constant value if we've reached the end of the keyframes with this value.
+        // If there are more keyframes with different values, we must continue the recursion.
+        if(prevKeyframe.value.getValue(valueType) == nextKeyframe.value.getValue(valueType) && nextIndex + 1 >= keyframes.size())
             return String.valueOf(prevKeyframe.value.getValue(valueType));
 
         keyframeExprString
@@ -982,8 +991,9 @@ public class FFmpegEdit {
                 // insert the expr here
                 // previous: nextKeyframe.value.getValue(valueType)
                 .append(generateEasing(prevKeyframe, nextKeyframe, clip, valueType, timeUnit)).append(",")
-                .append(getKeyframeFFmpegExpr(keyframes, clip, startIndex + 1, valueType))
+                .append(getKeyframeFFmpegExpr(keyframes, clip, nextIndex, valueType))
                 .append(")");
+
 
         return keyframeExprString.toString();
     }
