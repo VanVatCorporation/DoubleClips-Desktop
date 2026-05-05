@@ -181,10 +181,11 @@ public class EditorWindow extends Stage {
             if (event.getTarget() instanceof javafx.scene.control.TextInputControl)
                 return;
 
-            String deleteBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance()
-                    .getDeleteKeybind();
-            String selectAllBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance()
-                    .getSelectAllKeybind();
+            String deleteBindingStr = sanitizeKeybind(AppSettings.getInstance().getDeleteKeybind());
+            String selectAllBindingStr = sanitizeKeybind(AppSettings.getInstance().getSelectAllKeybind());
+            String undoBindingStr = sanitizeKeybind(AppSettings.getInstance().getUndoKeybind());
+            String redoBindingStr = sanitizeKeybind(AppSettings.getInstance().getRedoKeybind());
+            String togglePlayBindingStr = sanitizeKeybind(AppSettings.getInstance().getTogglePlayKeybind());
 
             boolean deleteMatched = false;
             try {
@@ -204,11 +205,6 @@ public class EditorWindow extends Stage {
                     selectAllMatched = true;
             }
 
-            String undoBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance()
-                    .getUndoKeybind();
-            String redoBindingStr = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance()
-                    .getRedoKeybind();
-
             boolean undoMatched = false;
             try {
                 if (javafx.scene.input.KeyCombination.valueOf(undoBindingStr).match(event))
@@ -223,9 +219,6 @@ public class EditorWindow extends Stage {
             } catch (Exception e) {
             }
 
-
-
-            String togglePlayBindingStr = AppSettings.getInstance().getTogglePlayKeybind();
             boolean togglePlayMatched = false;
             try {
                 if (javafx.scene.input.KeyCombination.valueOf(togglePlayBindingStr).match(event))
@@ -500,6 +493,11 @@ public class EditorWindow extends Stage {
         int s = (int) (seconds % 60);
         int f = (int) ((seconds % 1) * 30); // 30fps assumption for display
         return String.format("%02d:%02d:%02d:%02d", h, m, s, f);
+    }
+
+    private String sanitizeKeybind(String keybind) {
+        if (keybind == null) return "";
+        return keybind.replace("Cmd+", "Meta+").replace("Ctrl+", "Control+");
     }
 
     private void closeWindow() {

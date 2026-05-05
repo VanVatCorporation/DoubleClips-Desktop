@@ -161,7 +161,7 @@ public class SettingsOverlay extends StackPane {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         
-        Button keyBtn = new Button(bindProperty.get());
+        Button keyBtn = new Button(formatForDisplay(bindProperty.get()));
         keyBtn.setMinWidth(100);
         keyBtn.getStyleClass().add("button-transparent");
         keyBtn.setStyle("-fx-border-color: -color-border-default; -fx-border-radius: 4;");
@@ -183,7 +183,7 @@ public class SettingsOverlay extends StackPane {
 
                     String combo = "";
                     if (ke.isControlDown() && code != KeyCode.CONTROL) {
-                        combo += "Ctrl+";
+                        combo += "Control+";
                     }
                     if (ke.isAltDown() && code != KeyCode.ALT) {
                         combo += "Alt+";
@@ -191,28 +191,33 @@ public class SettingsOverlay extends StackPane {
                     if (ke.isShiftDown() && code != KeyCode.SHIFT) {
                         combo += "Shift+";
                     }
-                    if (ke.isMetaDown() && code != KeyCode.META && code != KeyCode.COMMAND) {
-                        if (System.getProperty("os.name").toLowerCase().contains("mac")) {
-                            combo += "Cmd+";
-                        } else {
-                            combo += "Shortcut+";
-                        }
+                    if (ke.isMetaDown() && code != KeyCode.META && code != KeyCode.COMMAND && code != KeyCode.WINDOWS) {
+                        combo += "Meta+";
                     }
 
                     if (!code.isModifierKey()) {
                         combo += code.name();
                         bindProperty.set(combo);
-                        keyBtn.setText(combo);
+                        keyBtn.setText(formatForDisplay(combo));
                         keyBtn.removeEventFilter(KeyEvent.ANY, this);
                     }
                 }
             });
         });
         
-        bindProperty.addListener((obs, oldVal, newVal) -> keyBtn.setText(newVal));
+        bindProperty.addListener((obs, oldVal, newVal) -> keyBtn.setText(formatForDisplay(newVal)));
         
         row.getChildren().addAll(icon, textVBox, spacer, keyBtn);
         return row;
+    }
+
+    private String formatForDisplay(String combo) {
+        if (combo == null) return "";
+        String display = combo;
+        if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+            display = display.replace("Meta+", "Cmd+").replace("Shortcut+", "Cmd+");
+        }
+        return display.replace("Control+", "Ctrl+").replace("Shortcut+", "Ctrl+");
     }
 
     private String capitalize(String s) {
