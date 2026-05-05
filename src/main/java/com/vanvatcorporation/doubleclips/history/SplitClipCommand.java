@@ -8,7 +8,9 @@ public class SplitClipCommand implements Command {
     private final Timeline timeline;
     private final Clip originalClip;
     private final float splitTime;
-    private final float originalDuration;
+    private final float oldDuration;
+    private final float oldStartClipTrim;
+    private final float oldEndClipTrim;
     private Clip secondPart;
     private final Runnable onUpdate;
 
@@ -16,21 +18,28 @@ public class SplitClipCommand implements Command {
         this.timeline = timeline;
         this.originalClip = clip;
         this.splitTime = splitTime;
-        this.originalDuration = clip.duration;
+        this.oldDuration = clip.duration;
+        this.oldStartClipTrim = clip.startClipTrim;
+        this.oldEndClipTrim = clip.endClipTrim;
         this.onUpdate = onUpdate;
     }
 
     @Override
     public void execute() {
         Track track = timeline.tracks.get(originalClip.trackIndex);
-        float localSplitTime = splitTime - originalClip.startTime;
+        float localSplitTime = originalClip.getLocalClipTime(splitTime);
 
         if (secondPart == null) {
             secondPart = new Clip(originalClip);
         }
+
+        // Secondary part
         secondPart.startTime = splitTime;
-        secondPart.duration = originalDuration - localSplitTime;
-        originalClip.duration = localSplitTime;
+        secondPart.setStartClipTrim(localSplitTime + oldStartClipTrim);
+        secondPart.setEndClipTrim(oldEndClipTrim);
+
+        // Primary part
+        originalClip.setEndClipTrim(originalClip.originalDuration - (localSplitTime + oldStartClipTrim));
 
         track.addClip(secondPart);
         track.sortClips();
@@ -41,7 +50,11 @@ public class SplitClipCommand implements Command {
     public void undo() {
         Track track = timeline.tracks.get(originalClip.trackIndex);
         track.removeClip(secondPart);
-        originalClip.duration = originalDuration;
+        
+        originalClip.startClipTrim = oldStartClipTrim;
+        originalClip.endClipTrim = oldEndClipTrim;
+        originalClip.duration = oldDuration;
+        
         track.sortClips();
         if (onUpdate != null) onUpdate.run();
     }

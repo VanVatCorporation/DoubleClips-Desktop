@@ -1211,6 +1211,42 @@ public class EditorWindow extends Stage {
             }
         }));
 
+        fields.getChildren().add(buildPropertyField("Start Trim", String.valueOf(selectedClip.startClipTrim), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                float oldVal = selectedClip.startClipTrim;
+                if (val == oldVal) return;
+                executePropertyChange("Change Start Trim", () -> {
+                    selectedClip.setStartClipTrim(val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.setStartClipTrim(oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
+            } catch (Exception ignored) {
+            }
+        }));
+
+        fields.getChildren().add(buildPropertyField("End Trim", String.valueOf(selectedClip.endClipTrim), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                float oldVal = selectedClip.endClipTrim;
+                if (val == oldVal) return;
+                executePropertyChange("Change End Trim", () -> {
+                    selectedClip.setEndClipTrim(val);
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.setEndClipTrim(oldVal);
+                    refreshTimelineUI();
+                    saveProject();
+                });
+            } catch (Exception ignored) {
+            }
+        }));
+
         fields.getChildren().add(buildSectionDivider("Transform"));
 
         fields.getChildren().add(buildKeyframeablePropertyField("Position X", String.valueOf(selectedClip.videoProperties.valuePosX), newValue -> {

@@ -113,6 +113,13 @@ public class ClipNode extends Pane {
         heightProperty().addListener((o, ov, nv) -> { if (nv.doubleValue() > 0) refreshThumbnails(); });
 
         getStyleClass().add("clip-node");
+        refreshLabels();
+    }
+
+    /** Refresh name and duration labels. */
+    public void refreshLabels() {
+        nameLabel.setText(clip.getClipName());
+        timecodeLabel.setText(formatDuration(clip.duration));
     }
 
     // ── Public API ─────────────────────────────────────────────────────────────

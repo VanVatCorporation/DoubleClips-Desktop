@@ -72,6 +72,8 @@ public class Clip implements Serializable {
         this.startTime = other.startTime;
         this.duration = other.duration;
         this.originalDuration = other.originalDuration;
+        this.startClipTrim = other.startClipTrim;
+        this.endClipTrim = other.endClipTrim;
         this.trackIndex = other.trackIndex;
         this.type = other.type;
         this.isClipHasAudio = other.isClipHasAudio;
@@ -88,6 +90,11 @@ public class Clip implements Serializable {
         this.fontSize = other.fontSize;
         this.sceneConfig = other.sceneConfig;
         this.textureClipName = other.textureClipName;
+        this.additionalFFmpegCommand = other.additionalFFmpegCommand;
+        this.isMute = other.isMute;
+        this.isReverse = other.isReverse;
+        this.removeBackground = other.removeBackground;
+        this.isLockedForTemplate = other.isLockedForTemplate;
     }
 
     public String getClipName() {
@@ -103,6 +110,26 @@ public class Clip implements Serializable {
 
     public float getDuration() { return duration; }
     public void setDuration(float duration) { this.duration = duration; }
+
+    public float getStartClipTrim() { return startClipTrim; }
+    public void setStartClipTrim(float value) {
+        this.startClipTrim = value;
+        setDuration(originalDuration - endClipTrim - startClipTrim);
+    }
+
+    public float getEndClipTrim() { return endClipTrim; }
+    public void setEndClipTrim(float value) {
+        this.endClipTrim = value;
+        setDuration(originalDuration - endClipTrim - startClipTrim);
+    }
+
+    public float getLocalClipTime(float playheadTime) {
+        return playheadTime - startTime;
+    }
+
+    public float getTrimmedLocalTime(float localClipTime) {
+        return localClipTime + startClipTrim;
+    }
 
     public int getTrackIndex() { return trackIndex; }
     public void setTrackIndex(int trackIndex) { this.trackIndex = trackIndex; }
