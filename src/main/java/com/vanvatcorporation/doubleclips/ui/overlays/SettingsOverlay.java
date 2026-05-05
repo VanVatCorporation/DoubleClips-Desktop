@@ -5,7 +5,10 @@ import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.AppSettings;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.event.EventHandler;
 import javafx.scene.control.*;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignB;
@@ -165,29 +168,43 @@ public class SettingsOverlay extends StackPane {
         
         keyBtn.setOnAction(e -> {
             keyBtn.setText("Press key...");
-            keyBtn.setOnKeyPressed(ke -> {
-                ke.consume();
-                String combo = "";
-                if (ke.isShortcutDown() && ke.getCode() != javafx.scene.input.KeyCode.CONTROL) {
-                    combo += "Ctrl+";
-                }
-                if (ke.isShortcutDown() && ke.getCode() != javafx.scene.input.KeyCode.COMMAND) {
-                    combo += "Cmd+";
-                }
-                if (ke.isShortcutDown() && ke.getCode() != javafx.scene.input.KeyCode.META) {
-                    combo += "Shortcut+";
-                }
-                if (ke.isShiftDown() && ke.getCode() != javafx.scene.input.KeyCode.SHIFT) {
-                    combo += "Shift+";
-                }
-                if (ke.isAltDown() && ke.getCode() != javafx.scene.input.KeyCode.ALT) {
-                    combo += "Alt+";
-                }
-                if (!ke.getCode().isModifierKey()) {
-                    combo += ke.getCode().name();
-                    bindProperty.set(combo);
-                    keyBtn.setText(combo);
-                    keyBtn.setOnKeyPressed(null);
+            keyBtn.addEventFilter(KeyEvent.ANY, new EventHandler<KeyEvent>() {
+                @Override
+                public void handle(KeyEvent ke) {
+                    ke.consume();
+                    if (ke.getEventType() != KeyEvent.KEY_PRESSED) return;
+
+                    KeyCode code = ke.getCode();
+                    if (code == KeyCode.ESCAPE) {
+                        keyBtn.setText(bindProperty.get());
+                        keyBtn.removeEventFilter(KeyEvent.ANY, this);
+                        return;
+                    }
+
+                    String combo = "";
+                    if (ke.isControlDown() && code != KeyCode.CONTROL) {
+                        combo += "Ctrl+";
+                    }
+                    if (ke.isAltDown() && code != KeyCode.ALT) {
+                        combo += "Alt+";
+                    }
+                    if (ke.isShiftDown() && code != KeyCode.SHIFT) {
+                        combo += "Shift+";
+                    }
+                    if (ke.isMetaDown() && code != KeyCode.META && code != KeyCode.COMMAND) {
+                        if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+                            combo += "Cmd+";
+                        } else {
+                            combo += "Shortcut+";
+                        }
+                    }
+
+                    if (!code.isModifierKey()) {
+                        combo += code.name();
+                        bindProperty.set(combo);
+                        keyBtn.setText(combo);
+                        keyBtn.removeEventFilter(KeyEvent.ANY, this);
+                    }
                 }
             });
         });
