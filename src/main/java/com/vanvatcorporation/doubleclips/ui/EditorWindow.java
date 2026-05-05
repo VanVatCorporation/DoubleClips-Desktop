@@ -37,6 +37,12 @@ import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.*;
+import com.vanvatcorporation.doubleclips.history.TrimClipCommand;
+import com.vanvatcorporation.doubleclips.history.MoveClipCommand;
+import com.vanvatcorporation.doubleclips.history.AddClipCommand;
+import com.vanvatcorporation.doubleclips.history.DeleteClipCommand;
+import com.vanvatcorporation.doubleclips.history.PropertyChangeCommand;
+import com.vanvatcorporation.doubleclips.history.SplitClipCommand;
 
 public class EditorWindow extends Stage {
 
@@ -2430,6 +2436,20 @@ public class EditorWindow extends Stage {
 
         // Start generating thumbnails for this node
         generateThumbnailsForNode(node);
+
+        // --- Trim Handles Support ---
+        node.setupTrimInteractions(pixelsPerSecond);
+        node.setOnTrimFinished((c, os, ns, od, nd, ost, nst, oet, net) -> {
+            if (os == ns && od == nd && ost == nst && oet == net) return;
+            historyManager.execute(new TrimClipCommand(timeline, c,
+                    os, ns, od, nd, ost, nst, oet, net,
+                    () -> {
+                        updateCurrentClipEnd();
+                        refreshTimelineUI();
+                        updatePropertiesPane();
+                        saveProject();
+                    }));
+        });
     }
 
     // =========================================================================

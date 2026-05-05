@@ -11,6 +11,11 @@ import javafx.scene.shape.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.vanvatcorporation.doubleclips.data.editing.ClipType;
+import javafx.geometry.Pos;
+import javafx.scene.Cursor;
+import javafx.scene.input.MouseEvent;
+
 /**
  * A timeline clip node with a CapCut-style repeating thumbnail strip.
  *
@@ -41,6 +46,18 @@ public class ClipNode extends Pane {
     private Runnable onKeyframesModified;
     public interface KeyframeMoveHandler { void onKeyframeMoved(Keyframe kf, float oldTime, float newTime); }
     private KeyframeMoveHandler onKeyframeMoved;
+
+    public interface TrimHandler {
+        void onTrimFinished(Clip clip,
+                            float oldStart, float newStart,
+                            float oldDur, float newDur,
+                            float oldSTrim, float newSTrim,
+                            float oldETrim, float newETrim);
+    }
+    private TrimHandler onTrimFinished;
+
+    private final Rectangle leftHandle;
+    private final Rectangle rightHandle;
 
     public ClipNode(Clip clip) {
         this.clip = clip;
@@ -106,7 +123,22 @@ public class ClipNode extends Pane {
         singleImageOverlay.fitHeightProperty().bind(heightProperty());
         singleImageOverlay.setVisible(false);
 
-        getChildren().addAll(bg, thumbnailRow, singleImageOverlay, scrim, nameLabel, timecodeLabel, selBorder);
+        // ── Trim Handles ──────────────────────────────────────────────────────
+        double handleWidth = 12.0;
+        leftHandle = new Rectangle(handleWidth, 0);
+        leftHandle.heightProperty().bind(heightProperty());
+        leftHandle.setFill(Color.web("#00D4FF"));
+        leftHandle.setCursor(Cursor.H_RESIZE);
+        leftHandle.setVisible(false);
+
+        rightHandle = new Rectangle(handleWidth, 0);
+        rightHandle.heightProperty().bind(heightProperty());
+        rightHandle.translateXProperty().bind(widthProperty().subtract(handleWidth));
+        rightHandle.setFill(Color.web("#00D4FF"));
+        rightHandle.setCursor(Cursor.H_RESIZE);
+        rightHandle.setVisible(false);
+
+        getChildren().addAll(bg, thumbnailRow, singleImageOverlay, scrim, nameLabel, timecodeLabel, selBorder, leftHandle, rightHandle);
 
         // ── Refresh thumbnails when size changes (zoom) ───────────────────────
         widthProperty().addListener((o, ov, nv)  -> { if (nv.doubleValue() > 0) refreshThumbnails(); });
@@ -127,6 +159,8 @@ public class ClipNode extends Pane {
     /** Select / deselect visual highlight. */
     public void setSelected(boolean selected) {
         selBorder.setStroke(selected ? Color.web("#00D4FF") : Color.TRANSPARENT);
+        leftHandle.setVisible(selected);
+        rightHandle.setVisible(selected);
         if (selected) toFront();
     }
 
@@ -164,6 +198,117 @@ public class ClipNode extends Pane {
     public void setOnKeyframeClicked(java.util.function.Consumer<Keyframe> handler) { this.onKeyframeClicked = handler; }
     public void setOnKeyframesModified(Runnable handler) { this.onKeyframesModified = handler; }
     public void setOnKeyframeMoved(KeyframeMoveHandler handler) { this.onKeyframeMoved = handler; }
+    public void setOnTrimFinished(TrimHandler handler) { this.onTrimFinished = handler; }
+
+    public void setupTrimInteractions(double pixelsPerSecond) {
+        final double[] dragStartX = new double[1];
+        final float[] initialStartTime = new float[1];
+        final float[] initialDuration = new float[1];
+        final float[] initialStartTrim = new float[1];
+        final float[] initialEndTrim = new float[1];
+
+        // --- Left Handle Drag ---
+        leftHandle.setOnMousePressed(e -> {
+            dragStartX[0] = e.getSceneX();
+            initialStartTime[0] = clip.startTime;
+            initialDuration[0] = clip.duration;
+            initialStartTrim[0] = clip.startClipTrim;
+            initialEndTrim[0] = clip.endClipTrim;
+            e.consume();
+        });
+
+        leftHandle.setOnMouseDragged(e -> {
+            double deltaX = e.getSceneX() - dragStartX[0];
+            float deltaTime = (float) (deltaX / pixelsPerSecond);
+
+            // Clamp delta so we don't trim before 0 or after originalDuration
+            // and don't make clip too small
+            float minDuration = 0.1f;
+            float maxDelta = initialStartTrim[0]; // can only reduce trim to 0
+            float minDelta = -(initialDuration[0] - minDuration); // can only increase trim up to minDuration left
+
+            // Actually, deltaX > 0 means trimming MORE (startClipTrim increases, duration decreases, startTime increases)
+            // deltaTime should be capped by how much we can trim
+            float proposedDelta = deltaTime;
+            
+            // Limit by source start (cannot trim before 0 of file)
+            proposedDelta = Math.max(-initialStartTrim[0], proposedDelta);
+            
+            // Limit by minimum duration
+            proposedDelta = Math.min(initialDuration[0] - minDuration, proposedDelta);
+
+            clip.startTime = initialStartTime[0] + proposedDelta;
+            clip.startClipTrim = initialStartTrim[0] + proposedDelta;
+            clip.duration = initialDuration[0] - proposedDelta;
+
+            // Visual update
+            updateVisuals(pixelsPerSecond);
+            e.consume();
+        });
+
+        leftHandle.setOnMouseReleased(e -> {
+            if (onTrimFinished != null) {
+                onTrimFinished.onTrimFinished(clip,
+                        initialStartTime[0], clip.startTime,
+                        initialDuration[0], clip.duration,
+                        initialStartTrim[0], clip.startClipTrim,
+                        initialEndTrim[0], clip.endClipTrim);
+            }
+            e.consume();
+        });
+
+        // --- Right Handle Drag ---
+        rightHandle.setOnMousePressed(e -> {
+            dragStartX[0] = e.getSceneX();
+            initialStartTime[0] = clip.startTime;
+            initialDuration[0] = clip.duration;
+            initialStartTrim[0] = clip.startClipTrim;
+            initialEndTrim[0] = clip.endClipTrim;
+            e.consume();
+        });
+
+        rightHandle.setOnMouseDragged(e -> {
+            double deltaX = e.getSceneX() - dragStartX[0];
+            float deltaTime = (float) (deltaX / pixelsPerSecond);
+
+            float minDuration = 0.1f;
+            float proposedDelta = deltaTime;
+
+            // Limit by source end (cannot trim after originalDuration)
+            proposedDelta = Math.min(initialEndTrim[0], proposedDelta);
+
+            // Limit by minimum duration
+            proposedDelta = Math.max(-(initialDuration[0] - minDuration), proposedDelta);
+
+            clip.duration = initialDuration[0] + proposedDelta;
+            clip.endClipTrim = initialEndTrim[0] - proposedDelta;
+
+            // Visual update
+            updateVisuals(pixelsPerSecond);
+            e.consume();
+        });
+
+        rightHandle.setOnMouseReleased(e -> {
+            if (onTrimFinished != null) {
+                onTrimFinished.onTrimFinished(clip,
+                        initialStartTime[0], clip.startTime,
+                        initialDuration[0], clip.duration,
+                        initialStartTrim[0], clip.startClipTrim,
+                        initialEndTrim[0], clip.endClipTrim);
+            }
+            e.consume();
+        });
+    }
+
+    private void updateVisuals(double pixelsPerSecond) {
+        double w = clip.duration * pixelsPerSecond;
+        setPrefWidth(w);
+        setMinWidth(w);
+        setMaxWidth(w);
+        setLayoutX(clip.startTime * pixelsPerSecond);
+        refreshLabels();
+        updateKeyframes((float) pixelsPerSecond);
+    }
 
     // ── Keyframe diamonds ──────────────────────────────────────────────────────
 
