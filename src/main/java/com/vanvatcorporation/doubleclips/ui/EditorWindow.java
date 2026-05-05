@@ -278,8 +278,8 @@ public class EditorWindow extends Stage {
             timelineRenderer.updateTime(currentTime, !isPlaying);
         }
 
-        // Dynamically update property panel fields
-        propertyUpdaters.forEach(Runnable::run);
+//        // Dynamically update property panel fields
+//        propertyUpdaters.forEach(Runnable::run);
 
         // Auto-scroll if playing
         if (isPlaying) {
@@ -315,6 +315,10 @@ public class EditorWindow extends Stage {
 
         // scrollX is the pixel offset of the left edge of the viewport
         double scrollX = hValue * (contentWidth - viewportWidth);
+
+
+        // Dynamically update property panel fields
+        propertyUpdaters.forEach(Runnable::run);
 
         // Position relative to viewport left edge
         playheadLine.setTranslateX(currentTime * pixelsPerSecond - scrollX);
@@ -1453,6 +1457,12 @@ public class EditorWindow extends Stage {
         kfBtn.setGraphic(diamondIcon);
 
         Runnable updater = () -> {
+            float currentTime = this.currentTime;
+
+            if (tempTime >= 0) {
+                currentTime = tempTime;
+            }
+
             if (clip.keyframes != null && !tf.isFocused()) {
                 float interpolated = clip.keyframes.getValueAtTime(clip, currentTime, vType);
                 
