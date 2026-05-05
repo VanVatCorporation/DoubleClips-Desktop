@@ -227,19 +227,23 @@ public class ClipNode extends Pane {
             float maxDelta = initialStartTrim[0]; // can only reduce trim to 0
             float minDelta = -(initialDuration[0] - minDuration); // can only increase trim up to minDuration left
 
-            // Actually, deltaX > 0 means trimming MORE (startClipTrim increases, duration decreases, startTime increases)
-            // deltaTime should be capped by how much we can trim
-            float proposedDelta = deltaTime;
-            
-            // Limit by source start (cannot trim before 0 of file)
-            proposedDelta = Math.max(-initialStartTrim[0], proposedDelta);
-            
             // Limit by minimum duration
+            float proposedDelta = deltaTime;
             proposedDelta = Math.min(initialDuration[0] - minDuration, proposedDelta);
-
-            clip.startTime = initialStartTime[0] + proposedDelta;
-            clip.startClipTrim = initialStartTrim[0] + proposedDelta;
-            clip.duration = initialDuration[0] - proposedDelta;
+            
+            if (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO) {
+                // Limit by source start (cannot trim before 0 of file)
+                proposedDelta = Math.max(-initialStartTrim[0], proposedDelta);
+                
+                clip.startTime = initialStartTime[0] + proposedDelta;
+                clip.startClipTrim = initialStartTrim[0] + proposedDelta;
+                clip.duration = initialDuration[0] - proposedDelta;
+            } else {
+                // Unlimited resources: IMAGE, TEXT, EFFECT, etc.
+                // Just move start time and adjust duration, no trim needed
+                clip.startTime = initialStartTime[0] + proposedDelta;
+                clip.duration = initialDuration[0] - proposedDelta;
+            }
 
             // Visual update
             updateVisuals(pixelsPerSecond);
@@ -273,15 +277,21 @@ public class ClipNode extends Pane {
 
             float minDuration = 0.1f;
             float proposedDelta = deltaTime;
-
-            // Limit by source end (cannot trim after originalDuration)
-            proposedDelta = Math.min(initialEndTrim[0], proposedDelta);
-
+            
             // Limit by minimum duration
             proposedDelta = Math.max(-(initialDuration[0] - minDuration), proposedDelta);
 
-            clip.duration = initialDuration[0] + proposedDelta;
-            clip.endClipTrim = initialEndTrim[0] - proposedDelta;
+            if (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO) {
+                // Limit by source end (cannot trim after originalDuration)
+                proposedDelta = Math.min(initialEndTrim[0], proposedDelta);
+                
+                clip.duration = initialDuration[0] + proposedDelta;
+                clip.endClipTrim = initialEndTrim[0] - proposedDelta;
+            } else {
+                // Unlimited resources: IMAGE, TEXT, EFFECT, etc.
+                // Just adjust duration, no trim needed
+                clip.duration = initialDuration[0] + proposedDelta;
+            }
 
             // Visual update
             updateVisuals(pixelsPerSecond);
