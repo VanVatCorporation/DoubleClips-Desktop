@@ -3,3 +3,4 @@ local.properties
 bin/
 .idea/
 .gradle/
+/ai-rules.txt

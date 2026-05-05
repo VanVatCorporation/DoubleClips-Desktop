@@ -12,7 +12,10 @@ import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
 import javafx.stage.FileChooser;
-import java.io.File;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import javafx.concurrent.Task;
@@ -1510,6 +1513,42 @@ public class EditorWindow extends Stage {
             });
         }));
 
+        propertiesContent.getChildren().add(buildSectionDivider("Animation"));
+        fields.getChildren().add(buildPropertyField("In Animation Type", selectedClip.inAnimation != null ? selectedClip.inAnimation.type : "none", newValue -> {
+            String oldVal = selectedClip.inAnimation != null ? selectedClip.inAnimation.type : "none";
+            if (newValue.equals(oldVal)) return;
+            executePropertyChange("Change In Animation Type", () -> {
+                if (selectedClip.inAnimation == null) selectedClip.inAnimation = new AnimationClip(newValue, 0.5f);
+                else selectedClip.inAnimation.type = newValue;
+                refreshTimelineUI();
+                saveProject();
+            }, () -> {
+                if (selectedClip.inAnimation == null) selectedClip.inAnimation = new AnimationClip(oldVal, 0.5f);
+                else selectedClip.inAnimation.type = oldVal;
+                refreshTimelineUI();
+                saveProject();
+            });
+        }));
+
+        fields.getChildren().add(buildPropertyField("In Animation Duration (s)", String.valueOf(selectedClip.inAnimation != null ? selectedClip.inAnimation.duration : 0.5f), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                float oldVal = selectedClip.inAnimation != null ? selectedClip.inAnimation.duration : 0.5f;
+                if (val == oldVal) return;
+                executePropertyChange("Change In Animation Duration", () -> {
+                    if (selectedClip.inAnimation == null) selectedClip.inAnimation = new AnimationClip("none", val);
+                    else selectedClip.inAnimation.duration = val;
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    if (selectedClip.inAnimation == null) selectedClip.inAnimation = new AnimationClip("none", oldVal);
+                    else selectedClip.inAnimation.duration = oldVal;
+                    refreshTimelineUI();
+                    saveProject();
+                });
+            } catch (Exception ignored) {}
+        }));
+
         propertiesContent.getChildren().addAll(sectionTitle, fields);
 
         // ─── Keyframes section ───────────────────────────────────────────────
@@ -1553,8 +1592,53 @@ public class EditorWindow extends Stage {
         clearBtn.getStyleClass().add("tool-button");
         clearBtn.setOnAction(e -> handleClearKeyframes());
 
-        btnRow.getChildren().addAll(addBtn, clearBtn);
-        box.getChildren().addAll(buildSectionDivider("Keyframes"), countLbl, btnRow);
+        Button importBtn = new Button("Import");
+        importBtn.getStyleClass().add("tool-button");
+        importBtn.setOnAction(e -> handleImportKeyframes());
+
+        Button exportBtn = new Button("Export");
+        exportBtn.getStyleClass().add("tool-button");
+        exportBtn.setOnAction(e -> handleExportKeyframes());
+
+        btnRow.getChildren().addAll(addBtn, clearBtn, importBtn, exportBtn);
+
+        // Easing selection for current keyframe
+        HBox easingRow = new HBox(8);
+        easingRow.setAlignment(Pos.CENTER_LEFT);
+        Label easingLbl = new Label("Easing");
+        easingLbl.setStyle("-fx-font-size: 11px;");
+        easingLbl.getStyleClass().add("text-muted");
+
+        ComboBox<EasingType> easingCombo = new ComboBox<>();
+        easingCombo.getItems().addAll(EasingType.values());
+        easingCombo.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(easingCombo, Priority.ALWAYS);
+
+        Keyframe currentKf = clip.keyframes.getKeyframeAtTime(clip, currentTime);
+        if (currentKf != null) {
+            easingCombo.setValue(currentKf.easing);
+        } else {
+            easingCombo.setDisable(true);
+        }
+
+        easingCombo.setOnAction(e -> {
+            if (currentKf != null) {
+                EasingType oldEasing = currentKf.easing;
+                EasingType newEasing = easingCombo.getValue();
+                if (oldEasing == newEasing) return;
+                executePropertyChange("Change Keyframe Easing", () -> {
+                    currentKf.easing = newEasing;
+                    saveProject();
+                }, () -> {
+                    currentKf.easing = oldEasing;
+                    saveProject();
+                });
+            }
+        });
+
+        easingRow.getChildren().addAll(easingLbl, easingCombo);
+
+        box.getChildren().addAll(buildSectionDivider("Keyframes"), countLbl, btnRow, easingRow);
 
         if (count > 0) {
             VBox kfList = new VBox(4);
@@ -2581,6 +2665,65 @@ public class EditorWindow extends Stage {
             saveProject();
             updatePropertiesPane();
         });
+    }
+
+    private void handleImportKeyframes() {
+        if (selectedClip == null) return;
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Import Keyframes");
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Files", "*.json"));
+        File file = fileChooser.showOpenDialog(this);
+        if (file != null) {
+            try (Reader reader = new FileReader(file)) {
+                Gson gson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
+                List<Keyframe> importedKfs = gson.fromJson(reader, new TypeToken<List<Keyframe>>(){}.getType());
+                if (importedKfs != null) {
+                    List<Keyframe> oldKfs = new ArrayList<>(selectedClip.keyframes.keyframes);
+                    executePropertyChange("Import Keyframes", () -> {
+                        selectedClip.keyframes.keyframes.clear();
+                        selectedClip.keyframes.keyframes.addAll(importedKfs);
+                        selectedClip.keyframes.sortKeyframe();
+                        if (selectedClip.viewRef instanceof ClipNode cn) {
+                            cn.updateKeyframes(pixelsPerSecond);
+                        }
+                        saveProject();
+                        updatePropertiesPane();
+                    }, () -> {
+                        selectedClip.keyframes.keyframes.clear();
+                        selectedClip.keyframes.keyframes.addAll(oldKfs);
+                        selectedClip.keyframes.sortKeyframe();
+                        if (selectedClip.viewRef instanceof ClipNode cn) {
+                            cn.updateKeyframes(pixelsPerSecond);
+                        }
+                        saveProject();
+                        updatePropertiesPane();
+                    });
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                Alert alert = new Alert(Alert.AlertType.ERROR, "Failed to import keyframes: " + e.getMessage());
+                alert.show();
+            }
+        }
+    }
+
+    private void handleExportKeyframes() {
+        if (selectedClip == null) return;
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Export Keyframes");
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Files", "*.json"));
+        fileChooser.setInitialFileName(selectedClip.getClipName() + "_keyframes.json");
+        File file = fileChooser.showSaveDialog(this);
+        if (file != null) {
+            try (Writer writer = new FileWriter(file)) {
+                Gson gson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().setPrettyPrinting().create();
+                gson.toJson(selectedClip.keyframes.keyframes, writer);
+            } catch (Exception e) {
+                e.printStackTrace();
+                Alert alert = new Alert(Alert.AlertType.ERROR, "Failed to export keyframes: " + e.getMessage());
+                alert.show();
+            }
+        }
     }
 
     // =========================================================================
