@@ -8,12 +8,16 @@ import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
 
 import javafx.application.Platform;
+import javafx.scene.effect.Blend;
+import javafx.scene.effect.BlendMode;
 import javafx.scene.effect.ColorAdjust;
+import javafx.scene.effect.ColorInput;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.Pane;
+import javafx.scene.paint.Color;
 
 import javax.sound.sampled.*;
 import java.io.*;
@@ -66,6 +70,7 @@ public class ClipRenderer {
     private float hue = 0;
     private float saturation = 1;
     private float brightness = 0;
+    private float temperature = 6500;
 
     public boolean isPlaying = false;
 
@@ -347,25 +352,16 @@ public class ClipRenderer {
     }
 
     private void updateTransforms(float time) {
-        float x = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.PosX);
-        float y = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.PosY);
-        float r = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Rot);
-        float sx = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.ScaleX);
-        float sy = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.ScaleY);
-        float o = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Opacity);
-        float h = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Hue);
-        float s = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Saturation);
-        float b = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Brightness);
-
-        if (x != -1) posX = x;
-        if (y != -1) posY = y;
-        if (r != -1) rot = r;
-        if (sx != -1) scaleX = sx;
-        if (sy != -1) scaleY = sy;
-        if (o >= 0) opacity = o;
-        if (h != -1) hue = h;
-        if (s != -1) saturation = s;
-        if (b != -1) brightness = b;
+        posX = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.PosX);
+        posY = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.PosY);
+        rot = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Rot);
+        scaleX = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.ScaleX);
+        scaleY = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.ScaleY);
+        opacity = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Opacity);
+        hue = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Hue);
+        saturation = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Saturation);
+        brightness = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Brightness);
+        temperature = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Temperature);
 
         Platform.runLater(this::applyTransformation);
     }
@@ -379,14 +375,53 @@ public class ClipRenderer {
         viewNode.setRotate(rot);
         viewNode.setOpacity(opacity);
 
-        ColorAdjust colorAdjust = (ColorAdjust) viewNode.getEffect();
-        if (colorAdjust == null) {
-            colorAdjust = new ColorAdjust();
+        // --- Color Adjustments ---
+        ColorAdjust colorAdjust = new ColorAdjust();
+        colorAdjust.setHue(hue);
+        
+        // Mapping -10..10 to -1..1
+        // Saturation: model 1.0 is neutral (0.0 in JFX). model 10.0 is 1.0 in JFX. model -10.0 is -1.0 in JFX.
+        float jfxSaturation = (saturation - 1.0f) / 9.0f;
+        if (saturation < 1.0f) {
+            jfxSaturation = (saturation - 1.0f) / 11.0f; // Map 1.0..-10.0 to 0.0..-1.0
+        }
+        colorAdjust.setSaturation(Math.max(-1.0, Math.min(1.0, jfxSaturation)));
+        
+        // Brightness: model 0.0 is neutral. model 10.0 is 1.0 in JFX.
+        colorAdjust.setBrightness(Math.max(-1.0, Math.min(1.0, brightness / 10.0f)));
+
+        // --- Temperature Tint ---
+        if (Math.abs(temperature - 6500) > 10) {
+            Color tintColor = getTemperatureColor(temperature);
+            
+            // We need a source image to get dimensions
+            Image img = viewNode.getImage();
+            if (img != null) {
+                ColorInput colorInput = new ColorInput(0, 0, img.getWidth(), img.getHeight(), tintColor);
+                Blend blend = new Blend(BlendMode.SOFT_LIGHT);
+                blend.setBottomInput(colorAdjust);
+                blend.setTopInput(colorInput);
+                viewNode.setEffect(blend);
+            } else {
+                viewNode.setEffect(colorAdjust);
+            }
+        } else {
             viewNode.setEffect(colorAdjust);
         }
-        colorAdjust.setHue(hue);
-        colorAdjust.setSaturation(saturation - 1.0); // 1.0 is neutral in model, 0.0 is neutral in JavaFX
-        colorAdjust.setBrightness(brightness);
+    }
+
+    private Color getTemperatureColor(float kelvin) {
+        if (kelvin < 6500) {
+            // Warm: Yellow/Orange tint
+            double t = (6500 - kelvin) / 5000.0;
+            t = Math.max(0, Math.min(1, t));
+            return Color.color(1.0, 0.6, 0.0, 0.4 * t);
+        } else {
+            // Cool: Blue tint
+            double t = (kelvin - 6500) / 5000.0;
+            t = Math.max(0, Math.min(1, t));
+            return Color.color(0.0, 0.4, 1.0, 0.4 * t);
+        }
     }
 
     public void release() {
