@@ -967,9 +967,15 @@ public class FFmpegEdit {
 //                        valueType == VideoProperties.ValueType.Speed || valueType == VideoProperties.ValueType.Opacity ?
 //                                "T" : "t";
         // TODO: If zooming feature is up, then use "it" for it. Scale isn't it based.
-        String timeUnit =
-                valueType == VideoProperties.ValueType.Speed || valueType == VideoProperties.ValueType.Opacity ?
-                        "T" : "t";
+        String timeUnit = "t"; // default
+        if (valueType == VideoProperties.ValueType.Speed || valueType == VideoProperties.ValueType.Opacity) {
+            timeUnit = "T";
+        } else if (valueType == VideoProperties.ValueType.ScaleX || valueType == VideoProperties.ValueType.ScaleY) {
+            // For now scale is handled by 'scale' filter which uses 't',
+            // but we might want 'it' if zoompan is enabled.
+            // For now, let's stick to 't' for the scale filter.
+            timeUnit = "t";
+        }
 
         // Skipping matching value element
         // Only return a constant value if we've reached the end of the keyframes with this value.
@@ -1334,15 +1340,29 @@ public class FFmpegEdit {
 
     public static float getTimeInTimebase(String timebase, VideoProperties.ValueType type, Keyframe keyframe, Clip clip)
     {
-        return Objects.equals(timebase, "T") ||
-                // PosX PosY (Overlay expr) the t is actually the T, which mean it take the global timebase
-                // Edit 2: Scale too??? well idk but scale also need the T
-                Objects.equals(type, VideoProperties.ValueType.PosX) ||
-                Objects.equals(type, VideoProperties.ValueType.PosY) ||
-                Objects.equals(type, VideoProperties.ValueType.ScaleX) ||
-                Objects.equals(type, VideoProperties.ValueType.ScaleY) ?
-                keyframe.getGlobalTime(clip) :
-                keyframe.getLocalTime();
+        if (Objects.equals(timebase, "T")) {
+            if (type == VideoProperties.ValueType.Speed) {
+                // Speed is used in setpts (before project startTime shift).
+                // Input T starts at clip.startClipTrim.
+                return keyframe.getLocalTime() + clip.startClipTrim;
+            }
+            // Opacity is used in geq (after project startTime shift).
+            // T reflects the global timestamp.
+            return keyframe.getGlobalTime(clip);
+        }
+
+        if (Objects.equals(timebase, "t")) {
+            // scale, rotate, hue etc. are applied after setpts shift.
+            // t reflects the global timestamp.
+            return keyframe.getGlobalTime(clip);
+        }
+
+        if (Objects.equals(timebase, "it")) {
+            // it is input time (usually for zoompan), starts at 0 for the filter input.
+            return keyframe.getLocalTime();
+        }
+
+        return keyframe.getLocalTime();
     }
 
 
