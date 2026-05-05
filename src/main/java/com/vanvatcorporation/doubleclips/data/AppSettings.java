@@ -19,6 +19,7 @@ public class AppSettings {
     private final StringProperty selectAllKeybind = new SimpleStringProperty();
     private final StringProperty undoKeybind = new SimpleStringProperty();
     private final StringProperty redoKeybind = new SimpleStringProperty();
+    private final StringProperty togglePlayKeybind = new SimpleStringProperty();
 
     private AppSettings() {
         prefs = Preferences.userNodeForPackage(AppSettings.class);
@@ -31,6 +32,7 @@ public class AppSettings {
         selectAllKeybind.set(prefs.get("select_all_keybind", "Shortcut+A"));
         undoKeybind.set(prefs.get("undo_keybind", "Shortcut+Z"));
         redoKeybind.set(prefs.get("redo_keybind", "Shortcut+Shift+Z"));
+        togglePlayKeybind.set(prefs.get("toggle_play_keybind", "SPACE"));
 
         // Save on change
         themeMode.addListener((obs, oldVal, newVal) -> prefs.put("theme_mode", newVal));
@@ -40,6 +42,7 @@ public class AppSettings {
         selectAllKeybind.addListener((obs, oldVal, newVal) -> prefs.put("select_all_keybind", newVal));
         undoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("undo_keybind", newVal));
         redoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("redo_keybind", newVal));
+        togglePlayKeybind.addListener((obs, oldVal, newVal) -> prefs.put("toggle_play_keybind", newVal));
     }
 
     public static AppSettings getInstance() {
@@ -73,4 +76,8 @@ public class AppSettings {
     public String getRedoKeybind() { return redoKeybind.get(); }
     public void setRedoKeybind(String value) { redoKeybind.set(value); }
     public StringProperty redoKeybindProperty() { return redoKeybind; }
+
+    public String getTogglePlayKeybind() { return togglePlayKeybind.get(); }
+    public void setTogglePlayKeybind(String value) { togglePlayKeybind.set(value); }
+    public StringProperty togglePlayKeybindProperty() { return togglePlayKeybind; }
 }

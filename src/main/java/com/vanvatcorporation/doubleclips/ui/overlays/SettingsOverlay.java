@@ -87,7 +87,8 @@ public class SettingsOverlay extends StackPane {
         HBox redoRow = createKeybindRow("Redo", "Shortcut to re-apply reverted action", settings.redoKeybindProperty());
         HBox deleteRow = createKeybindRow("Delete Clip/Track", "Shortcut to delete selected items", settings.deleteKeybindProperty());
         HBox selectAllRow = createKeybindRow("Select All", "Shortcut to select all clips", settings.selectAllKeybindProperty());
-        shortcutsGroup.getChildren().addAll(undoRow, new Separator(), redoRow, new Separator(), deleteRow, new Separator(), selectAllRow);
+        HBox togglePlayRow = createKeybindRow("Toggle Play/Pause", "Shortcut to play/pause preview", settings.togglePlayKeybindProperty());
+        shortcutsGroup.getChildren().addAll(undoRow, new Separator(), redoRow, new Separator(), deleteRow, new Separator(), selectAllRow, new Separator(), togglePlayRow);
 
         content.getChildren().addAll(generalGroup, shortcutsGroup);
         scrollPane.setContent(content);
@@ -165,8 +166,15 @@ public class SettingsOverlay extends StackPane {
         keyBtn.setOnAction(e -> {
             keyBtn.setText("Press key...");
             keyBtn.setOnKeyPressed(ke -> {
+                ke.consume();
                 String combo = "";
-                if (ke.isShortcutDown() && ke.getCode() != javafx.scene.input.KeyCode.CONTROL && ke.getCode() != javafx.scene.input.KeyCode.COMMAND && ke.getCode() != javafx.scene.input.KeyCode.META) {
+                if (ke.isShortcutDown() && ke.getCode() != javafx.scene.input.KeyCode.CONTROL) {
+                    combo += "Ctrl+";
+                }
+                if (ke.isShortcutDown() && ke.getCode() != javafx.scene.input.KeyCode.COMMAND) {
+                    combo += "Cmd+";
+                }
+                if (ke.isShortcutDown() && ke.getCode() != javafx.scene.input.KeyCode.META) {
                     combo += "Shortcut+";
                 }
                 if (ke.isShiftDown() && ke.getCode() != javafx.scene.input.KeyCode.SHIFT) {

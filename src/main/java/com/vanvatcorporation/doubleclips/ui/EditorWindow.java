@@ -85,6 +85,7 @@ public class EditorWindow extends Stage {
     // UI Components for logic access
     private final Label currentTimeLabel = new Label("00:00:00:00");
     private final Label durationLabel = new Label("00:00:00:00");
+    private final Button playBtn = new Button();
     private final Pane tracksPane = new Pane();
     private final VBox trackHeadersContainer = new VBox(0);
     private final VBox propertiesContent = new VBox(15);
@@ -95,6 +96,10 @@ public class EditorWindow extends Stage {
     private FlowPane mediaGrid;
     private ToggleButton mediaTab;
     private VBox mediaDropOverlay;
+
+    // Icons for UI
+    FontIcon playIcon = new FontIcon(MaterialDesignP.PLAY_CIRCLE_OUTLINE);
+    FontIcon pauseIcon = new FontIcon(MaterialDesignP.PAUSE_CIRCLE_OUTLINE);
 
     // --- Scroll sync & Updaters ---
     private final ScrollPane rulerScrollPane = new ScrollPane();
@@ -218,6 +223,18 @@ public class EditorWindow extends Stage {
             } catch (Exception e) {
             }
 
+
+
+            String togglePlayBindingStr = AppSettings.getInstance().getTogglePlayKeybind();
+            boolean togglePlayMatched = false;
+            try {
+                if (javafx.scene.input.KeyCombination.valueOf(togglePlayBindingStr).match(event))
+                    togglePlayMatched = true;
+            } catch (Exception e) {
+                if (event.getCode().name().equalsIgnoreCase(togglePlayBindingStr))
+                    togglePlayMatched = true;
+            }
+
             if (undoMatched) {
                 historyManager.undo();
                 event.consume();
@@ -230,6 +247,10 @@ public class EditorWindow extends Stage {
                 event.consume();
             } else if (selectAllMatched) {
                 System.out.println("Select All triggered - Multiple selection not yet supported by data model");
+                event.consume();
+            }
+            else if (togglePlayMatched) {
+                triggerPlayAction();
                 event.consume();
             }
         });
@@ -347,6 +368,16 @@ public class EditorWindow extends Stage {
         }
     }
 
+    private void triggerPlayAction()
+    {
+        if (isPlaying) {
+            stopPlayback();
+            playBtn.setGraphic(playIcon);
+        } else {
+            startPlayback();
+            playBtn.setGraphic(pauseIcon);
+        }
+    }
     private void startPlayback() {
         if (isPlaying)
             return;
@@ -1033,19 +1064,10 @@ public class EditorWindow extends Stage {
         Region pbLeft = new Region();
         HBox.setHgrow(pbLeft, Priority.ALWAYS);
 
-        Button playBtn = new Button();
-        FontIcon playIcon = new FontIcon(MaterialDesignP.PLAY_CIRCLE_OUTLINE);
-        FontIcon pauseIcon = new FontIcon(MaterialDesignP.PAUSE_CIRCLE_OUTLINE);
         playBtn.setGraphic(playIcon);
         playBtn.getStyleClass().addAll("button-transparent", "play-button-main");
         playBtn.setOnAction(e -> {
-            if (isPlaying) {
-                stopPlayback();
-                playBtn.setGraphic(playIcon);
-            } else {
-                startPlayback();
-                playBtn.setGraphic(pauseIcon);
-            }
+            triggerPlayAction();
         });
 
         Region pbRight = new Region();
