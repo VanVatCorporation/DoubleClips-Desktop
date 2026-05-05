@@ -738,3 +738,75 @@
 .export-button:disabled {
     -fx-opacity: 0.45;
 }
+
+/* ============================================
+   RIGHT PANEL PROPERTIES
+   ============================================ */
+
+.properties-section {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 12;
+    -fx-padding: 14;
+    -fx-spacing: 12;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+    -fx-border-radius: 12;
+}
+
+.button-transparent-small {
+    -fx-background-color: transparent;
+    -fx-padding: 2;
+    -fx-cursor: hand;
+}
+
+.button-transparent-small:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.05);
+    -fx-background-radius: 4;
+}
+
+.button-transparent-small .ikonli-font-icon {
+    -fx-icon-size: 14px;
+    -fx-icon-color: -color-fg-muted;
+}
+
+.button-transparent-small:hover .ikonli-font-icon {
+    -fx-icon-color: -color-fg-default;
+}
+
+.property-slider .track {
+    -fx-pref-height: 4;
+}
+
+.editor-textfield-small {
+    -fx-font-size: 11px;
+    -fx-padding: 4 6;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-background-color: -color-bg-default;
+    -fx-border-color: -color-border-subtle;
+    -fx-alignment: center;
+}
+
+.alignment-toolbar {
+    -fx-background-color: -color-bg-default;
+    -fx-background-radius: 8;
+    -fx-padding: 4;
+    -fx-spacing: 4;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+}
+
+.alignment-button {
+    -fx-background-color: transparent;
+    -fx-padding: 4;
+}
+
+.alignment-button:hover {
+    -fx-background-color: -color-bg-inset;
+}
+
+.alignment-button .ikonli-font-icon {
+    -fx-icon-size: 16px;
+    -fx-icon-color: -color-fg-muted;
+}

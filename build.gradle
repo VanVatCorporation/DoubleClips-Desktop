@@ -75,7 +75,9 @@ runtime {
         }
     }
 }
-
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
 // Custom task to inject FFmpeg binary into the prepared JPackage image
 tasks.register("copyFfmpegBinaries", Copy) {
     mustRunAfter(tasks.named("jpackageImage"))

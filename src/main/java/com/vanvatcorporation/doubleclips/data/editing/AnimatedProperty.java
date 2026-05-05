@@ -1,6 +1,8 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
 import com.google.gson.annotations.Expose;
+import com.vanvatcorporation.doubleclips.constants.Constants;
+
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +17,21 @@ public class AnimatedProperty implements Serializable {
         if (other != null && other.keyframes != null) {
             this.keyframes.addAll(other.keyframes);
         }
+    }
+    /**
+     * Get keyframe at global clip time
+     * @param clip the clip that contains keyframe to get its global time
+     * @param playheadTime the global time
+     * @return keyframe that matched exactly the global time, null if there's no keyframe match the provided global time.
+     */
+    public Keyframe getKeyframeAtTime(Clip clip, float playheadTime)
+    {
+        for (Keyframe k : keyframes) {
+            //if(k.getGlobalTime(clip) == playheadTime) return k;
+            // Adjust tolerance (0.01s)
+            if(Math.abs(k.getGlobalTime(clip) - playheadTime) <= Constants.TRACK_CLIPS_MINIMUM_KEYFRAME_SPACE_SECONDS) return k;
+        }
+        return null;
     }
 
     public void sortKeyframe() {

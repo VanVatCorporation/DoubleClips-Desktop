@@ -236,6 +236,21 @@ public class EditorWindow extends Stage {
         lastTimerUpdate = System.nanoTime();
         playbackTimer.start();
         // Update play/pause button icon if needed
+
+        double playheadX = currentTime * pixelsPerSecond;
+        double contentWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
+        double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+        double hValue = tracksScrollPane.getHvalue();
+        double scrollX = hValue * (contentWidth - viewportWidth);
+
+        // If playhead is not visible or "away", snap to 0.25 position
+        if (playheadX < scrollX || playheadX > scrollX + viewportWidth) {
+            double targetScrollX = Math.max(0, playheadX - viewportWidth * 0.25);
+            double maxScrollX = contentWidth - viewportWidth;
+            if (maxScrollX > 0) {
+                tracksScrollPane.setHvalue(Math.min(1.0, targetScrollX / maxScrollX));
+            }
+        }
     }
 
     private void stopPlayback() {
@@ -265,12 +280,18 @@ public class EditorWindow extends Stage {
         // Auto-scroll if playing
         if (isPlaying) {
             double playheadX = currentTime * pixelsPerSecond;
-            double scrollWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
+            double contentWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
             double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+            double hValue = tracksScrollPane.getHvalue();
+            double scrollX = hValue * (contentWidth - viewportWidth);
 
-            if (playheadX > viewportWidth * 0.8) {
-                // Simple auto-scroll logic
-                tracksScrollPane.setHvalue(playheadX / scrollWidth);
+            if (playheadX - scrollX > viewportWidth * 0.8) {
+                // Scroll to keep playhead at 0.8 mark
+                double targetScrollX = playheadX - viewportWidth * 0.8;
+                double maxScrollX = contentWidth - viewportWidth;
+                if (maxScrollX > 0) {
+                    tracksScrollPane.setHvalue(Math.min(1.0, targetScrollX / maxScrollX));
+                }
             }
 
             if ((currentTime >= timeline.duration) || (currentTime <= 0f && isPlayingInReverse)) {
@@ -284,7 +305,7 @@ public class EditorWindow extends Stage {
         if (playheadLine == null || tracksScrollPane == null || tracksPane == null)
             return;
 
-        double contentWidth = tracksPane.getPrefWidth();
+        double contentWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
         double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
         double hValue = tracksScrollPane.getHvalue();
 
@@ -1057,6 +1078,134 @@ public class EditorWindow extends Stage {
             }
         }));
 
+        fields.getChildren().add(buildKeyframeablePropertyField("Position X", String.valueOf(selectedClip.videoProperties.valuePosX), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valuePosX = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosX, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.PosX));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Position Y", String.valueOf(selectedClip.videoProperties.valuePosY), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valuePosY = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosY, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.PosY));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Rotation", String.valueOf(selectedClip.videoProperties.valueRot), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueRot = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Rot, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.Rot));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Scale X", String.valueOf(selectedClip.videoProperties.valueScaleX), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueScaleX = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleX, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.ScaleX));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Scale Y", String.valueOf(selectedClip.videoProperties.valueScaleY), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueScaleY = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleY, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.ScaleY));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Opacity", String.valueOf(selectedClip.videoProperties.valueOpacity), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueOpacity = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Opacity, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.Opacity));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Speed", String.valueOf(selectedClip.videoProperties.valueSpeed), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueSpeed = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Speed, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.Speed));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Hue", String.valueOf(selectedClip.videoProperties.valueHue), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueHue = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Hue, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.Hue));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Saturation", String.valueOf(selectedClip.videoProperties.valueSaturation), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueSaturation = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Saturation, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.Saturation));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Brightness", String.valueOf(selectedClip.videoProperties.valueBrightness), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueBrightness = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Brightness, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.Brightness));
+
+        fields.getChildren().add(buildKeyframeablePropertyField("Temperature", String.valueOf(selectedClip.videoProperties.valueTemperature), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                selectedClip.videoProperties.valueTemperature = val;
+                updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Temperature, val);
+                refreshTimelineUI();
+                saveProject();
+            } catch (Exception ignored) {}
+        }, selectedClip, VideoProperties.ValueType.Temperature));
+
+        fields.getChildren().add(buildTogglePropertyField("Mute Audio", selectedClip.isMute, newValue -> {
+            selectedClip.isMute = newValue;
+            refreshTimelineUI();
+            saveProject();
+        }));
+
+        fields.getChildren().add(buildTogglePropertyField("Reverse", selectedClip.isReverse, newValue -> {
+            selectedClip.isReverse = newValue;
+            refreshTimelineUI();
+            saveProject();
+        }));
+
+        fields.getChildren().add(buildTogglePropertyField("Remove Background", selectedClip.removeBackground, newValue -> {
+            selectedClip.removeBackground = newValue;
+            refreshTimelineUI();
+            saveProject();
+        }));
+
         propertiesContent.getChildren().addAll(sectionTitle, fields);
 
         // ─── Keyframes section ───────────────────────────────────────────────
@@ -1236,6 +1385,68 @@ public class EditorWindow extends Stage {
 
         box.getChildren().addAll(lbl, tf);
         return box;
+    }
+
+    private HBox buildKeyframeablePropertyField(String label, String value, java.util.function.Consumer<String> onUpdate, Clip clip, VideoProperties.ValueType vType) {
+        VBox fieldBox = buildPropertyField(label, value, onUpdate);
+        HBox.setHgrow(fieldBox, Priority.ALWAYS);
+
+        Button kfBtn = new Button();
+        kfBtn.getStyleClass().add("tool-button");
+        kfBtn.setPadding(new Insets(4));
+        
+        boolean hasKf = false;
+        if (clip.keyframes != null) {
+            hasKf = clip.keyframes.getKeyframeAtTime(clip, currentTime) != null;
+        }
+        
+        FontIcon diamondIcon = new FontIcon(hasKf ? MaterialDesignR.RHOMBUS : MaterialDesignR.RHOMBUS_OUTLINE);
+        diamondIcon.setIconSize(14);
+        diamondIcon.setIconColor(hasKf ? Color.valueOf("#4A90E2") : Color.valueOf("#888888"));
+        kfBtn.setGraphic(diamondIcon);
+
+        kfBtn.setOnAction(e -> {
+            if (clip.keyframes == null) clip.keyframes = new AnimatedProperty();
+            Keyframe k = clip.keyframes.getKeyframeAtTime(clip, currentTime);
+            if (k != null) {
+                clip.keyframes.keyframes.remove(k);
+            } else {
+                clip.keyframes.keyframes.add(new Keyframe(currentTime - clip.startTime, new VideoProperties(clip.videoProperties), EasingType.LINEAR));
+                clip.keyframes.sortKeyframe();
+            }
+            refreshTimelineUI();
+            saveProject();
+            updatePropertiesPane();
+        });
+
+        HBox row = new HBox(8, fieldBox, kfBtn);
+        row.setAlignment(Pos.BOTTOM_RIGHT);
+        return row;
+    }
+
+    private void updateKeyframeValueIfPresent(Clip clip, VideoProperties.ValueType type, float val) {
+        if (clip.keyframes != null) {
+            Keyframe k = clip.keyframes.getKeyframeAtTime(clip, currentTime);
+            if (k != null) {
+                k.value.setValue(val, type);
+            }
+        }
+    }
+
+    private HBox buildTogglePropertyField(String label, boolean isSelected, java.util.function.Consumer<Boolean> onUpdate) {
+        HBox row = new HBox(8);
+        row.setAlignment(Pos.CENTER_LEFT);
+        Label lbl = new Label(label);
+        lbl.getStyleClass().add("text-muted");
+        lbl.setStyle("-fx-font-size: 11px;");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        ToggleButton toggle = new ToggleButton();
+        toggle.getStyleClass().add("pill-toggle");
+        toggle.setSelected(isSelected);
+        toggle.setOnAction(e -> onUpdate.accept(toggle.isSelected()));
+        row.getChildren().addAll(lbl, spacer, toggle);
+        return row;
     }
 
     // ====================================================================
