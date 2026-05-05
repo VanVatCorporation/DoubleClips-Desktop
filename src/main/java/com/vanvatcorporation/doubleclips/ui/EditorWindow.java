@@ -158,8 +158,8 @@ public class EditorWindow extends Stage {
 
         MenuBar menuBar = new MenuBar();
         menuBar.setUseSystemMenuBar(true);
-        Menu appMenu = new Menu("DoubleClips");
-        MenuItem settingsItem = new MenuItem("Settings...");
+        Menu appMenu = new Menu("File");
+        MenuItem settingsItem = new MenuItem("Preferences...");
         settingsItem.setOnAction(ev -> {
             final com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[] overlayRef = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[1];
             overlayRef[0] = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay(v -> {
@@ -1664,8 +1664,9 @@ public class EditorWindow extends Stage {
 
         propertyUpdaters.add(updater);
 
+
         easingCombo.setOnAction(e -> {
-            if (currentKf != null) {
+            if (currentKf != null && easingCombo.isShowing()) {
                 EasingType oldEasing = currentKf.easing;
                 EasingType newEasing = easingCombo.getValue();
                 if (oldEasing == newEasing) return;

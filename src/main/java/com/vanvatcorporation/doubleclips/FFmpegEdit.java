@@ -882,13 +882,14 @@ public class FFmpegEdit {
         cmd.append("-filter_complex \"").append(filterComplex).append("\" ")
                 .append("-map \"").append( (mapTag != null ? mapTag.tag : "[base]") ).append("\" ")
                 .append(audioMaps);
+        cmd.append("-shortest "); // TODO: PC only - Don't know why it keep rendering. Put shortest here as the last resort.
 
         // Encoder selection: hardware (MediaCodec) or software (libx264)
         if (templateSettings.settings.isUseHardwareAccel()) {
-            cmd.append(" -c:v h264_" + hardwareAcceleratedName + "")
+            cmd.append("-c:v h264_" + hardwareAcceleratedName + "")
                     .append(" -b:v ").append(templateSettings.settings.getBitrate()).append("M");
         } else {
-            cmd.append(" -c:v libx264 -preset ").append(templateSettings.settings.getPreset())
+            cmd.append("-c:v libx264 -preset ").append(templateSettings.settings.getPreset())
                     .append(" -tune ").append(templateSettings.settings.getTune())
                     .append(" -crf ").append(templateSettings.settings.getCRF());
         }
