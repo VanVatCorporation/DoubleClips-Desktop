@@ -24,6 +24,7 @@ import java.util.List;
 import javafx.animation.AnimationTimer;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
+import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -105,6 +106,10 @@ public class EditorWindow extends Stage {
     }
 
     private final DragContext activeDrag = new DragContext();
+    private AnimationTimer edgeScrollTimer;
+    private double edgeScrollVelocity = 0; // pixels per frame to scroll
+    private double lastDragSceneX;
+    private double lastDragSceneY;
 
     public EditorWindow(ProjectData project) {
         this.project = project;
@@ -226,6 +231,7 @@ public class EditorWindow extends Stage {
         });
 
         initPlaybackTimer();
+        initEdgeScrollTimer();
 
         if (this.timeline.tracks.isEmpty()) {
             addNewTrack("Video 1");
@@ -255,6 +261,81 @@ public class EditorWindow extends Stage {
                 lastTimerUpdate = now;
             }
         };
+    }
+
+    private void initEdgeScrollTimer() {
+        edgeScrollTimer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                if (edgeScrollVelocity == 0 || activeDrag.ghost == null) {
+                    stop();
+                    return;
+                }
+
+                double contentWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
+                double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+                double maxScrollX = contentWidth - viewportWidth;
+                if (maxScrollX <= 0) return;
+
+                double currentScrollX = tracksScrollPane.getHvalue() * maxScrollX;
+                double newScrollX = Math.max(0, Math.min(maxScrollX, currentScrollX + edgeScrollVelocity));
+
+                tracksScrollPane.setHvalue(newScrollX / maxScrollX);
+
+                // Keep ghost in sync with mouse scene position as we scroll
+                updateActiveDragGhost(lastDragSceneX, lastDragSceneY);
+            }
+        };
+    }
+
+    private void updateActiveDragGhost(double sceneX, double sceneY) {
+        if (activeDrag.ghost == null) return;
+
+        javafx.geometry.Point2D local = tracksPane.sceneToLocal(sceneX, sceneY);
+        double rawX = local.getX() - activeDrag.dragOffsetX;
+        double clampedX = Math.max(0, rawX);
+
+        double ghostW = activeDrag.ghost.getPrefWidth();
+        double snappedX = applySnap(clampedX, ghostW, activeDrag.currentTrackIdx);
+        activeDrag.ghost.setLayoutX(snappedX);
+
+        int newTrackIdx = trackIdxFromLocalY(local.getY());
+        if (newTrackIdx != activeDrag.currentTrackIdx) {
+            activeDrag.currentTrackIdx = newTrackIdx;
+            double newY = newTrackIdx * (TRACK_HEIGHT + TRACK_SPACING) + 3;
+            activeDrag.ghost.setLayoutY(newY);
+        }
+    }
+
+    private void checkEdgeScroll(double sceneX, double sceneY) {
+        lastDragSceneX = sceneX;
+        lastDragSceneY = sceneY;
+
+        if (activeDrag.ghost == null) {
+            edgeScrollVelocity = 0;
+            edgeScrollTimer.stop();
+            return;
+        }
+
+        javafx.geometry.Point2D viewportPoint = tracksScrollPane.sceneToLocal(sceneX, sceneY);
+        double vx = viewportPoint.getX();
+        double vw = tracksScrollPane.getViewportBounds().getWidth();
+
+        double threshold = 60.0;
+        double maxSpeed = 12.0; // pixels per frame
+
+        if (vx < threshold && vx > -threshold) { // Mouse is near left edge
+            double intensity = (threshold - Math.max(0, vx)) / threshold;
+            edgeScrollVelocity = -maxSpeed * intensity;
+            edgeScrollTimer.start();
+        } else if (vx > vw - threshold && vx < vw + threshold) { // Mouse is near right edge
+            double intensity = (threshold - Math.max(0, vw - vx)) / threshold;
+            edgeScrollVelocity = maxSpeed * intensity;
+            edgeScrollTimer.start();
+        } else {
+            edgeScrollVelocity = 0;
+            edgeScrollTimer.stop();
+        }
     }
 
     private void startPlayback() {
@@ -850,25 +931,14 @@ public class EditorWindow extends Stage {
                 activeDrag.ghost = ghost;
             }
 
-            javafx.geometry.Point2D local = tracksPane.sceneToLocal(e.getSceneX(), e.getSceneY());
-            double rawX = local.getX() - activeDrag.dragOffsetX;
-            double clampedX = Math.max(0, rawX);
-
-            double ghostW = activeDrag.ghost.getPrefWidth();
-            double snappedX = applySnap(clampedX, ghostW, activeDrag.currentTrackIdx);
-            activeDrag.ghost.setLayoutX(snappedX);
-
-            int newTrackIdx = trackIdxFromLocalY(local.getY());
-            if (newTrackIdx != activeDrag.currentTrackIdx) {
-                activeDrag.currentTrackIdx = newTrackIdx;
-            }
-            double newY = activeDrag.currentTrackIdx * (TRACK_HEIGHT + TRACK_SPACING) + 3;
-            activeDrag.ghost.setLayoutY(newY);
+            updateActiveDragGhost(e.getSceneX(), e.getSceneY());
+            checkEdgeScroll(e.getSceneX(), e.getSceneY());
 
             e.consume();
         });
 
         box.setOnMouseReleased(e -> {
+            edgeScrollTimer.stop();
             if (activeDrag.clip == null || !activeDrag.isNewClip)
                 return;
 
@@ -2501,29 +2571,14 @@ public class EditorWindow extends Stage {
                 activeDrag.ghost = ghost;
             }
 
-            // Convert scene coords → tracksPane local coords
-            javafx.geometry.Point2D local = tracksPane.sceneToLocal(e.getSceneX(), e.getSceneY());
-            double rawX = local.getX() - activeDrag.dragOffsetX;
-            double clampedX = Math.max(0, rawX);
-
-            double ghostW = activeDrag.ghost.getPrefWidth();
-
-            // Snapping
-            double snappedX = applySnap(clampedX, ghostW, activeDrag.currentTrackIdx);
-            activeDrag.ghost.setLayoutX(snappedX);
-
-            // Cross-track detection by Y
-            int newTrackIdx = trackIdxFromLocalY(local.getY());
-            if (newTrackIdx != activeDrag.currentTrackIdx) {
-                activeDrag.currentTrackIdx = newTrackIdx;
-                double newY = newTrackIdx * (TRACK_HEIGHT + TRACK_SPACING) + 3;
-                activeDrag.ghost.setLayoutY(newY);
-            }
+            updateActiveDragGhost(e.getSceneX(), e.getSceneY());
+            checkEdgeScroll(e.getSceneX(), e.getSceneY());
 
             e.consume();
         });
 
         node.setOnMouseReleased(e -> {
+            edgeScrollTimer.stop();
             if (activeDrag.clip != clip || activeDrag.isNewClip)
                 return;
 
