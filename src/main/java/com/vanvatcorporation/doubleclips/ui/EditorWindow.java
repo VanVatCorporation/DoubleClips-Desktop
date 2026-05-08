@@ -1276,262 +1276,314 @@ public class EditorWindow extends Stage {
             }
         }));
 
-        fields.getChildren().add(buildSectionDivider("Transform"));
-
-        fields.getChildren().add(buildKeyframeablePropertyField("Position X", String.valueOf(selectedClip.videoProperties.valuePosX), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valuePosX;
-                if (val == oldVal) return;
-                executePropertyChange("Change Position X", () -> {
-                    selectedClip.videoProperties.valuePosX = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosX, val);
+        if (selectedClip.type == ClipType.TEXT) {
+            fields.getChildren().add(buildSectionDivider("Text"));
+            
+            fields.getChildren().add(buildTextAreaPropertyField("Text Content", selectedClip.textContent != null ? selectedClip.textContent : "", newValue -> {
+                String oldVal = selectedClip.textContent;
+                if (newValue.equals(oldVal)) return;
+                executePropertyChange("Change Text Content", () -> {
+                    selectedClip.textContent = newValue;
                     refreshTimelineUI();
                     saveProject();
                 }, () -> {
-                    selectedClip.videoProperties.valuePosX = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosX, oldVal);
+                    selectedClip.textContent = oldVal;
                     refreshTimelineUI();
                     saveProject();
                 });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.PosX));
+            }));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Position Y", String.valueOf(selectedClip.videoProperties.valuePosY), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valuePosY;
-                if (val == oldVal) return;
-                executePropertyChange("Change Position Y", () -> {
-                    selectedClip.videoProperties.valuePosY = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosY, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valuePosY = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosY, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.PosY));
+            fields.getChildren().add(buildPropertyField("Font Size", String.valueOf(selectedClip.fontSize), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.fontSize;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Font Size", () -> {
+                        selectedClip.fontSize = val;
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.fontSize = oldVal;
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {}
+            }));
+        }
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Rotation", String.valueOf(selectedClip.videoProperties.valueRot), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueRot;
-                if (val == oldVal) return;
-                executePropertyChange("Change Rotation", () -> {
-                    selectedClip.videoProperties.valueRot = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Rot, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueRot = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Rot, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.Rot));
+        if (selectedClip.type != ClipType.EFFECT) {
+            fields.getChildren().add(buildSectionDivider("Transform"));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Scale X", String.valueOf(selectedClip.videoProperties.valueScaleX), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueScaleX;
-                if (val == oldVal) return;
-                executePropertyChange("Change Scale X", () -> {
-                    selectedClip.videoProperties.valueScaleX = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleX, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueScaleX = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleX, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.ScaleX));
+            fields.getChildren().add(buildKeyframeablePropertyField("Position X", String.valueOf(selectedClip.videoProperties.valuePosX), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valuePosX;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Position X", () -> {
+                        selectedClip.videoProperties.valuePosX = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosX, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valuePosX = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosX, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.PosX));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Scale Y", String.valueOf(selectedClip.videoProperties.valueScaleY), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueScaleY;
-                if (val == oldVal) return;
-                executePropertyChange("Change Scale Y", () -> {
-                    selectedClip.videoProperties.valueScaleY = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleY, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueScaleY = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleY, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.ScaleY));
+            fields.getChildren().add(buildKeyframeablePropertyField("Position Y", String.valueOf(selectedClip.videoProperties.valuePosY), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valuePosY;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Position Y", () -> {
+                        selectedClip.videoProperties.valuePosY = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosY, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valuePosY = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.PosY, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.PosY));
 
-        fields.getChildren().add(buildSectionDivider("Color & Effects"));
+            fields.getChildren().add(buildKeyframeablePropertyField("Rotation", String.valueOf(selectedClip.videoProperties.valueRot), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueRot;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Rotation", () -> {
+                        selectedClip.videoProperties.valueRot = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Rot, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueRot = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Rot, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.Rot));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Opacity", String.valueOf(selectedClip.videoProperties.valueOpacity), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueOpacity;
-                if (val == oldVal) return;
-                executePropertyChange("Change Opacity", () -> {
-                    selectedClip.videoProperties.valueOpacity = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Opacity, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueOpacity = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Opacity, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.Opacity));
+            fields.getChildren().add(buildKeyframeablePropertyField("Scale X", String.valueOf(selectedClip.videoProperties.valueScaleX), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueScaleX;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Scale X", () -> {
+                        selectedClip.videoProperties.valueScaleX = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleX, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueScaleX = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleX, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.ScaleX));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Speed", String.valueOf(selectedClip.videoProperties.valueSpeed), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueSpeed;
-                if (val == oldVal) return;
-                executePropertyChange("Change Speed", () -> {
-                    selectedClip.videoProperties.valueSpeed = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Speed, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueSpeed = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Speed, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.Speed));
+            fields.getChildren().add(buildKeyframeablePropertyField("Scale Y", String.valueOf(selectedClip.videoProperties.valueScaleY), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueScaleY;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Scale Y", () -> {
+                        selectedClip.videoProperties.valueScaleY = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleY, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueScaleY = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.ScaleY, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.ScaleY));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Hue", String.valueOf(selectedClip.videoProperties.valueHue), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueHue;
-                if (val == oldVal) return;
-                executePropertyChange("Change Hue", () -> {
-                    selectedClip.videoProperties.valueHue = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Hue, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueHue = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Hue, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.Hue));
+            fields.getChildren().add(buildSectionDivider("Color & Effects"));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Saturation", String.valueOf(selectedClip.videoProperties.valueSaturation), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueSaturation;
-                if (val == oldVal) return;
-                executePropertyChange("Change Saturation", () -> {
-                    selectedClip.videoProperties.valueSaturation = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Saturation, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueSaturation = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Saturation, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.Saturation));
+            fields.getChildren().add(buildKeyframeablePropertyField("Opacity", String.valueOf(selectedClip.videoProperties.valueOpacity), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueOpacity;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Opacity", () -> {
+                        selectedClip.videoProperties.valueOpacity = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Opacity, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueOpacity = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Opacity, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.Opacity));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Brightness", String.valueOf(selectedClip.videoProperties.valueBrightness), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueBrightness;
-                if (val == oldVal) return;
-                executePropertyChange("Change Brightness", () -> {
-                    selectedClip.videoProperties.valueBrightness = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Brightness, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueBrightness = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Brightness, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.Brightness));
+            fields.getChildren().add(buildKeyframeablePropertyField("Speed", String.valueOf(selectedClip.videoProperties.valueSpeed), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueSpeed;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Speed", () -> {
+                        selectedClip.videoProperties.valueSpeed = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Speed, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueSpeed = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Speed, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.Speed));
 
-        fields.getChildren().add(buildKeyframeablePropertyField("Temperature", String.valueOf(selectedClip.videoProperties.valueTemperature), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.videoProperties.valueTemperature;
-                if (val == oldVal) return;
-                executePropertyChange("Change Temperature", () -> {
-                    selectedClip.videoProperties.valueTemperature = val;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Temperature, val);
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    selectedClip.videoProperties.valueTemperature = oldVal;
-                    updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Temperature, oldVal);
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            } catch (Exception ignored) {}
-        }, selectedClip, VideoProperties.ValueType.Temperature));
+            fields.getChildren().add(buildKeyframeablePropertyField("Hue", String.valueOf(selectedClip.videoProperties.valueHue), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueHue;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Hue", () -> {
+                        selectedClip.videoProperties.valueHue = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Hue, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueHue = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Hue, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.Hue));
+
+            fields.getChildren().add(buildKeyframeablePropertyField("Saturation", String.valueOf(selectedClip.videoProperties.valueSaturation), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueSaturation;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Saturation", () -> {
+                        selectedClip.videoProperties.valueSaturation = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Saturation, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueSaturation = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Saturation, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.Saturation));
+
+            fields.getChildren().add(buildKeyframeablePropertyField("Brightness", String.valueOf(selectedClip.videoProperties.valueBrightness), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueBrightness;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Brightness", () -> {
+                        selectedClip.videoProperties.valueBrightness = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Brightness, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueBrightness = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Brightness, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.Brightness));
+
+            fields.getChildren().add(buildKeyframeablePropertyField("Temperature", String.valueOf(selectedClip.videoProperties.valueTemperature), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.videoProperties.valueTemperature;
+                    if (val == oldVal) return;
+                    executePropertyChange("Change Temperature", () -> {
+                        selectedClip.videoProperties.valueTemperature = val;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Temperature, val);
+                        refreshTimelineUI();
+                        saveProject();
+                    }, () -> {
+                        selectedClip.videoProperties.valueTemperature = oldVal;
+                        updateKeyframeValueIfPresent(selectedClip, VideoProperties.ValueType.Temperature, oldVal);
+                        refreshTimelineUI();
+                        saveProject();
+                    });
+                } catch (Exception ignored) {
+                }
+            }, selectedClip, VideoProperties.ValueType.Temperature));
+        }
 
         fields.getChildren().add(buildSectionDivider("Toggles"));
 
-        fields.getChildren().add(buildTogglePropertyField("Mute Audio", selectedClip.isMute, newValue -> {
-            boolean oldVal = selectedClip.isMute;
-            if (newValue == oldVal) return;
-            executePropertyChange("Toggle Mute", () -> {
-                selectedClip.isMute = newValue;
-                refreshTimelineUI();
-                saveProject();
-            }, () -> {
-                selectedClip.isMute = oldVal;
-                refreshTimelineUI();
-                saveProject();
-            });
-        }));
+        if (selectedClip.type == ClipType.VIDEO || selectedClip.type == ClipType.AUDIO) {
+            fields.getChildren().add(buildTogglePropertyField("Mute Audio", selectedClip.isMute, newValue -> {
+                boolean oldVal = selectedClip.isMute;
+                if (newValue == oldVal) return;
+                executePropertyChange("Toggle Mute", () -> {
+                    selectedClip.isMute = newValue;
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.isMute = oldVal;
+                    refreshTimelineUI();
+                    saveProject();
+                });
+            }));
 
-        fields.getChildren().add(buildTogglePropertyField("Reverse", selectedClip.isReverse, newValue -> {
-            boolean oldVal = selectedClip.isReverse;
-            if (newValue == oldVal) return;
-            executePropertyChange("Toggle Reverse", () -> {
-                selectedClip.isReverse = newValue;
-                refreshTimelineUI();
-                saveProject();
-            }, () -> {
-                selectedClip.isReverse = oldVal;
-                refreshTimelineUI();
-                saveProject();
-            });
-        }));
+            fields.getChildren().add(buildTogglePropertyField("Reverse", selectedClip.isReverse, newValue -> {
+                boolean oldVal = selectedClip.isReverse;
+                if (newValue == oldVal) return;
+                executePropertyChange("Toggle Reverse", () -> {
+                    selectedClip.isReverse = newValue;
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.isReverse = oldVal;
+                    refreshTimelineUI();
+                    saveProject();
+                });
+            }));
+        }
 
-        fields.getChildren().add(buildTogglePropertyField("Remove Background", selectedClip.removeBackground, newValue -> {
-            boolean oldVal = selectedClip.removeBackground;
-            if (newValue == oldVal) return;
-            executePropertyChange("Toggle Remove Background", () -> {
-                selectedClip.removeBackground = newValue;
-                refreshTimelineUI();
-                saveProject();
-            }, () -> {
-                selectedClip.removeBackground = oldVal;
-                refreshTimelineUI();
-                saveProject();
-            });
-        }));
+        if (selectedClip.type == ClipType.VIDEO || selectedClip.type == ClipType.IMAGE) {
+            fields.getChildren().add(buildTogglePropertyField("Remove Background", selectedClip.removeBackground, newValue -> {
+                boolean oldVal = selectedClip.removeBackground;
+                if (newValue == oldVal) return;
+                executePropertyChange("Toggle Remove Background", () -> {
+                    selectedClip.removeBackground = newValue;
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    selectedClip.removeBackground = oldVal;
+                    refreshTimelineUI();
+                    saveProject();
+                });
+            }));
+        }
 
         propertiesContent.getChildren().add(buildSectionDivider("Animation"));
         fields.getChildren().add(buildPropertyField("In Animation Type", selectedClip.inAnimation != null ? selectedClip.inAnimation.type : "none", newValue -> {
@@ -1572,7 +1624,7 @@ public class EditorWindow extends Stage {
         propertiesContent.getChildren().addAll(sectionTitle, fields);
 
         // ─── Keyframes section ───────────────────────────────────────────────
-        if (selectedClip != null) {
+        if (selectedClip != null && selectedClip.type != ClipType.EFFECT) {
             VBox kfSection = buildKeyframesSection(selectedClip);
             propertiesContent.getChildren().add(kfSection);
         }
@@ -1851,6 +1903,27 @@ public class EditorWindow extends Stage {
         return box;
     }
 
+    private VBox buildTextAreaPropertyField(String label, String value, java.util.function.Consumer<String> onUpdate) {
+        VBox box = new VBox(4);
+        Label lbl = new Label(label);
+        lbl.getStyleClass().add("text-muted");
+        lbl.setStyle("-fx-font-size: 11px;");
+
+        TextArea ta = new TextArea(value);
+        ta.getStyleClass().add("editor-textarea");
+        ta.setPrefHeight(80);
+        ta.setWrapText(true);
+        
+        // Update on focus loss
+        ta.focusedProperty().addListener((obs, oldVal, newVal) -> {
+            if (!newVal)
+                onUpdate.accept(ta.getText());
+        });
+
+        box.getChildren().addAll(lbl, ta);
+        return box;
+    }
+
     private HBox buildKeyframeablePropertyField(String label, String value, java.util.function.Consumer<String> onUpdate, Clip clip, VideoProperties.ValueType vType) {
         VBox fieldBox = buildPropertyField(label, value, onUpdate);
         HBox.setHgrow(fieldBox, Priority.ALWAYS);
@@ -1984,7 +2057,11 @@ public class EditorWindow extends Stage {
         clearKfBtn.setTooltip(new Tooltip("Clear All Keyframes"));
         clearKfBtn.setOnAction(e -> handleClearKeyframes());
 
-        toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, keyframeBtn, clearKfBtn,
+        Button textTool = buildToolBtn(MaterialDesignF.FORMAT_TEXT);
+        textTool.setTooltip(new Tooltip("Add Text Clip"));
+        textTool.setOnAction(e -> handleAddText());
+
+        toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, textTool, keyframeBtn, clearKfBtn,
                 toolSpacer, zoomLabel, zoomSlider);
 
         // --- Ruler + Track content ---
@@ -2940,6 +3017,17 @@ public class EditorWindow extends Stage {
 
     private void executePropertyChange(String name, Runnable redo, Runnable undo) {
         historyManager.execute(new PropertyChangeCommand(name, redo, undo));
+    }
+
+    private void handleAddText() {
+        Clip textClip = new Clip("Text", currentTime, 5.0f, 0, ClipType.TEXT, false, 1280, 720);
+        textClip.textContent = "New Text";
+        textClip.fontSize = 48;
+        
+        historyManager.execute(new AddClipCommand(timeline, textClip, 0, () -> {
+            refreshTimelineUI();
+            saveProject();
+        }));
     }
 
     private void splitClipProxy(Clip clip) {
