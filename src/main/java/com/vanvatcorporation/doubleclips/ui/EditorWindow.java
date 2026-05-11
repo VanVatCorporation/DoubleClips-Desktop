@@ -11,6 +11,7 @@ import com.vanvatcorporation.doubleclips.helper.MediaHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import javafx.scene.input.MouseEvent;
 import javafx.stage.FileChooser;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -2092,6 +2093,8 @@ public class EditorWindow extends Stage implements PropertyContext {
             e.consume();
         });
 
+        node.setOnMouseClicked(MouseEvent::consume);
+
         node.setOnMouseDragged(e -> {
             if (activeDrag.clip != clip || activeDrag.isNewClip)
                 return;
@@ -2141,6 +2144,15 @@ public class EditorWindow extends Stage implements PropertyContext {
                     refreshTimelineUI();
                     saveProject();
                 }));
+
+
+
+                // After drag we select the clip only if the select clip is different or none of the clip is selected
+                if(selectedClip == null || selectedClip != clip)
+                {
+                    selectClip(clip);
+                }
+
             }
 
             // Reset drag state
