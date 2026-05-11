@@ -1456,6 +1456,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         });
 
         rulerAndTracks.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
+            // TODO: Move the keyboard to keybind
             if (e.isControlDown() || e.isShortcutDown()) {
                 double delta = e.getDeltaY();
                 // Map the delta dynamically (standard mouse notch is +/- 40 = 1.1 scale)
@@ -2178,6 +2179,11 @@ public class EditorWindow extends Stage implements PropertyContext {
         // Deselect previous
         if (selectedClip != null && selectedClip.viewRef instanceof ClipNode prev) {
             prev.setSelected(false);
+        }
+
+        // Move playhead at the beginning of the clip
+        if(currentTime < clip.startTime) {
+            updateCurrentTime(clip.startTime);
         }
 
         selectedClip = clip;

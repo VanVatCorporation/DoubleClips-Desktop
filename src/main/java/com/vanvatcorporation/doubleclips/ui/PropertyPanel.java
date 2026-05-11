@@ -527,6 +527,7 @@ public class PropertyPanel extends VBox {
         Button kfBtn = new Button();
         kfBtn.getStyleClass().add("tool-button");
         kfBtn.setPadding(new Insets(4));
+        kfBtn.setMaxHeight(Double.MAX_VALUE);
         
         boolean hasKf = clip.keyframes != null && clip.keyframes.getKeyframeAtTime(clip, context.getCurrentTime()) != null;
         FontIcon diamondIcon = new FontIcon(hasKf ? MaterialDesignR.RHOMBUS : MaterialDesignR.RHOMBUS_OUTLINE);
