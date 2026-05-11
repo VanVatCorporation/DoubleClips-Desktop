@@ -65,6 +65,13 @@ public class EditorWindow extends Stage implements PropertyContext {
     private final float TRACK_HEIGHT = 70f;
     private final float TRACK_SPACING = 5f;
 
+    // Preview Options (synced from Android)
+    private float previewFpsRuntime = -1f;   // -1 = uncapped
+    private float previewSpeed = 1.0f;
+    private boolean keepPlayingWhenClipSelected = false;
+    private int thumbnailAudioBarWidth = 1;
+    private int thumbnailAudioBarGap = 0;
+
     private Clip selectedClip;
     private Track selectedTrack;
     private Clip selectedTransitionSourceClip; // clip whose endTransition cube was clicked
@@ -289,8 +296,12 @@ public class EditorWindow extends Stage implements PropertyContext {
             public void handle(long now) {
                 if (lastTimerUpdate > 0) {
                     long deltaNs = now - lastTimerUpdate;
-                    float deltaSec = deltaNs / 1_000_000_000f;
-                    updateCurrentTime(currentTime + deltaSec);
+                    float deltaSec = (deltaNs / 1_000_000_000f) * previewSpeed;
+                    if (isPlayingInReverse) {
+                        updateCurrentTime(currentTime - deltaSec);
+                    } else {
+                        updateCurrentTime(currentTime + deltaSec);
+                    }
                 }
                 lastTimerUpdate = now;
             }
@@ -428,7 +439,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         updatePlayheadPosition();
 
         if (timelineRenderer != null) {
-            timelineRenderer.updateTime(currentTime, !isPlaying);
+            // Reverse need to be track back => seeking
+            // non-playing, is in fact => seeking
+            // previewSpeed != normal speed, indeed => seeking
+            timelineRenderer.updateTime(currentTime, (isPlayingInReverse || !isPlaying || previewSpeed != 1.0f));
         }
 
 //        // Dynamically update property panel fields
@@ -516,6 +530,158 @@ public class EditorWindow extends Stage implements PropertyContext {
         stopPlayback();
         saveProject();
         DoubleClipsDesktop.getInstance().closeEditor(this);
+    }
+
+    // ====================================================================
+    // PREVIEW OPTIONS POPUP
+    // ====================================================================
+    private javafx.stage.Popup buildPreviewOptionsPopup() {
+        javafx.stage.Popup popup = new javafx.stage.Popup();
+        popup.setAutoHide(true);
+
+        VBox panel = new VBox(10);
+        panel.setPadding(new Insets(14, 16, 14, 16));
+        panel.setStyle(
+            "-fx-background-color: -color-bg-subtle; " +
+            "-fx-background-radius: 8; " +
+            "-fx-border-color: -color-border-default; " +
+            "-fx-border-radius: 8; " +
+            "-fx-border-width: 1; " +
+            "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.35), 12, 0, 0, 4);"
+        );
+        panel.setPrefWidth(260);
+
+        Label title = new Label("Preview Options");
+        title.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
+
+        // ── Separator helper ──────────────────────────────────────────────
+        javafx.scene.control.Separator sep1 = new javafx.scene.control.Separator();
+        javafx.scene.control.Separator sep2 = new javafx.scene.control.Separator();
+
+
+
+        // ── Playback FPS - Speed Correlation ──────────────────────────────────────────────
+        float activeFps = previewFpsRuntime == -1f ? videoSettings.frameRate : previewFpsRuntime;
+
+
+        // ── Preview FPS ───────────────────────────────────────────────────
+        HBox fpsRow = new HBox(8);
+        fpsRow.setAlignment(Pos.CENTER_LEFT);
+        Label fpsLabel = new Label("Playback FPS:");
+        fpsLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        fpsLabel.setPrefWidth(130);
+        javafx.scene.control.Spinner<Double> fpsSpinner = new javafx.scene.control.Spinner<>(
+            new javafx.scene.control.SpinnerValueFactory.DoubleSpinnerValueFactory(-1, Double.MAX_VALUE, activeFps, 1)
+        );
+        fpsSpinner.setEditable(true);
+        fpsSpinner.setPrefWidth(90);
+        fpsSpinner.valueProperty().addListener((obs, o, n) -> previewFpsRuntime = n.floatValue());
+        Label fpsHint = new Label("(-1 = original)");
+        fpsHint.setStyle("-fx-text-fill: -color-fg-subtle; -fx-font-size: 10px;");
+        fpsRow.getChildren().addAll(fpsLabel, fpsSpinner);
+
+        // ── Playback Speed ────────────────────────────────────────────────
+        HBox speedRow = new HBox(8);
+        speedRow.setAlignment(Pos.CENTER_LEFT);
+        Label speedLabel = new Label("Playback speed:");
+        speedLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        speedLabel.setPrefWidth(130);
+        javafx.scene.control.Spinner<Double> speedSpinner = new javafx.scene.control.Spinner<>(
+            new javafx.scene.control.SpinnerValueFactory.DoubleSpinnerValueFactory(0.1, Double.MAX_VALUE, previewSpeed, 0.25)
+        );
+        speedSpinner.setEditable(true);
+        speedSpinner.setPrefWidth(90);
+//        speedSpinner.valueProperty().addListener((obs, o, n) -> previewSpeed = n.floatValue());
+        speedRow.getChildren().addAll(speedLabel, speedSpinner);
+
+
+        // ── Playback FPS - Speed Correlation ───────────────────────────────
+
+        // Listener for FPS -> Updates Speed
+        fpsSpinner.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (fpsSpinner.isFocused() && newVal != null) {
+                double newSpeed = newVal / videoSettings.frameRate;
+                speedSpinner.getValueFactory().setValue(newSpeed);
+                previewFpsRuntime = newVal.floatValue();
+                previewSpeed = (float) newSpeed;
+            }
+        });
+
+        // Listener for Speed -> Updates FPS
+        speedSpinner.valueProperty().addListener((obs, oldVal, newVal) -> {
+            if (speedSpinner.isFocused() && newVal != null) {
+                double newFps = newVal * videoSettings.frameRate;
+                fpsSpinner.getValueFactory().setValue(newFps);
+                previewSpeed = newVal.floatValue();
+                previewFpsRuntime = (float) newFps;
+            }
+        });
+
+        // ── Reverse Playback toggle ────────────────────────────────────────
+        HBox reverseRow = new HBox(8);
+        reverseRow.setAlignment(Pos.CENTER_LEFT);
+        Label reverseLabel = new Label("Reverse playback:");
+        reverseLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        reverseLabel.setPrefWidth(160);
+        CheckBox reverseCheck = new CheckBox();
+        reverseCheck.setSelected(isPlayingInReverse);
+        reverseCheck.selectedProperty().addListener((obs, o, n) -> isPlayingInReverse = n);
+        reverseRow.getChildren().addAll(reverseLabel, reverseCheck);
+
+        // ── Keep playing when clip selected ───────────────────────────────
+        HBox keepRow = new HBox(8);
+        keepRow.setAlignment(Pos.CENTER_LEFT);
+        Label keepLabel = new Label("Keep playing on select:");
+        keepLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        keepLabel.setPrefWidth(160);
+        CheckBox keepCheck = new CheckBox();
+        keepCheck.setSelected(keepPlayingWhenClipSelected);
+        keepCheck.selectedProperty().addListener((obs, o, n) -> keepPlayingWhenClipSelected = n);
+        keepRow.getChildren().addAll(keepLabel, keepCheck);
+
+        // ── Audio bar width ───────────────────────────────────────────────
+        HBox audioWidthRow = new HBox(8);
+        audioWidthRow.setAlignment(Pos.CENTER_LEFT);
+        Label audioWidthLabel = new Label("Audio bar width:");
+        audioWidthLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        audioWidthLabel.setPrefWidth(130);
+        javafx.scene.control.Spinner<Integer> audioWidthSpinner = new javafx.scene.control.Spinner<>(
+            new javafx.scene.control.SpinnerValueFactory.IntegerSpinnerValueFactory(1, 32, thumbnailAudioBarWidth, 1)
+        );
+        audioWidthSpinner.setEditable(true);
+        audioWidthSpinner.setPrefWidth(90);
+        audioWidthSpinner.valueProperty().addListener((obs, o, n) -> thumbnailAudioBarWidth = n);
+        audioWidthRow.getChildren().addAll(audioWidthLabel, audioWidthSpinner);
+
+        // ── Audio bar gap ─────────────────────────────────────────────────
+        HBox audioGapRow = new HBox(8);
+        audioGapRow.setAlignment(Pos.CENTER_LEFT);
+        Label audioGapLabel = new Label("Audio bar gap:");
+        audioGapLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        audioGapLabel.setPrefWidth(130);
+        javafx.scene.control.Spinner<Integer> audioGapSpinner = new javafx.scene.control.Spinner<>(
+            new javafx.scene.control.SpinnerValueFactory.IntegerSpinnerValueFactory(0, 16, thumbnailAudioBarGap, 1)
+        );
+        audioGapSpinner.setEditable(true);
+        audioGapSpinner.setPrefWidth(90);
+        audioGapSpinner.valueProperty().addListener((obs, o, n) -> thumbnailAudioBarGap = n);
+        audioGapRow.getChildren().addAll(audioGapLabel, audioGapSpinner);
+
+        panel.getChildren().addAll(
+            title,
+            sep1,
+            fpsRow, fpsHint,
+            speedRow,
+            sep2,
+            reverseRow,
+            keepRow,
+            new javafx.scene.control.Separator(),
+            audioWidthRow,
+            audioGapRow
+        );
+
+        popup.getContent().add(panel);
+        return popup;
     }
 
     // ====================================================================
@@ -1245,7 +1411,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         // Right cluster (zoom, waveform toggle, snap)
         Label zoomLabel = new Label("Zoom");
         zoomLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");
-        zoomSlider = new Slider(5, 2000, 100); // 5px to 1000px per second
+        zoomSlider = new Slider(1, 2000, 100); // 1px to 1000px per second
         zoomSlider.setPrefWidth(100);
         zoomSlider.getStyleClass().add("timeline-zoom-slider");
         zoomSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
@@ -1265,8 +1431,23 @@ public class EditorWindow extends Stage implements PropertyContext {
         textTool.setTooltip(new Tooltip("Add Text Clip"));
         textTool.setOnAction(e -> handleAddText());
 
+        // Preview options button (left of zoom slider)
+        Button previewOptionsBtn = new Button();
+        previewOptionsBtn.setGraphic(new FontIcon(MaterialDesignT.TUNE));
+        previewOptionsBtn.getStyleClass().add("button-transparent");
+        previewOptionsBtn.setTooltip(new Tooltip("Preview Options"));
+        javafx.stage.Popup previewOptionsPopup = buildPreviewOptionsPopup();
+        previewOptionsBtn.setOnAction(e -> {
+            if (previewOptionsPopup.isShowing()) {
+                previewOptionsPopup.hide();
+            } else {
+                javafx.geometry.Bounds b = previewOptionsBtn.localToScreen(previewOptionsBtn.getBoundsInLocal());
+                previewOptionsPopup.show(previewOptionsBtn, b.getMinX(), b.getMaxY() + 4);
+            }
+        });
+
         toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, textTool, keyframeBtn, clearKfBtn,
-                toolSpacer, zoomLabel, zoomSlider);
+                toolSpacer, previewOptionsBtn, zoomLabel, zoomSlider);
 
         // --- Ruler + Track content ---
         HBox trackLayout = new HBox(0);
@@ -1533,7 +1714,8 @@ public class EditorWindow extends Stage implements PropertyContext {
         ruler.getChildren().clear(); // Clearing ruler ticks is okay, they are light
 
         float rulerInterval = getRulerInterval(pixelsPerSecond);
-        float visibleDuration = (float) (width / pixelsPerSecond);
+//        float visibleDuration = (float) (width / pixelsPerSecond);
+        float visibleDuration = timeline.duration;
         long steps = (long) Math.ceil(visibleDuration / rulerInterval);
 
         int framesInInterval = Math.round(rulerInterval * 30f);
