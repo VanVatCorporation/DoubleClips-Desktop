@@ -1036,7 +1036,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
             activeDrag.clip = null;
             activeDrag.ghost = null;
-            activeDrag.dragging = false;
+            Platform.runLater(() -> activeDrag.dragging = false);
             activeDrag.isNewClip = false;
             e.consume();
         });
@@ -1329,7 +1329,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         tracksPane.setPrefWidth(8000);
         tracksPane.setPrefHeight(0); // Will be updated by refreshTimelineUI
 
-        tracksPane.setOnMouseClicked(e -> deselectAll());
+        tracksPane.setOnMouseClicked(e -> {
+            if (activeDrag.dragging) return;
+            deselectAll();
+        });
 
         tracksPane.setOnDragOver(event -> {
             if (event.getGestureSource() != tracksPane && event.getDragboard().hasFiles()) {
@@ -2158,7 +2161,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             // Reset drag state
             activeDrag.clip = null;
             activeDrag.ghost = null;
-            activeDrag.dragging = false;
+            Platform.runLater(() -> activeDrag.dragging = false);
             node.setVisible(true);
 
             // Refresh so clip redraws at committed position
