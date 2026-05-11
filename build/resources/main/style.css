@@ -664,7 +664,7 @@
     -fx-border-radius: 8;
     -fx-border-color: -color-border-subtle;
     -fx-border-width: 1;
-    -fx-text-fill: #c8ff9a;
+    -fx-text-fill: #33aa33; /*c8ff9a*/
     -fx-highlight-fill: #3a5f28;
 }
 
