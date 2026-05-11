@@ -36,6 +36,7 @@ public class ClipNode extends Pane {
     private static final double THUMB_ASPECT = 16.0 / 9.0;
 
     private final Clip    clip;
+    private final PropertyContext context;
     private final HBox    thumbnailRow;
     private final ImageView singleImageOverlay;
     private final Label   nameLabel;
@@ -59,8 +60,9 @@ public class ClipNode extends Pane {
     private final Rectangle leftHandle;
     private final Rectangle rightHandle;
 
-    public ClipNode(Clip clip) {
+    public ClipNode(Clip clip, PropertyContext context) {
         this.clip = clip;
+        this.context = context;
 
         // ── Teal background ───────────────────────────────────────────────────
         Rectangle bg = new Rectangle();
@@ -399,6 +401,9 @@ public class ClipNode extends Pane {
             knot.setOnMouseReleased(e -> {
                 if (!e.isStillSincePress()) {
                     if (clip.keyframes != null) {
+                        if (context != null && context.getVideoSettings() != null) {
+                            clip.keyframes.reassignKeyframes(context.getVideoSettings().getFrameRate());
+                        }
                         clip.keyframes.sortKeyframe();
                     }
                     if (onKeyframeMoved != null) {

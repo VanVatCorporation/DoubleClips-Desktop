@@ -276,6 +276,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     @Override public float getTempTime() { return tempTime; }
     @Override public void addPropertyUpdater(Runnable updater) { propertyUpdaters.add(updater); }
     @Override public Timeline getTimeline() { return timeline; }
+    @Override public VideoSettings getVideoSettings() { return videoSettings; }
 
     @Override
     public void saveProject() {
@@ -987,7 +988,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
             if (!activeDrag.dragging) {
                 activeDrag.dragging = true;
-                ClipNode ghost = new ClipNode(activeDrag.clip);
+                ClipNode ghost = new ClipNode(activeDrag.clip, this);
                 ghost.getStyleClass().add("clip-node-ghost");
                 ghost.setOpacity(0.55);
                 double targetWidth = Math.max(2, activeDrag.clip.duration * pixelsPerSecond);
@@ -1350,7 +1351,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
                 if (activeDrag.ghost == null) {
                     Clip ghostClip = new Clip("Importing...", 0, 5.0f, 0, ClipType.VIDEO, false, 1280, 720);
-                    ClipNode ghost = new ClipNode(ghostClip);
+                    ClipNode ghost = new ClipNode(ghostClip, this);
                     ghost.getStyleClass().add("clip-node-ghost");
                     ghost.setOpacity(0.4);
                     double targetWidth = 5.0f * pixelsPerSecond;
@@ -1760,6 +1761,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     @Override
     public void refreshTimelineUI() {
+        timeline.reassignClips(videoSettings.frameRate);
         timeline.recalculateDuration();
         project.setProjectDuration((long) (timeline.duration * 1000));
 
@@ -1802,7 +1804,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                 if (clip.viewRef instanceof ClipNode && tracksPane.getChildren().contains((ClipNode) clip.viewRef)) {
                     node = (ClipNode) clip.viewRef;
                 } else {
-                    node = new ClipNode(clip);
+                    node = new ClipNode(clip, this);
                     setupClipInteraction(node);
                     node.setOnKeyframeClicked(kf -> {
                         updateCurrentTime(kf.getGlobalTime(clip));
@@ -2106,7 +2108,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             if (!activeDrag.dragging) {
                 activeDrag.dragging = true;
                 node.setVisible(false); // hide original
-                ClipNode ghost = new ClipNode(clip);
+                ClipNode ghost = new ClipNode(clip, this);
                 ghost.getStyleClass().add("clip-node-ghost");
                 ghost.setOpacity(0.55);
                 ghost.setPrefWidth(node.getPrefWidth());

@@ -29,6 +29,17 @@ public class Timeline implements Serializable {
             }
         }
     }
+    /**
+     * Reassign keyframe into the current timeline in respect of framePerSecond
+     * @param framePerSecond
+     */
+    public void reassignClips(int framePerSecond) {
+        if (framePerSecond <= 0) return;
+
+        for (Track track : tracks) {
+            track.reassignClips(framePerSecond);
+        }
+    }
 
     public List<Clip> getClipsAtTime(float playheadTime) {
         List<Clip> activeClips = new ArrayList<>();
