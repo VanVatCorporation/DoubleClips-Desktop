@@ -1513,14 +1513,21 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     private void buildRuler(double width) {
-        Pane ruler = new Pane();
+        Pane ruler;
+        if (rulerScrollPane.getContent() instanceof Pane) {
+            ruler = (Pane) rulerScrollPane.getContent();
+        } else {
+            ruler = new Pane();
+            ruler.setPickOnBounds(true);
+            ruler.getStyleClass().add("timeline-ruler-pane");
+            rulerScrollPane.setContent(ruler);
+        }
+
         ruler.setPrefWidth(width);
         ruler.setPrefHeight(30);
-        ruler.setPickOnBounds(true);
-        ruler.getStyleClass().add("timeline-ruler-pane");
+        ruler.getChildren().clear(); // Clearing ruler ticks is okay, they are light
 
         float rulerInterval = getRulerInterval(pixelsPerSecond);
-        float majorPixels = pixelsPerSecond * rulerInterval;
         float visibleDuration = (float) (width / pixelsPerSecond);
         long steps = (long) Math.ceil(visibleDuration / rulerInterval);
 
@@ -1595,8 +1602,6 @@ public class EditorWindow extends Stage implements PropertyContext {
         ruler.setOnMouseClicked(e -> {
             updateCurrentTime((float) (e.getX() / pixelsPerSecond));
         });
-
-        rulerScrollPane.setContent(ruler);
     }
 
     private void addNewTrack(String name) {
@@ -1616,7 +1621,8 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void addClipToTrack(Track track, Clip clip) {
         track.addClip(clip);
-        renderClipUI(track, clip);
+        //renderClipUI(track, clip);
+        refreshTimelineUI();
     }
 
     private void generateThumbnailsForNode(ClipNode node) {
@@ -1759,24 +1765,113 @@ public class EditorWindow extends Stage implements PropertyContext {
         // Refresh Ruler
         buildRuler(contentWidth);
 
-        // Refresh Clips and Tracks
-        tracksPane.getChildren().clear();
+        // Update Tracks Pane dimensions
         tracksPane.setPrefWidth(contentWidth);
         tracksPane.setPrefHeight(timeline.tracks.size() * (TRACK_HEIGHT + TRACK_SPACING));
+
+        // Use a set to track nodes that should remain in the pane
+        java.util.Set<javafx.scene.Node> activeNodes = new java.util.HashSet<>();
 
         for (Track track : timeline.tracks) {
             // Add track band
             double y = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
-            Rectangle band = new Rectangle(0, y, contentWidth, TRACK_HEIGHT);
-            band.getStyleClass().add(track.timelineIndex % 2 == 0 ? "track-band-even" : "track-band-odd");
-            tracksPane.getChildren().add(band);
+            
+            // 1. Manage Track Band (Background)
+            String bandId = "track-band-" + track.timelineIndex;
+            Rectangle band = (Rectangle) tracksPane.lookup("#" + bandId);
+            if (band == null) {
+                band = new Rectangle(0, y, contentWidth, TRACK_HEIGHT);
+                band.setId(bandId);
+                band.getStyleClass().add(track.timelineIndex % 2 == 0 ? "track-band-even" : "track-band-odd");
+                band.setMouseTransparent(true); // Crucial: don't interrupt gestures
+                tracksPane.getChildren().add(0, band); // Add at back
+            } else {
+                band.setY(y);
+                band.setWidth(contentWidth);
+                band.toBack();
+            }
+            activeNodes.add(band);
 
-            // Re-add clips (they will be reconstructed for simplicity in this refresh)
-            // In a more optimized version, we'd just update their X/Width.
+            // 2. Manage Clips
             for (Clip clip : track.clips) {
-                renderClipUI(track, clip);
+                ClipNode node;
+                if (clip.viewRef instanceof ClipNode && tracksPane.getChildren().contains((ClipNode) clip.viewRef)) {
+                    node = (ClipNode) clip.viewRef;
+                } else {
+                    node = new ClipNode(clip);
+                    setupClipInteraction(node);
+                    node.setOnKeyframeClicked(kf -> {
+                        updateCurrentTime(kf.getGlobalTime(clip));
+                        refreshTimelineUI();
+                    });
+                    node.setOnKeyframeMoved((kf, oldT, newT) -> {
+                        if (oldT == newT) return;
+                        executePropertyChange("Move Keyframe", () -> {
+                            kf.setLocalTime(newT);
+                            clip.keyframes.sortKeyframe();
+                            refreshTimelineUI();
+                            updatePropertiesPane();
+                            saveProject();
+                        }, () -> {
+                            kf.setLocalTime(oldT);
+                            clip.keyframes.sortKeyframe();
+                            refreshTimelineUI();
+                            updatePropertiesPane();
+                            saveProject();
+                        });
+                    });
+                    node.setOnKeyframesModified(() -> {
+                        saveProject();
+                        refreshTimelineUI();
+                        updatePropertiesPane();
+                    });
+                    node.setOnTrimFinished((c, os, ns, od, nd, ost, nst, oet, net) -> {
+                        if (os == ns && od == nd && ost == nst && oet == net) return;
+                        historyManager.execute(new TrimClipCommand(timeline, c,
+                                os, ns, od, nd, ost, nst, oet, net,
+                                () -> {
+                                    updateCurrentClipEnd();
+                                    refreshTimelineUI();
+                                    updatePropertiesPane();
+                                    saveProject();
+                                }));
+                    });
+                    tracksPane.getChildren().add(node);
+                    clip.viewRef = node;
+                }
+
+                // Update existing or new node properties
+                double clipX = clip.startTime * pixelsPerSecond;
+                double clipW = clip.duration * pixelsPerSecond;
+                double clipH = TRACK_HEIGHT - 6;
+
+                node.setLayoutX(clipX);
+                node.setLayoutY(y + 3);
+                node.setPrefWidth(clipW);
+                node.setMinWidth(clipW);
+                node.setMaxWidth(clipW);
+                node.setPrefHeight(clipH);
+                node.setMinHeight(clipH);
+                node.setMaxHeight(clipH);
+
+                node.setSelected(selectedClip == clip);
+                node.updateKeyframes(pixelsPerSecond);
+                node.setupTrimInteractions(pixelsPerSecond);
+                
+                activeNodes.add(node);
+
+                // 3. Manage Transitions
+                renderTransitionCubeIfNeededStable(track, clip, activeNodes);
+                
+                // Start thumbnail generation (ClipNode handles internal debounce via width listener)
+                generateThumbnailsForNode(node);
             }
         }
+
+        // Cleanup: remove any nodes that are no longer active (deleted clips/tracks)
+        // We exclude playhead overlay components if they are in the same pane
+        // (But in this app, playhead is in a separate Pane, so we're safe)
+        tracksPane.getChildren().removeIf(n -> !activeNodes.contains(n));
 
         // Rebuild TimelineRenderer
         if (timelineRenderer != null) {
@@ -1787,78 +1882,6 @@ public class EditorWindow extends Stage implements PropertyContext {
         updateCurrentTime(currentTime);
     }
 
-    private void renderClipUI(Track track, Clip clip) {
-        double x = clip.startTime * pixelsPerSecond;
-        double y = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
-        double w = clip.duration * pixelsPerSecond;
-        double h = TRACK_HEIGHT - 6;
-
-        ClipNode node = new ClipNode(clip);
-        node.setLayoutX(x);
-        node.setLayoutY(y + 3);
-        node.setPrefWidth(w);
-        node.setPrefHeight(h);
-        node.setMinWidth(w);
-        node.setMinHeight(h);
-        node.setMaxWidth(w);
-        node.setMaxHeight(h);
-
-        if (selectedClip == clip)
-            node.setSelected(true);
-
-        setupClipInteraction(node);
-        node.setOnKeyframeClicked(kf -> {
-            updateCurrentTime(kf.getGlobalTime(clip));
-            refreshTimelineUI();
-        });
-        node.setOnKeyframeMoved((kf, oldTime, newTime) -> {
-            if (oldTime == newTime) return;
-            executePropertyChange("Move Keyframe", () -> {
-                kf.setLocalTime(newTime);
-                clip.keyframes.sortKeyframe();
-                refreshTimelineUI();
-                updatePropertiesPane();
-                saveProject();
-            }, () -> {
-                kf.setLocalTime(oldTime);
-                clip.keyframes.sortKeyframe();
-                refreshTimelineUI();
-                updatePropertiesPane();
-                saveProject();
-            });
-        });
-        node.setOnKeyframesModified(() -> {
-            saveProject();
-            refreshTimelineUI();
-            updatePropertiesPane();
-        });
-        tracksPane.getChildren().add(node);
-        clip.viewRef = node;
-
-        // Render keyframe diamonds
-        node.updateKeyframes(pixelsPerSecond);
-
-        // Transition cube: show between this clip and the next if they are touching
-        renderTransitionCubeIfNeeded(track, clip);
-
-        // Start generating thumbnails for this node
-        generateThumbnailsForNode(node);
-
-        // --- Trim Handles Support ---
-        node.setupTrimInteractions(pixelsPerSecond);
-        node.setOnTrimFinished((c, os, ns, od, nd, ost, nst, oet, net) -> {
-            if (os == ns && od == nd && ost == nst && oet == net) return;
-            historyManager.execute(new TrimClipCommand(timeline, c,
-                    os, ns, od, nd, ost, nst, oet, net,
-                    () -> {
-                        updateCurrentClipEnd();
-                        refreshTimelineUI();
-                        updatePropertiesPane();
-                        saveProject();
-                    }));
-        });
-    }
-
     // =========================================================================
     // Transition cube rendering
     // =========================================================================
@@ -1866,61 +1889,57 @@ public class EditorWindow extends Stage implements PropertyContext {
     private static final double TRANSITION_CUBE_SIZE = 16.0;
     private static final double SNAP_TOLERANCE = 0.05f; // seconds — clips this close are "touching"
 
-    /**
-     * If {@code clip} is immediately followed by another clip in the same track
-     * (gap ≤ SNAP_TOLERANCE seconds), draw a small cube at the join point.
-     * Clicking the cube selects the transition and shows its properties.
-     */
-    private void renderTransitionCubeIfNeeded(Track track, Clip clip) {
-        // Find the next clip in this track (sorted by startTime)
+    /** Optimized transition cube rendering that reuses nodes. */
+    private void renderTransitionCubeIfNeededStable(Track track, Clip clip, java.util.Set<javafx.scene.Node> activeNodes) {
         Clip next = null;
         for (Clip c : track.clips) {
-            if (c == clip)
-                continue;
+            if (c == clip) continue;
             float gap = c.startTime - (clip.startTime + clip.duration);
             if (gap >= -SNAP_TOLERANCE && gap <= SNAP_TOLERANCE) {
-                if (next == null || c.startTime < next.startTime)
-                    next = c;
+                if (next == null || c.startTime < next.startTime) next = c;
             }
         }
-        if (next == null)
-            return;
+        if (next == null) return;
 
-        // Ensure the transition data object exists on the source clip
         if (clip.endTransition == null) {
             clip.endTransition = new TransitionClip(clip, next, 0.5f);
         }
         clip.endTransitionEnabled = true;
 
-        // Position of the cube: horizontally at the right edge of clip, vertically
-        // centred
         double trackY = track.timelineIndex * (TRACK_HEIGHT + TRACK_SPACING);
         double cubeX = (clip.startTime + clip.duration) * pixelsPerSecond - TRANSITION_CUBE_SIZE / 2.0;
         double cubeY = trackY + (TRACK_HEIGHT / 2.0) - (TRANSITION_CUBE_SIZE / 2.0);
 
-        Rectangle cube = new Rectangle(cubeX, cubeY, TRANSITION_CUBE_SIZE, TRANSITION_CUBE_SIZE);
-        cube.setArcWidth(3);
-        cube.setArcHeight(3);
-        cube.getStyleClass().add("transition-cube");
-        cube.setFill(Color.web("#5C67FF"));
-        cube.setStroke(Color.web("#9BA3FF"));
-        cube.setStrokeWidth(1.5);
-        cube.setUserData(clip); // tag so we know which clip owns it
+        String cubeId = "transition-cube-" + clip.hashCode();
+        Rectangle cube = (Rectangle) tracksPane.lookup("#" + cubeId);
+        if (cube == null) {
+            cube = new Rectangle(cubeX, cubeY, TRANSITION_CUBE_SIZE, TRANSITION_CUBE_SIZE);
+            cube.setId(cubeId);
+            cube.setArcWidth(3);
+            cube.setArcHeight(3);
+            cube.getStyleClass().add("transition-cube");
+            cube.setFill(Color.web("#5C67FF"));
+            cube.setStroke(Color.web("#9BA3FF"));
+            cube.setStrokeWidth(1.5);
+            cube.setUserData(clip);
 
-        // Hover highlight
-        cube.setOnMouseEntered(e -> cube.setFill(Color.web("#7B85FF")));
-        cube.setOnMouseExited(e -> cube.setFill(Color.web("#5C67FF")));
+            cube.setOnMouseEntered(e -> ((Rectangle)e.getSource()).setFill(Color.web("#7B85FF")));
+            cube.setOnMouseExited(e -> ((Rectangle)e.getSource()).setFill(Color.web("#5C67FF")));
 
-        // Click → select transition and show in right panel
-        Clip finalClip = clip;
-        cube.setOnMouseClicked(e -> {
-            selectedTransitionSourceClip = finalClip;
-            selectedClip = null; // deselect any clip
-            updatePropertiesPane();
-            e.consume();
-        });
-
-        tracksPane.getChildren().add(cube);
+            Clip finalClip = clip;
+            cube.setOnMouseClicked(e -> {
+                selectedTransitionSourceClip = finalClip;
+                selectedClip = null;
+                updatePropertiesPane();
+                e.consume();
+            });
+            tracksPane.getChildren().add(cube);
+        } else {
+            cube.setX(cubeX);
+            cube.setY(cubeY);
+            cube.toFront();
+        }
+        activeNodes.add(cube);
     }
 
     // =========================================================================
