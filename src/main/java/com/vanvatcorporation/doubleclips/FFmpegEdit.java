@@ -213,6 +213,15 @@ public class FFmpegEdit {
                 "Solid Image Generation");
     }
 
+    public static void generateThumbnail(String inputPath, String outputPath, float time, int width, int height) {
+        String sizeParam = (width > 0 && height > 0) ? String.format(",scale=%d:%d", width, height) : "";
+        runAnyCommand(
+                String.format("-ss %.3f -i \"%s\" -frames:v 1 -vf \"format=yuv420p%s\" -y \"%s\"", time, inputPath, sizeParam, outputPath),
+                "Thumbnail Generation"
+        );
+    }
+
+
 
     public static String generateExportCmdPartially(RenderSettings renderSettings,
                                                     int clipCount, int clipOffset) {

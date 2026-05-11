@@ -5,6 +5,10 @@ import com.google.gson.GsonBuilder;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
+import com.vanvatcorporation.doubleclips.data.editing.Clip;
+import com.vanvatcorporation.doubleclips.data.editing.ClipType;
+import com.vanvatcorporation.doubleclips.data.editing.Track;
+import com.vanvatcorporation.doubleclips.FFmpegEdit;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import javafx.beans.property.ListProperty;
 import javafx.beans.property.SimpleListProperty;
@@ -204,6 +208,29 @@ public class ProjectRepository {
         data.setProjectDuration((long) (timeline.duration * 1000));
         data.setProjectSize(IOHelper.getFileSize(data.getProjectPath()));
         saveProjectProperties(data);
+
+        // Generate Preview Thumbnail
+        Clip nearestClip = null;
+        if (timeline != null && timeline.tracks != null) {
+            for (Track track : timeline.tracks) {
+                if (!track.clips.isEmpty()) {
+                    nearestClip = track.clips.get(0);
+                    break;
+                }
+            }
+        }
+
+        if (nearestClip != null) {
+            String previewPath = IOHelper.CombinePath(data.getProjectPath(), "preview.png");
+            if (nearestClip.type == ClipType.VIDEO || nearestClip.type == ClipType.IMAGE || nearestClip.type == ClipType.SCENE_3D) {
+                FFmpegEdit.generateThumbnail(
+                        nearestClip.getAbsolutePath(data),
+                        previewPath,
+                        nearestClip.type == ClipType.VIDEO ? nearestClip.startClipTrim : 0,
+                        -1, -1
+                );
+            }
+        }
 
         // Save Settings
         if (settings != null) {
