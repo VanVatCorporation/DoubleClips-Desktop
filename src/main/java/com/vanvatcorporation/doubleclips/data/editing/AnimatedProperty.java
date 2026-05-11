@@ -29,9 +29,32 @@ public class AnimatedProperty implements Serializable {
         for (Keyframe k : keyframes) {
             //if(k.getGlobalTime(clip) == playheadTime) return k;
             // Adjust tolerance (0.01s)
+            // TODO:
             if(Math.abs(k.getGlobalTime(clip) - playheadTime) <= Constants.TRACK_CLIPS_MINIMUM_KEYFRAME_SPACE_SECONDS) return k;
         }
         return null;
+    }
+
+    /**
+     * Reassign keyframe into the current timeline in respect of framePerSecond
+     * @param framePerSecond
+     */
+    public void reassignKeyframes(int framePerSecond) {
+        if (framePerSecond <= 0) return;
+
+        for (Keyframe k : keyframes) {
+            double currentTime = k.getLocalTime();
+
+            // 1. Find which frame index we are closest to
+            // Example: 3.14 * 30 = 94.2. Round(94.2) = 94.
+            long closestFrameIndex = Math.round(currentTime * framePerSecond);
+
+            // 2. Convert that frame index back into seconds
+            // Example: 94 / 30.0 = 3.1333...
+            double snappedTime = (double) closestFrameIndex / framePerSecond;
+
+            k.setLocalTime((float) snappedTime);
+        }
     }
 
     public void sortKeyframe() {

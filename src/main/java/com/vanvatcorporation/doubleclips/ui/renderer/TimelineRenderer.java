@@ -56,6 +56,8 @@ public class TimelineRenderer {
                     case VIDEO:
                     case AUDIO:
                     case IMAGE:
+                    case TEXT:
+                    case EFFECT:
                         ClipRenderer clipRenderer = new ClipRenderer(clip, data, settings, renderPane);
                         renderers.add(clipRenderer);
                         break;

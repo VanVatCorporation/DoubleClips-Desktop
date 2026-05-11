@@ -718,12 +718,19 @@ public class FFmpegEdit {
                             .append("trim=duration=").append(clip.duration).append(",")
                             .append("setpts=PTS-STARTPTS+").append(clip.startTime).append("/TB").append(transparentLabel).append(";\n");
 
+                    String textXExpr = clip.hasAnimatedProperties() ? 
+                            getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosX) : 
+                            String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.PosX));
+                    String textYExpr = clip.hasAnimatedProperties() ? 
+                            getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosY) : 
+                            String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.PosY));
+
                     filterComplex.append(transparentLabel)
                             .append("drawtext=").append("fontfile='/system/fonts/DroidSans.ttf'")
                             .append(":fontsize=").append(clip.fontSize)
                             .append(":text='").append(clip.textContent.replace(":", "\\:").replace("'", "\\'"))
-                            .append("':x=").append("(w-text_w)/2")//.append(clip.posX) Centralize text
-                            .append(":y=").append("(h-text_h)/2")//.append(clip.posY) Centralize text
+                            .append("':x=").append("(w-text_w)/2 + ").append(textXExpr)
+                            .append(":y=").append("(h-text_h)/2 + ").append(textYExpr)
                             .append(":enable='").append(getConditionThree("t", String.valueOf(clip.startTime), String.valueOf(clip.startTime + clip.duration), "~")).append("'").append(",")
                             .append("fps=").append(templateSettings.settings.getFrameRate())
                             .append(outputLabel).append(";\n");

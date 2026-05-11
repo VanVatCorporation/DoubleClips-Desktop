@@ -8,6 +8,8 @@ import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
 
 import javafx.application.Platform;
+import javafx.scene.Node;
+import javafx.scene.control.Label;
 import javafx.scene.effect.Blend;
 import javafx.scene.effect.BlendMode;
 import javafx.scene.effect.ColorAdjust;
@@ -18,6 +20,7 @@ import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
 
 import javax.sound.sampled.*;
 import java.io.*;
@@ -42,7 +45,7 @@ public class ClipRenderer {
     private final Pane renderPane;
 
     // --- VIEW ---
-    private ImageView viewNode;
+    private Node viewNode;
     private WritableImage writableImage;
     private Image staticImage;
 
@@ -118,6 +121,17 @@ public class ClipRenderer {
                 case AUDIO:
                     openAudioLine(clip.getAbsolutePreviewPath(data, ".wav"));
                     break;
+                
+                case TEXT:
+                    Label label = new Label(clip.textContent != null ? clip.textContent : "");
+                    label.setTextFill(Color.BLACK);
+                    float fSize = clip.fontSize > 0 ? clip.fontSize : 48;
+                    label.setFont(new Font(fSize));
+                    label.setWrapText(true);
+                    // Set a default width if none provided
+                    label.setMaxWidth(clip.width > 0 ? clip.width : settings.videoWidth);
+                    viewNode = label;
+                    break;
 
                 default:
                     break;
@@ -160,6 +174,17 @@ public class ClipRenderer {
         }
 
         updateTransforms(playheadTime);
+        
+        if (clip.type == ClipType.TEXT && viewNode instanceof Label label) {
+            String currentText = clip.textContent != null ? clip.textContent : "";
+            if (!label.getText().equals(currentText)) {
+                label.setText(currentText);
+            }
+            float currentSize = clip.fontSize > 0 ? clip.fontSize : 48;
+            if (label.getFont().getSize() != currentSize) {
+                label.setFont(new Font(currentSize));
+            }
+        }
 
         float clipTime = Math.max(0, playheadTime - clip.startTime + clip.startClipTrim);
 
@@ -368,10 +393,55 @@ public class ClipRenderer {
 
     private void applyTransformation() {
         if (viewNode == null) return;
-        viewNode.setLayoutX(posX);
-        viewNode.setLayoutY(posY);
-        viewNode.setScaleX(scaleX);
-        viewNode.setScaleY(scaleY);
+
+        double nodeW = viewNode.getLayoutBounds().getWidth();
+        double nodeH = viewNode.getLayoutBounds().getHeight();
+        if (nodeW == 0 || nodeH == 0) {
+            // Might not be laid out yet
+            if (viewNode instanceof Label label) {
+                nodeW = label.prefWidth(-1);
+                nodeH = label.prefHeight(-1);
+            } else if (viewNode instanceof ImageView iv && iv.getImage() != null) {
+                nodeW = iv.getImage().getWidth();
+                nodeH = iv.getImage().getHeight();
+            }
+        }
+
+        double baseW = nodeW;
+        double baseH = nodeH;
+        double extraScaleX = 1.0;
+        double extraScaleY = 1.0;
+
+        if (settings.isStretchToFull() && clip.type != ClipType.TEXT && clip.type != ClipType.AUDIO) {
+            extraScaleX = (double) settings.videoWidth / Math.max(1, baseW);
+            extraScaleY = (double) settings.videoHeight / Math.max(1, baseH);
+            baseW = settings.videoWidth;
+            baseH = settings.videoHeight;
+        }
+
+        double rad = Math.toRadians(rot);
+        double sin = Math.abs(Math.sin(rad));
+        double cos = Math.abs(Math.cos(rad));
+
+        // FFmpeg's "expanded" dimensions during rotation
+        double expandedW = baseW * cos + baseH * sin;
+        double expandedH = baseW * sin + baseH * cos;
+
+        float finalPosX = posX;
+        float finalPosY = posY;
+
+        if (clip.type == ClipType.TEXT) {
+            // Match FFmpeg's x=(w-tw)/2 + posX
+            finalPosX += (settings.videoWidth - nodeW) / 2;
+            finalPosY += (settings.videoHeight - nodeH) / 2;
+        }
+
+        // Match FFmpeg's overlay center: layoutX + nodeW/2 = finalPosX + expandedW/2
+        viewNode.setLayoutX(finalPosX + (expandedW - nodeW) / 2);
+        viewNode.setLayoutY(finalPosY + (expandedH - nodeH) / 2);
+
+        viewNode.setScaleX(scaleX * extraScaleX);
+        viewNode.setScaleY(scaleY * extraScaleY);
         viewNode.setRotate(rot);
         viewNode.setOpacity(opacity);
 
@@ -395,7 +465,7 @@ public class ClipRenderer {
             Color tintColor = getTemperatureColor(temperature);
             
             // We need a source image to get dimensions
-            Image img = viewNode.getImage();
+            Image img = (viewNode instanceof ImageView iv) ? iv.getImage() : null;
             if (img != null) {
                 ColorInput colorInput = new ColorInput(0, 0, img.getWidth(), img.getHeight(), tintColor);
                 Blend blend = new Blend(BlendMode.SOFT_LIGHT);
