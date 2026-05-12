@@ -899,6 +899,7 @@ public class FFmpegEdit {
                 .append("-map \"").append( (mapTag != null ? mapTag.tag : "[base]") ).append("\" ")
                 .append(audioMaps);
         cmd.append("-shortest "); // TODO: PC only - Don't know why it keep rendering. Put shortest here as the last resort.
+        cmd.append("-threads 0 ");
 
         // Encoder selection: hardware (MediaCodec) or software (libx264)
         if (templateSettings.settings.isUseHardwareAccel()) {
