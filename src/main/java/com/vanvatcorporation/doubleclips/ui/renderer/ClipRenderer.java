@@ -243,6 +243,9 @@ public class ClipRenderer {
         cmd.add(FFmpegEdit.getFfmpegPath());
         cmd.add("-accurate_seek");
         cmd.add("-ss"); cmd.add(String.format(java.util.Locale.US, "%.6f", clipTime));
+        // TODO: Monitor this. Multithreading on a live frame accuracy
+//        cmd.add("-hwaccel"); cmd.add("auto");
+        cmd.add("-threads"); cmd.add("0");
         cmd.add("-i"); cmd.add(previewFile.getAbsolutePath());
         cmd.add("-vframes"); cmd.add("1");
         cmd.add("-vf"); cmd.add("scale=" + w + ":" + h);
@@ -252,30 +255,24 @@ public class ClipRenderer {
 
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD); // Don't let stderr clog the pipe
             Process proc = pb.start();
 
-            int expectedBytes = w * h * 4;
-            byte[] buf = proc.getInputStream().readNBytes(expectedBytes);
-            int exitCode = proc.waitFor();
+            try (java.io.InputStream is = proc.getInputStream()) {
+                int expectedBytes = w * h * 4;
+                byte[] buf = is.readNBytes(expectedBytes);
 
-            if (buf.length == expectedBytes) {
-                int[] pixels = new int[w * h];
-                for (int i = 0; i < pixels.length; i++) {
-                    int base = i * 4;
-                    int b = buf[base] & 0xFF;
-                    int g = buf[base + 1] & 0xFF;
-                    int r = buf[base + 2] & 0xFF;
-                    int a = buf[base + 3] & 0xFF;
-                    pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
-                }
+                // Clean up immediately
+                proc.destroy();
 
-                Platform.runLater(() -> {
-                    if (writableImage != null) {
-                        writableImage.getPixelWriter().setPixels(0, 0, w, h, PixelFormat.getIntArgbInstance(), pixels, 0, w);
+                if (buf.length == expectedBytes) {
+                    Platform.runLater(() -> {
+                        // Optimized: Use the built-in ByteArbInstance to avoid the manual loop
+                        writableImage.getPixelWriter().setPixels(0, 0, w, h,
+                                PixelFormat.getByteBgraInstance(), buf, 0, w * 4);
                         lastRenderedTime = clipTime;
-                    }
-                });
+                    });
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
