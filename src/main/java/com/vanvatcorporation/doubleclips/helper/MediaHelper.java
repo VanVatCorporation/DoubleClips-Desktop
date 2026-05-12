@@ -17,15 +17,17 @@ public class MediaHelper {
         public int height = 0;
         public boolean hasAudio = false;
         public boolean hasVideo = false;
+        public float rotation = 0.0f; // Track rotation to fix dimensions
     }
 
     public static MediaInfo probeMediaInfo(String filePath) {
         MediaInfo info = new MediaInfo();
-        
+
         try {
             String ffmpegPath = FFmpegEdit.getFfmpegPath();
             List<String> cmd = new ArrayList<>();
             cmd.add(ffmpegPath);
+            cmd.add("-hide_banner"); // Keeps output cleaner
             cmd.add("-i");
             cmd.add(filePath);
 
@@ -33,13 +35,17 @@ public class MediaHelper {
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
+            // Patterns
             Pattern durationPattern = Pattern.compile("Duration: (\\d{2}):(\\d{2}):(\\d+\\.\\d+)");
-            Pattern videoPattern = Pattern.compile("Video:.*, (\\d+)x(\\d+)");
+            // Improved video pattern to avoid catching SAR/DAR values
+            Pattern videoPattern = Pattern.compile("Video:.*\\s(\\d{2,5})x(\\d{2,5})");
             Pattern audioPattern = Pattern.compile("Audio:");
-
+            // Captures "rotation of -90.00" or "rotation of 90"
+            Pattern rotatePattern = Pattern.compile("(?:rotate|rotation of|rotate\\s*[:=])\\s*(-?\\d+\\.?\\d*)");
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    // 1. Check Duration
                     Matcher durMatcher = durationPattern.matcher(line);
                     if (durMatcher.find()) {
                         int hours = Integer.parseInt(durMatcher.group(1));
@@ -48,6 +54,7 @@ public class MediaHelper {
                         info.duration = hours * 3600 + minutes * 60 + seconds;
                     }
 
+                    // 2. Check Video Dimensions
                     Matcher vidMatcher = videoPattern.matcher(line);
                     if (vidMatcher.find()) {
                         info.hasVideo = true;
@@ -55,6 +62,13 @@ public class MediaHelper {
                         info.height = Integer.parseInt(vidMatcher.group(2));
                     }
 
+                    // 3. Check Rotation (The "Fix")
+                    Matcher rotMatcher = rotatePattern.matcher(line);
+                    if (rotMatcher.find()) {
+                        info.rotation = Float.parseFloat(rotMatcher.group(1));
+                    }
+
+                    // 4. Check Audio
                     if (audioPattern.matcher(line).find()) {
                         info.hasAudio = true;
                     }
@@ -62,6 +76,16 @@ public class MediaHelper {
             }
 
             process.waitFor();
+
+            // Final Correction: If the video is rotated sideways, swap width and height
+            // We check for 90 or 270 (and their negatives)
+            float absRotation = Math.abs(info.rotation);
+            if (Math.round(absRotation) == 90 || Math.round(absRotation) == 270) {
+                int temp = info.width;
+                info.width = info.height;
+                info.height = temp;
+            }
+
         } catch (Exception e) {
             e.printStackTrace();
         }
