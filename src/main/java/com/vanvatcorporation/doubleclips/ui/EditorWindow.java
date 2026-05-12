@@ -993,8 +993,12 @@ public class EditorWindow extends Stage implements PropertyContext {
                                 });
                         thumbLatch.await();
 
+                        String scaleStr;
+                        if(info.width < info.height) scaleStr = "-2:720";
+                        else scaleStr = "1280:-2";
+
                         String cmd = "-i \"" + targetFile.getAbsolutePath()
-                                + "\" -vf \"scale=1280:-2\" -c:v libx264 -preset ultrafast -crf 32 -x264-params keyint=1 -an -y \""
+                                + "\" -vf \"scale=" + scaleStr + "\" -c:v libx264 -preset ultrafast -crf 32 -x264-params keyint=1 -an -y \""
                                 + previewClipPath + "\"";
                         FFmpegEdit.runAnyCommand(cmd, "Preview Video",
                                 () -> latch.countDown(),
@@ -1006,6 +1010,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                                     }
                                 });
                         latch.await();
+
 
                         if (info.hasAudio) {
                             CountDownLatch audioLatch = new CountDownLatch(1);
