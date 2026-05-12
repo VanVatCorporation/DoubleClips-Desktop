@@ -447,7 +447,13 @@ public class ClipRenderer {
 
         // --- Color Adjustments ---
         ColorAdjust colorAdjust = new ColorAdjust();
-        colorAdjust.setHue(hue);
+
+        // Mapping -360..360 to -1..1
+        // Hue: model 0 is neutral (0.0 in JFX). model 360.0 is 1.0 in JFX. model -360.0 is -1.0 in JFX.
+        float jfxHue = hue;
+        if(Math.abs(jfxHue) > 360)
+            jfxHue %= 360;
+        colorAdjust.setHue(jfxHue / 360);
         
         // Mapping -10..10 to -1..1
         // Saturation: model 1.0 is neutral (0.0 in JFX). model 10.0 is 1.0 in JFX. model -10.0 is -1.0 in JFX.
