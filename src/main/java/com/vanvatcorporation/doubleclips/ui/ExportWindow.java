@@ -396,41 +396,86 @@ public class ExportWindow extends Stage {
                             // onSuccess
                             () -> Platform.runLater(() -> {
 
-                                // Intermediate file in project folder
-                                File intermediateFile = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
+                                if(asTemplate)
+                                {
+                                    File intermediateFile = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
 
-                                // Ask for output file location
-                                FileChooser fc = new FileChooser();
-                                fc.setTitle("Save Exported Video");
-                                fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
-                                fc.getExtensionFilters().add(
-                                        new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
-                                File userDest = fc.showSaveDialog(this);
-
-                                String finalPath = intermediateFile.getAbsolutePath();
-
-                                if (userDest != null) {
-                                    try {
-                                        Files.move(intermediateFile.toPath(), userDest.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                                        finalPath = userDest.getAbsolutePath();
-                                    } catch (IOException e) {
-                                        appendLog("Error moving file to destination: " + e.getMessage());
-                                        // Fallback to intermediate path if move fails
+                                    List<File> videoFiles = new ArrayList<>();
+                                    for(Clip clip : timeline.getLockedForTemplateClip()) {
+                                        videoFiles.add(new File(clip.getAbsolutePath(project)));
                                     }
+
+                                    List<File> previewFiles = Arrays.asList(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.png")),
+                                            new File(IOHelper.CombinePath(project.getProjectPath(), "preview.mp4")));
+
+                                    int totalClips =  timeline.getAllReplacementClipCount();
+
+                                    new File(IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME))
+                                            .renameTo(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.mp4")));
+
+                                    FFmpegEdit.RenderSettings renderSettings = new FFmpegEdit.RenderSettings(settings, timeline, new Clip[0], project, 0, false, true, false);
+                                    String ffmpegCommand = FFmpegEdit.generateCmdFull(renderSettings);
+
+                                    ArrayList<String> strVideoFiles = new ArrayList<>();
+                                    for (File file : videoFiles) strVideoFiles.add(file.getAbsolutePath());
+
+                                    ArrayList<String> strPreviewFiles = new ArrayList<>();
+                                    for (File file : previewFiles) strPreviewFiles.add(file.getAbsolutePath());
+
+                                    Intent templateIntent = new Intent(this, PostTemplateActivity.class);
+                                    templateIntent.putExtra("ffmpegCommand", ffmpegCommand);
+                                    templateIntent.putExtra("totalClip", totalClip);
+                                    templateIntent.putStringArrayListExtra("videoFilePaths", strVideoFiles);
+                                    templateIntent.putStringArrayListExtra("previewFilePaths", strPreviewFiles);
+                                    templateIntent.putExtra("defaultTitle", properties.getProjectTitle());
+
+
+
+                                    finishExportRendering();
+                                    taskStatusLabel.setText("Export Completed! ✓");
+                                    taskProgressBar.setProgress(1.0);
+                                    appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
+                                    appendLog("\nPassing to the uploader...");
+                                }
+                                else {
+
+                                    // Intermediate file in project folder
+                                    File intermediateFile = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
+
+                                    // Ask for output file location
+                                    FileChooser fc = new FileChooser();
+                                    fc.setTitle("Save Exported Video");
+                                    fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
+                                    fc.getExtensionFilters().add(
+                                            new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
+                                    File userDest = fc.showSaveDialog(this);
+
+                                    String finalPath = intermediateFile.getAbsolutePath();
+
+                                    if (userDest != null) {
+                                        try {
+                                            Files.move(intermediateFile.toPath(), userDest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                                            finalPath = userDest.getAbsolutePath();
+                                        } catch (IOException e) {
+                                            appendLog("Error moving file to destination: " + e.getMessage());
+                                            // Fallback to intermediate path if move fails
+                                        }
+                                    }
+
+                                    finishExportRendering();
+                                    taskStatusLabel.setText("Export Completed! ✓");
+                                    taskProgressBar.setProgress(1.0);
+                                    appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
+                                    appendLog("Location: " + finalPath);
+
+                                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                                    alert.initOwner(this);
+                                    alert.setTitle("Export Complete");
+                                    alert.setHeaderText("Success!");
+                                    alert.setContentText("Your video has been exported to:\n" + finalPath);
+                                    alert.showAndWait();
                                 }
 
-                                finishExportRendering();
-                                taskStatusLabel.setText("Export Completed! ✓");
-                                taskProgressBar.setProgress(1.0);
-                                appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
-                                appendLog("Location: " + finalPath);
-
-                                Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                                alert.initOwner(this);
-                                alert.setTitle("Export Complete");
-                                alert.setHeaderText("Success!");
-                                alert.setContentText("Your video has been exported to:\n" + finalPath);
-                                alert.showAndWait();
                             }) : () -> {}),
 
                     // onFail
