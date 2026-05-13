@@ -5,7 +5,6 @@ import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.*;
 import com.vanvatcorporation.doubleclips.data.editing.*;
 import com.vanvatcorporation.doubleclips.history.*;
-import com.vanvatcorporation.doubleclips.helper.DateHelper;
 import com.vanvatcorporation.doubleclips.ui.renderer.TimelineRenderer;
 import com.vanvatcorporation.doubleclips.helper.MediaHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
@@ -27,8 +26,6 @@ import java.util.ArrayList;
 import java.util.List;
 import javafx.animation.AnimationTimer;
 import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
-import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -2442,7 +2439,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
         } else {
             // Split all clips at current time
-            List<Clip> allClipsAtTime = timeline.getClipsAtTime(currentTime);
+            List<Clip> allClipsAtTime = timeline.getClipsAtCurrentTime(currentTime);
             for (Clip c : allClipsAtTime) {
                 splitClipProxy(c);
             }

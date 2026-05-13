@@ -3,8 +3,10 @@ package com.vanvatcorporation.doubleclips.ui;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
+import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
+import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -23,6 +25,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import com.vanvatcorporation.doubleclips.constants.Constants;
 
 
@@ -190,7 +196,7 @@ public class ExportWindow extends Stage {
         Button genCmdBtn = new Button("Generate Command");
         genCmdBtn.setGraphic(new FontIcon(MaterialDesignC.CODE_TAGS));
         genCmdBtn.getStyleClass().add("secondary-action-button");
-        genCmdBtn.setOnAction(e -> generateCommand());
+        genCmdBtn.setOnAction(e -> commandTextArea.setText(generateCommand()));
 
         Button genTemplateCmdBtn = new Button("Generate Template Command");
         genTemplateCmdBtn.setGraphic(new FontIcon(MaterialDesignC.CODE_TAGS_CHECK));
@@ -329,29 +335,29 @@ public class ExportWindow extends Stage {
     //  Command generation (mirrors Android generateCommand / generateTemplateCommand)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void generateCommand() {
+    private String generateCommand() {
         try {
             FFmpegEdit.RenderSettings rs = new FFmpegEdit.RenderSettings(
                     settings, timeline, new com.vanvatcorporation.doubleclips.data.editing.Clip[0],
                     project, 0, false, false, false);
-            String cmd = FFmpegEdit.generateCmdFull(rs);
-            commandTextArea.setText(cmd);
             appendLog("FFmpeg command generated.");
+            return FFmpegEdit.generateCmdFull(rs);
         } catch (Exception e) {
             appendLog("Error generating command: " + e.getMessage());
+            return "";
         }
     }
 
-    private void generateTemplateCommand() {
+    private String generateTemplateCommand() {
         try {
             FFmpegEdit.RenderSettings rs = new FFmpegEdit.RenderSettings(
                     settings, timeline, new com.vanvatcorporation.doubleclips.data.editing.Clip[0],
                     project, 0, false, true, true);
-            String cmd = FFmpegEdit.generateCmdFull(rs);
-            commandTextArea.setText(cmd);
             appendLog("Template FFmpeg command generated.");
+            return FFmpegEdit.generateCmdFull(rs);
         } catch (Exception e) {
             appendLog("Error generating template command: " + e.getMessage());
+            return "";
         }
     }
 
@@ -362,10 +368,8 @@ public class ExportWindow extends Stage {
     private void exportClip(boolean asTemplate) {
         if (isExporting) return;
 
-        if (commandTextArea.getText().isBlank()) {
-            if (asTemplate) generateTemplateCommand();
-            else generateCommand();
-        }
+        if (commandTextArea.getText().isBlank())
+            commandTextArea.setText(generateCommand());
 
         String cmd = commandTextArea.getText().replace("\n", "");
         if (cmd.isBlank()) {

@@ -54,4 +54,13 @@ public class Track implements Serializable {
             clip.setStartTime((float) snappedTime);
         }
     }
+    public List<Clip> getClipsAtCurrentTime(float playheadTime) {
+        List<Clip> clipsSelected = new ArrayList<>();
+        for (Clip clip : clips) {
+            if (playheadTime >= clip.startTime && playheadTime < clip.startTime + clip.duration) {
+                clipsSelected.add(clip);
+            }
+        }
+        return clipsSelected; // No clip at this time
+    }
 }
