@@ -1,4 +1,4 @@
-package com.vanvatcorporation.doubleclips.ui.overlays;
+package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import javafx.animation.Interpolator;
@@ -6,6 +6,7 @@ import javafx.animation.TranslateTransition;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
@@ -17,6 +18,8 @@ import javafx.scene.layout.*;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.scene.media.MediaView;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
@@ -25,7 +28,7 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import java.io.File;
 import java.util.List;
 
-public class PostTemplateOverlay extends StackPane {
+public class PostTemplateWindow extends Stage {
 
     private final StackPane cardContainer;
     private VBox step1, step2, step3, step4;
@@ -47,22 +50,32 @@ public class PostTemplateOverlay extends StackPane {
     private final List<String> previewFilePaths;
     private final String defaultTitle;
 
-    public PostTemplateOverlay(String ffmpegCommand, int totalClip, List<String> videoFilePaths, List<String> previewFilePaths, String defaultTitle) {
+    public static void show(Stage owner, String ffmpegCommand, int totalClip, List<String> videoFilePaths, List<String> previewFilePaths, String defaultTitle) {
+        PostTemplateWindow win = new PostTemplateWindow(owner, ffmpegCommand, totalClip, videoFilePaths, previewFilePaths, defaultTitle);
+        win.show();
+    }
+
+    private PostTemplateWindow(Stage owner, String ffmpegCommand, int totalClip, List<String> videoFilePaths, List<String> previewFilePaths, String defaultTitle) {
         this.ffmpegCommand = ffmpegCommand;
         this.totalClip = totalClip;
         this.videoFilePaths = videoFilePaths;
         this.previewFilePaths = previewFilePaths;
         this.defaultTitle = defaultTitle;
 
-        getStyleClass().add("modal-overlay");
+        setTitle("Upload Template — " + defaultTitle);
+        if (owner != null) {
+            initOwner(owner);
+        }
+        initModality(Modality.NONE);
+        setWidth(600);
+        setHeight(800);
+        setMinWidth(480);
+        setMinHeight(600);
 
-        VBox dialogCard = new VBox();
-        dialogCard.getStyleClass().add("creation-dialog");
-        dialogCard.setMaxSize(480, 600);
-        dialogCard.setClip(new javafx.scene.shape.Rectangle(480, 600));
+        StackPane root = new StackPane();
+        root.setStyle("-fx-background-color: #1a1a1a;");
 
         cardContainer = new StackPane();
-        VBox.setVgrow(cardContainer, Priority.ALWAYS);
 
         // --- STEP 1: Video Preview ---
         step1 = new VBox(16);
@@ -70,10 +83,11 @@ public class PostTemplateOverlay extends StackPane {
         step1.setAlignment(Pos.TOP_LEFT);
 
         Label step1Title = new Label("Preview Template");
-        step1Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+        step1Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: white;");
 
         StackPane mediaContainer = new StackPane();
-        mediaContainer.setMaxSize(432, 450);
+        mediaContainer.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+        VBox.setVgrow(mediaContainer, Priority.ALWAYS);
         mediaContainer.setStyle("-fx-background-color: #000000; -fx-background-radius: 8;");
         
         setupPreview(mediaContainer);
@@ -89,18 +103,18 @@ public class PostTemplateOverlay extends StackPane {
         Button cancelBtn1 = new Button("Cancel");
         cancelBtn1.getStyleClass().add("button-transparent");
         cancelBtn1.setMaxWidth(Double.MAX_VALUE);
-        cancelBtn1.setOnAction(e -> close());
+        cancelBtn1.setOnAction(e -> closeWindow());
 
         step1.getChildren().addAll(step1Title, mediaContainer, nextBtn, cancelBtn1);
 
         // --- STEP 2: Project Form ---
         step2 = new VBox(16);
-        step2.setTranslateX(480);
+        step2.setTranslateX(1000);
         step2.setPadding(new Insets(24));
         step2.setAlignment(Pos.TOP_LEFT);
 
         Label step2Title = new Label("Edit Details");
-        step2Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+        step2Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: white;");
 
         titleInput = new TextField();
         titleInput.setPromptText("Template title...");
@@ -131,12 +145,12 @@ public class PostTemplateOverlay extends StackPane {
 
         // --- STEP 3: Progress View ---
         step3 = new VBox(24);
-        step3.setTranslateX(480);
+        step3.setTranslateX(1000);
         step3.setPadding(new Insets(32));
         step3.setAlignment(Pos.CENTER);
 
         Label step3Title = new Label("Uploading Template...");
-        step3Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+        step3Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: white;");
 
         progressBar = new ProgressBar(0);
         progressBar.setMaxWidth(Double.MAX_VALUE);
@@ -149,7 +163,7 @@ public class PostTemplateOverlay extends StackPane {
 
         // --- STEP 4: Success Flow ---
         step4 = new VBox(20);
-        step4.setTranslateX(480);
+        step4.setTranslateX(1000);
         step4.setPadding(new Insets(32));
         step4.setAlignment(Pos.CENTER);
 
@@ -158,7 +172,7 @@ public class PostTemplateOverlay extends StackPane {
         successIcon.setIconColor(javafx.scene.paint.Color.web("#34C759"));
 
         Label step4Title = new Label("Upload Completed!");
-        step4Title.setStyle("-fx-font-size: 22px; -fx-font-weight: bold;");
+        step4Title.setStyle("-fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: white;");
         successTemplateIdText = new Label("Template ID: ...");
         successTemplateIdText.setAlignment(Pos.CENTER);
         successTemplateIdText.getStyleClass().add("text-muted");
@@ -166,17 +180,24 @@ public class PostTemplateOverlay extends StackPane {
         Button doneBtn = new Button("Done");
         doneBtn.getStyleClass().addAll("button-primary", "button-large");
         doneBtn.setMaxWidth(200);
-        doneBtn.setOnAction(e -> close());
+        doneBtn.setOnAction(e -> closeWindow());
 
         step4.getChildren().addAll(successIcon, step4Title, successTemplateIdText, doneBtn);
 
         // Add all to container
         cardContainer.getChildren().addAll(step1, step2, step3, step4);
-        dialogCard.getChildren().add(cardContainer);
-        getChildren().add(dialogCard);
+        root.getChildren().add(cardContainer);
 
-        this.setOnMouseClicked(e -> {
-            if (e.getTarget() == this && !isProcessing) close();
+        Scene scene = new Scene(root);
+        scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
+        setScene(scene);
+        
+        setOnCloseRequest(e -> {
+            if (isProcessing) {
+                e.consume(); // Prevent closing if uploading
+            } else {
+                cleanupMedia();
+            }
         });
     }
 
@@ -189,9 +210,10 @@ public class PostTemplateOverlay extends StackPane {
                         Media media = new Media(file.toURI().toString());
                         mediaPlayer = new MediaPlayer(media);
                         mediaView = new MediaView(mediaPlayer);
-                        mediaView.setFitWidth(432);
-                        mediaView.setFitHeight(450);
                         mediaView.setPreserveRatio(true);
+                        
+                        mediaView.fitWidthProperty().bind(mediaContainer.widthProperty());
+                        mediaView.fitHeightProperty().bind(mediaContainer.heightProperty());
 
                         mediaContainer.getChildren().add(mediaView);
                         mediaPlayer.setAutoPlay(true);
@@ -199,13 +221,12 @@ public class PostTemplateOverlay extends StackPane {
                         break;
                     }
                 } else if (path.endsWith(".png")) {
-                    // Fallback to Image
                     File file = new File(path);
                     if (file.exists()) {
                         ImageView imageView = new ImageView(new Image(file.toURI().toString()));
-                        imageView.setFitWidth(432);
-                        imageView.setFitHeight(450);
                         imageView.setPreserveRatio(true);
+                        imageView.fitWidthProperty().bind(mediaContainer.widthProperty());
+                        imageView.fitHeightProperty().bind(mediaContainer.heightProperty());
                         mediaContainer.getChildren().add(imageView);
                     }
                 }
@@ -214,7 +235,8 @@ public class PostTemplateOverlay extends StackPane {
     }
 
     private void goToStep(VBox from, VBox to) {
-        double targetX = (cardContainer.getChildren().indexOf(to) > cardContainer.getChildren().indexOf(from)) ? -480 : 480;
+        double width = getWidth();
+        double targetX = (cardContainer.getChildren().indexOf(to) > cardContainer.getChildren().indexOf(from)) ? -width : width;
         animateSwipe(from, to, targetX, 0);
     }
 
@@ -241,7 +263,7 @@ public class PostTemplateOverlay extends StackPane {
         uploadTemplateNecessityItems(title, desc);
     }
 
-    // Dummy Upload Function (User requested to leave this for later connection)
+    // Dummy Upload Function
     private void uploadTemplateNecessityItems(String title, String description) {
         new Thread(() -> {
             try {
@@ -274,14 +296,20 @@ public class PostTemplateOverlay extends StackPane {
 
     private void setProcessing(boolean processing) {
         this.isProcessing = processing;
-        DoubleClipsDesktop.setGlobalProcessing(processing);
     }
 
-    private void close() {
+    private void cleanupMedia() {
         if (mediaPlayer != null) {
             mediaPlayer.stop();
             mediaPlayer.dispose();
+            mediaPlayer = null;
         }
-        DoubleClipsDesktop.getInstance().hideOverlay(this);
+    }
+
+    private void closeWindow() {
+        if (!isProcessing) {
+            cleanupMedia();
+            close();
+        }
     }
 }

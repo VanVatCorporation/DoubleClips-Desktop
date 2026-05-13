@@ -422,14 +422,14 @@ public class ExportWindow extends Stage {
                                     ArrayList<String> strPreviewFiles = new ArrayList<>();
                                     for (File file : previewFiles) strPreviewFiles.add(file.getAbsolutePath());
 
-                                    com.vanvatcorporation.doubleclips.ui.overlays.PostTemplateOverlay overlay = new com.vanvatcorporation.doubleclips.ui.overlays.PostTemplateOverlay(
+                                    com.vanvatcorporation.doubleclips.ui.PostTemplateWindow.show(
+                                            (Stage) ExportWindow.this.getOwner(),
                                             ffmpegCommand,
                                             totalClips,
                                             strVideoFiles,
                                             strPreviewFiles,
                                             project.getProjectTitle()
                                     );
-                                    DoubleClipsDesktop.getInstance().showOverlay(overlay);
 
 
 
