@@ -422,12 +422,14 @@ public class ExportWindow extends Stage {
                                     ArrayList<String> strPreviewFiles = new ArrayList<>();
                                     for (File file : previewFiles) strPreviewFiles.add(file.getAbsolutePath());
 
-                                    Intent templateIntent = new Intent(this, PostTemplateActivity.class);
-                                    templateIntent.putExtra("ffmpegCommand", ffmpegCommand);
-                                    templateIntent.putExtra("totalClip", totalClip);
-                                    templateIntent.putStringArrayListExtra("videoFilePaths", strVideoFiles);
-                                    templateIntent.putStringArrayListExtra("previewFilePaths", strPreviewFiles);
-                                    templateIntent.putExtra("defaultTitle", properties.getProjectTitle());
+                                    com.vanvatcorporation.doubleclips.ui.overlays.PostTemplateOverlay overlay = new com.vanvatcorporation.doubleclips.ui.overlays.PostTemplateOverlay(
+                                            ffmpegCommand,
+                                            totalClips,
+                                            strVideoFiles,
+                                            strPreviewFiles,
+                                            project.getProjectTitle()
+                                    );
+                                    DoubleClipsDesktop.getInstance().showOverlay(overlay);
 
 
 
