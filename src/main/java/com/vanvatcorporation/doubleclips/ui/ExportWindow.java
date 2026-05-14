@@ -2,11 +2,13 @@ package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import com.vanvatcorporation.doubleclips.auth.AuthRepository;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
+import com.vanvatcorporation.doubleclips.helper.android.AlertDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -156,7 +158,13 @@ public class ExportWindow extends Stage {
         // Export as Template
         exportAsTemplateButton.setGraphic(new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
         exportAsTemplateButton.getStyleClass().add("export-template-button");
-        exportAsTemplateButton.setOnAction(e -> exportClip(true));
+        exportAsTemplateButton.setOnAction(e -> {
+            if(AuthRepository.getInstance().getCurrentUser() == null) {
+                new AlertDialog.Builder().setTitle("Login required").setMessage("Please login to post template").create().show();
+                return;
+            }
+            exportClip(true);
+        });
 
         // Export
         exportButton.setGraphic(new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
