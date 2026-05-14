@@ -1,6 +1,11 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
+import com.vanvatcorporation.doubleclips.auth.AuthRepository;
+import com.vanvatcorporation.doubleclips.helper.android.AlertDialog;
+import com.vanvatcorporation.doubleclips.helper.android.Context;
 import javafx.animation.Interpolator;
 import javafx.animation.TranslateTransition;
 import javafx.application.Platform;
@@ -22,11 +27,13 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.kordamp.ikonli.javafx.FontIcon;
-import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class PostTemplateWindow extends Stage {
 
@@ -257,12 +264,92 @@ public class PostTemplateWindow extends Stage {
         setProcessing(true);
         goToStep(step2, step3);
 
-        String title = titleInput.getText().trim();
-        String desc = descriptionInput.getText().trim();
-        if (title.isEmpty()) title = defaultTitle;
-        if (desc.isEmpty()) desc = defaultTitle;
+        uploadTemplate();
+    }
 
-        uploadTemplateNecessityItems(title, desc);
+
+
+    private void uploadTemplate() {
+        if (AuthRepository.getInstance().getCurrentUser() == null) {
+            new AlertDialog.Builder().setTitle("Login required").setMessage("Please login to post template").create().show();
+
+            return;
+        }
+
+        List<File> videoFiles = new ArrayList<>();
+        if (videoFilePaths != null) {
+            for (String path : videoFilePaths) {
+                videoFiles.add(new File(path));
+            }
+        }
+
+        List<File> previewFiles = new ArrayList<>();
+        if (previewFilePaths != null) {
+            for (String path : previewFilePaths) {
+                previewFiles.add(new File(path));
+            }
+        }
+
+        String templateTitle = titleInput.getText().trim().toString();
+        String templateDesc = descriptionInput.getText().trim().toString();
+
+        if (templateTitle.isEmpty()) {
+            templateTitle = defaultTitle;
+        }
+        if (templateDesc.isEmpty()) {
+            templateDesc = defaultTitle;
+        }
+
+        Map<String, String> field = new HashMap<>();
+        field.put("accountUsername", AuthRepository.getInstance().getCurrentUser().getUsername());
+        field.put("accountPassword", "********");
+        field.put("templateTitle", templateTitle);
+        field.put("templateDescription", templateDesc);
+        field.put("ffmpegCommand", ffmpegCommand);
+        field.put("templateTotalClips", String.valueOf(totalClip));
+
+
+        progressLabel.setText("Uploading template...");
+
+        ExportWindow.uploadTemplateNecessityItems(
+                new Context(),
+                "https://app.vanvatcorp.com/doubleclips/api/post-template",
+                field,
+                videoFiles,
+                previewFiles,
+                new ExportWindow.UploadCallback() {
+                    @Override
+                    public void onProgress(int progress) {
+                        Platform.runLater(() -> {
+                            progressBar.setProgress(progress / 100.0);
+                            progressLabel.setText("Uploading... " + progress + "%");
+                        });
+                    }
+
+                    @Override
+                    public void onResult(boolean success, String result) {
+                        if (success) {
+                            try {
+                                JsonObject json = JsonParser.parseString(result).getAsJsonObject();
+                                String templateId = json.get("templateId").getAsString();
+
+                                goToStep(step3, step4); // Move to Step 4
+                                Platform.runLater(() -> {
+                                    successTemplateIdText.setText("Template ID: " + templateId);
+                                });
+                                setProcessing(false);
+                            } catch (Exception e) {
+                                progressLabel.setText("Uploaded successfully, but couldn't parse response.");
+                            }
+                        } else {
+                            Platform.runLater(() -> {
+                                setProcessing(false);
+                                progressLabel.setText("Failed to upload: " + result);
+                                progressLabel.setStyle("-fx-text-fill: red;");
+                            });
+                        }
+                    }
+                });
     }
 
     // Dummy Upload Function
@@ -273,25 +360,13 @@ public class PostTemplateWindow extends Stage {
                 for (int i = 0; i <= 100; i += 10) {
                     Thread.sleep(200);
                     final int progress = i;
-                    Platform.runLater(() -> {
-                        progressBar.setProgress(progress / 100.0);
-                        progressLabel.setText("Uploading... " + progress + "%");
-                    });
                 }
                 
                 // Simulate success payload
                 Platform.runLater(() -> {
-                    setProcessing(false);
-                    successTemplateIdText.setText("Template ID: 999-DUMMY-ID");
-                    goToStep(step3, step4);
                 });
             } catch (InterruptedException e) {
                 e.printStackTrace();
-                Platform.runLater(() -> {
-                    setProcessing(false);
-                    progressLabel.setText("Failed to upload template.");
-                    progressLabel.setStyle("-fx-text-fill: red;");
-                });
             }
         }).start();
     }

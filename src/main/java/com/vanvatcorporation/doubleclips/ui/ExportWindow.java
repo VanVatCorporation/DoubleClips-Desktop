@@ -9,6 +9,8 @@ import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.helper.android.AlertDialog;
+import com.vanvatcorporation.doubleclips.helper.android.Context;
+import com.vanvatcorporation.doubleclips.manager.LoggingManager;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -18,6 +20,8 @@ import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
+import okhttp3.*;
+import okio.*;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignK;
@@ -30,6 +34,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import com.vanvatcorporation.doubleclips.constants.Constants;
 
@@ -554,6 +559,152 @@ public class ExportWindow extends Stage {
         logTextArea.setText(next);
         if (scrollLockCheckBox.isSelected()) {
             logTextArea.positionCaret(logTextArea.getText().length());
+        }
+    }
+
+
+
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Export Upload helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+
+    public interface UploadCallback {
+        void onResult(boolean success, String result);
+        void onProgress(int progress);
+    }
+    public static class CountingRequestBody extends RequestBody {
+        protected RequestBody delegate;
+        protected UploadCallback listener;
+        protected CountingSink countingSink;
+
+        public CountingRequestBody(RequestBody delegate, UploadCallback listener) {
+            this.delegate = delegate;
+            this.listener = listener;
+        }
+
+        @Override
+        public MediaType contentType() {
+            return delegate.contentType();
+        }
+
+        @Override
+        public long contentLength() {
+            try {
+                return delegate.contentLength();
+            } catch (IOException e) {
+                return -1;
+            }
+        }
+
+        @Override
+        public void writeTo(BufferedSink sink) throws IOException {
+            countingSink = new CountingSink(sink);
+            BufferedSink bufferedSink = Okio.buffer(countingSink);
+            delegate.writeTo(bufferedSink);
+            bufferedSink.flush();
+        }
+
+        protected final class CountingSink extends ForwardingSink {
+            private long bytesWritten = 0;
+            private long contentLength = 0;
+
+            public CountingSink(Sink delegate) {
+                super(delegate);
+            }
+
+            @Override
+            public void write(Buffer source, long byteCount) throws IOException {
+                super.write(source, byteCount);
+                bytesWritten += byteCount;
+                if (listener != null) {
+                    if (contentLength == 0) contentLength = contentLength();
+                    if(contentLength > 0) {
+                        int progress = (int) ((bytesWritten * 100) / contentLength);
+                        listener.onProgress(progress);
+                    }
+                }
+            }
+        }
+    }
+
+    public static void uploadTemplateNecessityItems(Context context,
+                                                    String serverUrl,
+                                                    Map<String, String> fields,
+                                                    List<File> videoFiles,
+                                                    List<File> previewFiles,
+                                                    UploadCallback callback) {
+        OkHttpClient client = new OkHttpClient();
+        try {
+            // Build multipart body
+            MultipartBody.Builder multipartBuilder = new MultipartBody.Builder()
+                    .setType(MultipartBody.FORM);
+
+            // Add text fields
+            for (Map.Entry<String, String> entry : fields.entrySet()) {
+                multipartBuilder.addFormDataPart(entry.getKey(), entry.getValue());
+            }
+
+            // Add video files
+            if (videoFiles != null) {
+                for (File file : videoFiles) {
+                    RequestBody fileBody = RequestBody.create(file, MediaType.parse("video/mp4"));
+                    multipartBuilder.addFormDataPart("videoFiles", file.getName(), fileBody);
+                }
+            }
+
+            // Add preview files
+            if (previewFiles != null) {
+                for (File file : previewFiles) {
+                    RequestBody fileBody = RequestBody.create(file, MediaType.parse("video/mp4"));
+                    multipartBuilder.addFormDataPart("previewFiles", file.getName(), fileBody);
+                }
+            }
+
+            RequestBody requestBody = multipartBuilder.build();
+            CountingRequestBody countingBody = new CountingRequestBody(requestBody, callback);
+
+            // Build request
+            Request request = new Request.Builder()
+                    .url(serverUrl)
+                    .post(countingBody)
+                    .build();
+
+            // Execute asynchronously
+            client.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    LoggingManager.LogExceptionToNoteOverlay(context, e);
+                    if (callback != null) {
+                        callback.onResult(false, e.getMessage());
+                    }
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    if (response.isSuccessful()) {
+                        String responseBody = response.body().string();
+                        LoggingManager.LogToToast(context, "Server returned OK status: " + responseBody);
+                        System.err.println(responseBody);
+                        if (callback != null) {
+                            callback.onResult(true, responseBody);
+                        }
+                    } else {
+                        LoggingManager.LogToToast(context, "Server returned non-OK status: " + response.code());
+                        if (callback != null) {
+                            callback.onResult(false, "Server returned non-OK status: " + response.code());
+                        }
+                    }
+                }
+            });
+
+        } catch (Exception e) {
+            LoggingManager.LogExceptionToNoteOverlay(context, e);
+            if (callback != null) {
+                callback.onResult(false, e.getMessage());
+            }
         }
     }
 }

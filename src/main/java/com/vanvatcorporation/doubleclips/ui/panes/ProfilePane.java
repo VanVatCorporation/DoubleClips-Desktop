@@ -131,12 +131,6 @@ public class ProfilePane extends VBox {
 
         // Initialize UI state
         updateUI(AuthRepository.getInstance().getCurrentUser());
-        
-        // Initial session check
-        AuthRepository.getInstance().checkSession(new AuthRepository.AuthCallback<User>() {
-            @Override public void onSuccess(User data) {}
-            @Override public void onError(String message) {}
-        });
     }
 
     private void updateUI(User user) {

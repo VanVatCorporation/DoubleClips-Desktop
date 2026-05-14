@@ -2,6 +2,7 @@ package com.vanvatcorporation.doubleclips.manager;
 
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
+import com.vanvatcorporation.doubleclips.helper.android.Context;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -27,13 +28,13 @@ public class LoggingManager {
         LogToPersistentDataPath(message);
     }
 
-    public static void LogExceptionToNoteOverlay(Exception ex) {
+    public static void LogExceptionToNoteOverlay(Context context, Exception ex) {
         String stackTrace = getStackTraceFromException(ex);
         System.err.println("[EXCEPTION]: " + stackTrace);
         LogToPersistentDataPath(stackTrace);
     }
 
-    public static void LogToToast(String message) {
+    public static void LogToToast(Context context, String message) {
         System.out.println("[TOAST]: " + message);
     }
 

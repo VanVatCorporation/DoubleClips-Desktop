@@ -3,6 +3,8 @@ package com.vanvatcorporation.doubleclips;
 import atlantafx.base.theme.CupertinoDark;
 import atlantafx.base.theme.CupertinoLight;
 import com.jthemedetecor.OsThemeDetector;
+import com.vanvatcorporation.doubleclips.auth.AuthRepository;
+import com.vanvatcorporation.doubleclips.auth.User;
 import com.vanvatcorporation.doubleclips.data.AppSettings;
 import com.vanvatcorporation.doubleclips.ui.panes.*;
 import javafx.application.Application;
@@ -120,6 +122,15 @@ public class DoubleClipsDesktop extends Application {
                     });
                 }
             } catch (Exception ignored) {}
+        });
+
+
+
+
+        // Initial session check
+        AuthRepository.getInstance().checkSession(new AuthRepository.AuthCallback<>() {
+            @Override public void onSuccess(User data) {}
+            @Override public void onError(String message) {}
         });
     }
 
