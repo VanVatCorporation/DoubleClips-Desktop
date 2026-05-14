@@ -87,6 +87,8 @@ public class PostTemplateWindow extends Stage {
 
         StackPane mediaContainer = new StackPane();
         mediaContainer.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+        mediaContainer.setMinSize(0, 0);
+        mediaContainer.setPrefSize(0, 0);
         VBox.setVgrow(mediaContainer, Priority.ALWAYS);
         mediaContainer.setStyle("-fx-background-color: #000000; -fx-background-radius: 8;");
         
