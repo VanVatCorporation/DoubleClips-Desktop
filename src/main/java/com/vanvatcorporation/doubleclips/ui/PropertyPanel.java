@@ -174,6 +174,20 @@ public class PropertyPanel extends VBox {
         }
 
         fields.getChildren().add(buildSectionDivider("Toggles"));
+
+        fields.getChildren().add(buildTogglePropertyField("Lock for Template", selectedClip.isLockedForTemplate, newValue -> {
+            boolean oldVal = selectedClip.isLockedForTemplate;
+            if (newValue == oldVal) return;
+            context.executePropertyChange("Toggle Locking For Template", () -> {
+                selectedClip.isLockedForTemplate = newValue;
+                context.refreshTimelineUI();
+                context.saveProject();
+            }, () -> {
+                selectedClip.isLockedForTemplate = oldVal;
+                context.refreshTimelineUI();
+                context.saveProject();
+            });
+        }));
         if (selectedClip.type == ClipType.VIDEO || selectedClip.type == ClipType.AUDIO) {
             fields.getChildren().add(buildTogglePropertyField("Mute Audio", selectedClip.isMute, newValue -> {
                 boolean oldVal = selectedClip.isMute;
