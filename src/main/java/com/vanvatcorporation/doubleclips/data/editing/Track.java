@@ -15,6 +15,11 @@ public class Track implements Serializable {
 
     public Track() {}
 
+    public Track(Track other) {
+        timelineIndex = other.timelineIndex;
+        clips.addAll(other.clips);
+    }
+
     public void addClip(Clip clip) {
         clip.trackIndex = timelineIndex;
         clips.add(clip);

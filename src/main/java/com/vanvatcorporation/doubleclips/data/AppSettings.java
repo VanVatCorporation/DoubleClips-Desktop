@@ -20,6 +20,8 @@ public class AppSettings {
     private final StringProperty undoKeybind = new SimpleStringProperty();
     private final StringProperty redoKeybind = new SimpleStringProperty();
     private final StringProperty togglePlayKeybind = new SimpleStringProperty();
+    private final StringProperty copyKeybind = new SimpleStringProperty();
+    private final StringProperty pasteKeybind = new SimpleStringProperty();
 
     private AppSettings() {
         prefs = Preferences.userNodeForPackage(AppSettings.class);
@@ -33,6 +35,8 @@ public class AppSettings {
         undoKeybind.set(prefs.get("undo_keybind", "Shortcut+Z"));
         redoKeybind.set(prefs.get("redo_keybind", "Shortcut+Shift+Z"));
         togglePlayKeybind.set(prefs.get("toggle_play_keybind", "SPACE"));
+        copyKeybind.set(prefs.get("copy_keybind", "Shortcut+C"));
+        pasteKeybind.set(prefs.get("paste_keybind", "Shortcut+V"));
 
         // Save on change
         themeMode.addListener((obs, oldVal, newVal) -> prefs.put("theme_mode", newVal));
@@ -43,6 +47,8 @@ public class AppSettings {
         undoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("undo_keybind", newVal));
         redoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("redo_keybind", newVal));
         togglePlayKeybind.addListener((obs, oldVal, newVal) -> prefs.put("toggle_play_keybind", newVal));
+        copyKeybind.addListener((obs, oldVal, newVal) -> prefs.put("copy_keybind", newVal));
+        pasteKeybind.addListener((obs, oldVal, newVal) -> prefs.put("paste_keybind", newVal));
     }
 
     public static AppSettings getInstance() {
@@ -80,4 +86,12 @@ public class AppSettings {
     public String getTogglePlayKeybind() { return togglePlayKeybind.get(); }
     public void setTogglePlayKeybind(String value) { togglePlayKeybind.set(value); }
     public StringProperty togglePlayKeybindProperty() { return togglePlayKeybind; }
+
+    public String getCopyKeybind() { return copyKeybind.get(); }
+    public void setCopyKeybind(String value) { copyKeybind.set(value); }
+    public StringProperty toggleCopyProperty() { return copyKeybind; }
+
+    public String getPasteKeybind() { return pasteKeybind.get(); }
+    public void setPasteKeybind(String value) { pasteKeybind.set(value); }
+    public StringProperty togglePasteProperty() { return pasteKeybind; }
 }

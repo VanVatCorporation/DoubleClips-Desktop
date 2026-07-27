@@ -91,7 +91,16 @@ public class SettingsOverlay extends StackPane {
         HBox deleteRow = createKeybindRow("Delete Clip/Track", "Shortcut to delete selected items", settings.deleteKeybindProperty());
         HBox selectAllRow = createKeybindRow("Select All", "Shortcut to select all clips", settings.selectAllKeybindProperty());
         HBox togglePlayRow = createKeybindRow("Toggle Play/Pause", "Shortcut to play/pause preview", settings.togglePlayKeybindProperty());
-        shortcutsGroup.getChildren().addAll(undoRow, new Separator(), redoRow, new Separator(), deleteRow, new Separator(), selectAllRow, new Separator(), togglePlayRow);
+        HBox copyRow = createKeybindRow("Copy", "Shortcut to copy elements", settings.toggleCopyProperty());
+        HBox pasteRow = createKeybindRow("Paste", "Shortcut to paste elements", settings.togglePasteProperty());
+        shortcutsGroup.getChildren().addAll(
+                undoRow, new Separator(),
+                redoRow, new Separator(),
+                deleteRow, new Separator(),
+                selectAllRow, new Separator(),
+                togglePlayRow, new Separator(),
+                copyRow, new Separator(),
+                pasteRow);
 
         content.getChildren().addAll(generalGroup, shortcutsGroup);
         scrollPane.setContent(content);

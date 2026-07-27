@@ -1,5 +1,6 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.google.gson.JsonSyntaxException;
 import com.vanvatcorporation.doubleclips.AudioUtils;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.*;
@@ -10,6 +11,8 @@ import com.vanvatcorporation.doubleclips.helper.MediaHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.MouseEvent;
 import javafx.stage.FileChooser;
 import com.google.gson.Gson;
@@ -191,6 +194,8 @@ public class EditorWindow extends Stage implements PropertyContext {
             String undoBindingStr = sanitizeKeybind(AppSettings.getInstance().getUndoKeybind());
             String redoBindingStr = sanitizeKeybind(AppSettings.getInstance().getRedoKeybind());
             String togglePlayBindingStr = sanitizeKeybind(AppSettings.getInstance().getTogglePlayKeybind());
+            String copyBindingStr = sanitizeKeybind(AppSettings.getInstance().getCopyKeybind());
+            String pasteBindingStr = sanitizeKeybind(AppSettings.getInstance().getPasteKeybind());
 
             boolean deleteMatched = false;
             try {
@@ -233,6 +238,24 @@ public class EditorWindow extends Stage implements PropertyContext {
                     togglePlayMatched = true;
             }
 
+            boolean copyMatched = false;
+            try {
+                if (javafx.scene.input.KeyCombination.valueOf(copyBindingStr).match(event))
+                    copyMatched = true;
+            } catch (Exception e) {
+                if (event.getCode().name().equalsIgnoreCase(copyBindingStr))
+                    copyMatched = true;
+            }
+
+            boolean pasteMatched = false;
+            try {
+                if (javafx.scene.input.KeyCombination.valueOf(pasteBindingStr).match(event))
+                    pasteMatched = true;
+            } catch (Exception e) {
+                if (event.getCode().name().equalsIgnoreCase(pasteBindingStr))
+                    pasteMatched = true;
+            }
+
             if (undoMatched) {
                 historyManager.undo();
                 event.consume();
@@ -249,6 +272,14 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
             else if (togglePlayMatched) {
                 triggerPlayAction();
+                event.consume();
+            }
+            else if (copyMatched) {
+                handleCopy();
+                event.consume();
+            }
+            else if (pasteMatched) {
+                handlePaste();
                 event.consume();
             }
         });
@@ -995,8 +1026,8 @@ public class EditorWindow extends Stage implements PropertyContext {
                         else scaleStr = "1280:-2";
 
                         String cmd = "-i \"" + targetFile.getAbsolutePath()
-                                + "\" -vf \"scale=" + scaleStr + "\" -c:v libx264 -preset ultrafast -crf 32 -x264-params keyint=1 -an -y \""
-                                + previewClipPath + "\"";
+                                + "\" -vf \"scale=" + scaleStr + "\" -c:v libx264 -preset ultrafast -crf 32 -g 1 -an -y \""
+                                + previewClipPath.substring(0, previewClipPath.lastIndexOf('.')) + ".mp4" + "\"";
                         FFmpegEdit.runAnyCommand(cmd, "Preview Video",
                                 () -> latch.countDown(),
                                 () -> latch.countDown(),
@@ -2544,6 +2575,88 @@ public class EditorWindow extends Stage implements PropertyContext {
                         refreshTimelineUI();
                         saveProject();
                     }));
+        }
+    }
+    private void handleClone()
+    {
+        if(selectedClip != null) {
+            Clip clipToClone = new Clip(selectedClip);
+            clipToClone.startTime = Math.max(0f, selectedClip.getDuration() + selectedClip.getStartTime());
+            clipToClone.trackIndex = selectedClip.trackIndex;
+
+            historyManager.execute(new AddClipCommand(timeline, clipToClone, selectedClip.trackIndex, () -> {
+                updateCurrentClipEnd();
+                refreshTimelineUI();
+                saveProject();
+            }));
+        } else if (selectedTrack != null) {
+            Track track = new Track(selectedTrack);
+            executePropertyChange("Add Track", () -> {
+                timeline.addTrack(track);
+                timeline.reloadTrackIndex();
+                refreshTrackHeaders();
+                refreshTimelineUI();
+                saveProject();
+            }, () -> {
+                timeline.removeTrack(track);
+                timeline.reloadTrackIndex();
+                refreshTrackHeaders();
+                refreshTimelineUI();
+                saveProject();
+            });
+        }
+    }
+
+    private void handleCopy() {
+        if (selectedClip != null) {
+            Clipboard clipboard = Clipboard.getSystemClipboard();
+            ClipboardContent content = new ClipboardContent();
+            content.putString(new Gson().toJson(selectedClip));
+            clipboard.setContent(content);
+        } else if (selectedTrack != null) {
+            Clipboard clipboard = Clipboard.getSystemClipboard();
+            ClipboardContent content = new ClipboardContent();
+            content.putString(new Gson().toJson(selectedTrack));
+            clipboard.setContent(content);
+        }
+    }
+
+    private void handlePaste() {
+
+        Clipboard clipboard = Clipboard.getSystemClipboard();
+        if (clipboard.hasString()) {
+            String pasteText = clipboard.getString();
+            try {
+                Clip pasteClip = new Gson().fromJson(pasteText, Clip.class);
+
+                pasteClip.startTime = Math.max(0f,
+                        currentTime == selectedClip.getStartTime() ?
+                                selectedClip.getDuration() + selectedClip.getStartTime() :
+                                currentTime
+                );
+
+                historyManager.execute(new AddClipCommand(timeline, pasteClip, selectedClip.trackIndex, () -> {
+                    updateCurrentClipEnd();
+                    refreshTimelineUI();
+                    saveProject();
+                }));
+            } catch (JsonSyntaxException | NullPointerException e) {
+                Track pasteTrack = new Gson().fromJson(pasteText, Track.class);
+                executePropertyChange("Add Track", () -> {
+                    timeline.addTrack(pasteTrack);
+                    timeline.reloadTrackIndex();
+                    refreshTrackHeaders();
+                    refreshTimelineUI();
+                    saveProject();
+                }, () -> {
+                    timeline.removeTrack(pasteTrack);
+                    timeline.reloadTrackIndex();
+                    refreshTrackHeaders();
+                    refreshTimelineUI();
+                    saveProject();
+                });
+            }
+
         }
     }
 
