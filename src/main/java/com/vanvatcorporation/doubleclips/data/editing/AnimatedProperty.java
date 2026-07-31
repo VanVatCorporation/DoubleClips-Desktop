@@ -54,6 +54,7 @@ public class AnimatedProperty implements Serializable {
             double snappedTime = (double) closestFrameIndex / framePerSecond;
 
             k.setLocalTime((float) snappedTime);
+            k.setLocalFrame(closestFrameIndex);
         }
     }
 
