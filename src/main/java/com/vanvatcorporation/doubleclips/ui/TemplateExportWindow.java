@@ -1,6 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
+import com.vanvatcorporation.doubleclips.FFmpegEditNative;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.data.ClipReplacementData;
 import com.vanvatcorporation.doubleclips.data.TemplateData;
@@ -20,7 +21,6 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
-import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 
 import java.io.File;
 import java.net.URI;
@@ -29,7 +29,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 public class TemplateExportWindow extends Stage {
 
@@ -323,7 +322,7 @@ public class TemplateExportWindow extends Stage {
         String cmd = commandTextArea.getText();
         
         logTextArea.appendText("\n>>> STARTING NATIVE EXPORT <<<\n");
-        logTextArea.appendText("Binary: " + com.vanvatcorporation.doubleclips.FFmpegEdit.getFfmpegPath() + "\n");
+        logTextArea.appendText("Binary: " + FFmpegEditNative.getFfmpegPath() + "\n");
         
         exportButton.setDisable(true);
         taskProgressBar.setProgress(0);

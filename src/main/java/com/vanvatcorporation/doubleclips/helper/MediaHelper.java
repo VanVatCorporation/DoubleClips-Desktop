@@ -1,8 +1,8 @@
 package com.vanvatcorporation.doubleclips.helper;
 
-import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import com.vanvatcorporation.doubleclips.FFmpegEditNative;
+
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +24,7 @@ public class MediaHelper {
         MediaInfo info = new MediaInfo();
 
         try {
-            String ffmpegPath = FFmpegEdit.getFfmpegPath();
+            String ffmpegPath = FFmpegEditNative.getFfmpegPath();
             List<String> cmd = new ArrayList<>();
             cmd.add(ffmpegPath);
             cmd.add("-hide_banner"); // Keeps output cleaner

@@ -2,6 +2,7 @@ package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import com.vanvatcorporation.doubleclips.FFmpegEditNative;
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
@@ -399,7 +400,7 @@ public class ExportWindow extends Stage {
         for (int i = 0; i < cmdAfterSplit.length; i++) {
 
             appendLog("\n>>> STARTING EXPORT " + i + "/" + cmdAfterSplit.length + " <<<");
-            appendLog("Binary: " + FFmpegEdit.getFfmpegPath() + "\n");
+            appendLog("Binary: " + FFmpegEditNative.getFfmpegPath() + "\n");
 
             String cmdEach = cmdAfterSplit[i];
             FFmpegEdit.runAnyCommand(

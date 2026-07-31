@@ -1,6 +1,6 @@
 package com.vanvatcorporation.doubleclips.ui.renderer;
 
-import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import com.vanvatcorporation.doubleclips.FFmpegEditNative;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.ClipType;
@@ -240,7 +240,7 @@ public class ClipRenderer {
         int h = (int) writableImage.getHeight();
 
         List<String> cmd = new ArrayList<>();
-        cmd.add(FFmpegEdit.getFfmpegPath());
+        cmd.add(FFmpegEditNative.getFfmpegPath());
         cmd.add("-accurate_seek");
         cmd.add("-ss"); cmd.add(String.format(java.util.Locale.US, "%.6f", clipTime));
         // TODO: Monitor this. Multithreading on a live frame accuracy

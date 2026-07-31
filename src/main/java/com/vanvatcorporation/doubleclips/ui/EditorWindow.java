@@ -3,6 +3,7 @@ package com.vanvatcorporation.doubleclips.ui;
 import com.google.gson.JsonSyntaxException;
 import com.vanvatcorporation.doubleclips.AudioUtils;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
+import com.vanvatcorporation.doubleclips.FFmpegEditNative;
 import com.vanvatcorporation.doubleclips.data.*;
 import com.vanvatcorporation.doubleclips.data.editing.*;
 import com.vanvatcorporation.doubleclips.history.*;
@@ -1926,7 +1927,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             h++;
 
         java.util.List<String> cmd = new java.util.ArrayList<>();
-        cmd.add(com.vanvatcorporation.doubleclips.FFmpegEdit.getFfmpegPath());
+        cmd.add(FFmpegEditNative.getFfmpegPath());
         cmd.add("-accurate_seek");
         cmd.add("-ss");
         cmd.add(String.format(java.util.Locale.US, "%.6f", clipTime));
