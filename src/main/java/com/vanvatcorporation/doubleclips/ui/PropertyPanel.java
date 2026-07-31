@@ -121,6 +121,24 @@ public class PropertyPanel extends VBox {
                 });
             } catch (Exception ignored) {}
         }));
+        if(selectedClip.type == ClipType.AUDIO || selectedClip.type == ClipType.VIDEO) {
+            fields.getChildren().add(buildPropertyField("Audio Volume", String.valueOf(selectedClip.getAudioVolume()), newValue -> {
+                try {
+                    float val = Float.parseFloat(newValue);
+                    float oldVal = selectedClip.getAudioVolume();
+                    if (val == oldVal) return;
+                    context.executePropertyChange("Change Audio Volume", () -> {
+                        selectedClip.setAudioVolume(val);
+                        context.refreshTimelineUI();
+                        context.saveProject();
+                    }, () -> {
+                        selectedClip.setAudioVolume(oldVal);
+                        context.refreshTimelineUI();
+                        context.saveProject();
+                    });
+                } catch (Exception ignored) {}
+            }));
+        }
 
         if (selectedClip.type == ClipType.TEXT) {
             fields.getChildren().add(buildSectionDivider("Text"));

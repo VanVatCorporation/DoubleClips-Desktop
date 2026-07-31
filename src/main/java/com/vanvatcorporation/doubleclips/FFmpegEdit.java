@@ -613,6 +613,7 @@ public class FFmpegEdit {
                     filterComplex.append("[").append(inputLayerIndex).append(":a]")
                             .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration).append(",")
                             .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
+                            .append("volume=").append(clip.getAudioVolume()).append(",")
                             .append("asetpts=PTS-STARTPTS")
                             .append(clip.isReverse() ? ",areverse" : "")
                             .append(audioLabel).append(";\n");
@@ -641,6 +642,7 @@ public class FFmpegEdit {
                         .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
                         // This handle the extension in silent to match the video
                         .append("apad=pad_dur=").append(freezeFrameDuration).append(",")
+                        .append("volume=").append(clip.getAudioVolume()).append(",")
                         .append("asetpts=PTS-STARTPTS")
                         .append(clip.isReverse() ? ",areverse" : "")
                         .append(audioLabel).append(";\n");
@@ -766,7 +768,7 @@ public class FFmpegEdit {
             cmd.append(" -c:v h264_" + hardwareAcceleratedName)
                     .append(" -b:v ").append(templateSettings.settings.getBitrate()).append("M");
         } else {
-            cmd.append(" -c:v libx264 -preset").append(templateSettings.settings.getPreset())
+            cmd.append(" -c:v libx264 -preset ").append(templateSettings.settings.getPreset())
                     .append(" -tune ").append(templateSettings.settings.getTune())
                     .append(" -crf ").append(templateSettings.settings.getCRF());
         }
@@ -832,7 +834,7 @@ public class FFmpegEdit {
         // Find the furthest keyframe with the same value to optimize the expression by merging segments
         int nextIndex = startIndex + 1;
         while (nextIndex + 1 < keyframes.size() &&
-                keyframes.get(nextIndex + 1).value.getValue(valueType) == prevKeyframe.value.getValue(valueType)) {
+                keyframes.get(nextIndex).value.getValue(valueType) == prevKeyframe.value.getValue(valueType)) {
             nextIndex++;
         }
         Keyframe nextKeyframe = keyframes.get(nextIndex);
