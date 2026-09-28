@@ -14,6 +14,12 @@ public class VideoSettings implements Serializable {
     @Expose public String tune;
     @Expose public boolean isStretchToFull;
     @Expose public boolean useHardwareAccel;
+    // "ffmpeg" or "opengl" - mirrors Android's VideoSettings.renderEngine.
+    // Default ffmpeg: the OpenGL export doesn't have feature parity yet (see
+    // OpenGLEdit.getUnsupportedFeatures()). Settings JSON saved before this
+    // field existed will Gson-deserialize it to null; getRenderEngine() below
+    // falls back to "ffmpeg" for exactly that case.
+    @Expose public String renderEngine;
 
     public int outputWidth;
     public int outputHeight;
@@ -29,6 +35,7 @@ public class VideoSettings implements Serializable {
         this.tune = tune;
         this.isStretchToFull = false;
         this.useHardwareAccel = true;
+        this.renderEngine = "ffmpeg";
     }
 
     public static VideoSettings createDefault() {
@@ -60,6 +67,10 @@ public class VideoSettings implements Serializable {
     public int getFrameRate() { return frameRate; }
     public boolean isStretchToFull() { return isStretchToFull; }
     public boolean isUseHardwareAccel() { return useHardwareAccel; }
+
+    public String getRenderEngine() { return renderEngine != null ? renderEngine : "ffmpeg"; }
+    public void setRenderEngine(String renderEngine) { this.renderEngine = renderEngine; }
+    public boolean isOpenGlRenderEngine() { return "opengl".equals(getRenderEngine()); }
 
     public int getClipCap() { return clipCap; }
 

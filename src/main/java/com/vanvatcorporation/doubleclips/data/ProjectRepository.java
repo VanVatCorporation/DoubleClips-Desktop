@@ -255,6 +255,21 @@ public class ProjectRepository {
         refreshProjects();
     }
 
+    /**
+     * Settings-only save, mirroring Android's VideoSettings.saveSettings().
+     * saveTimeline() also saves settings, but recalculates duration and
+     * regenerates the preview thumbnail - unnecessary work for something like
+     * just flipping the render-engine radio button.
+     */
+    public void saveVideoSettings(ProjectData data, VideoSettings settings) {
+        File settingsFile = new File(data.getProjectPath(), Constants.DEFAULT_VIDEO_SETTINGS_FILENAME);
+        try (FileWriter writer = new FileWriter(settingsFile)) {
+            exposeGson.toJson(settings, writer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     public Timeline loadTimeline(ProjectData data) {
         File timelineFile = new File(data.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
         if (!timelineFile.exists()) {

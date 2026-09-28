@@ -3,8 +3,10 @@ package com.vanvatcorporation.doubleclips.ui;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
 import com.vanvatcorporation.doubleclips.FFmpegEditNative;
+import com.vanvatcorporation.doubleclips.OpenGLEdit;
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
+import com.vanvatcorporation.doubleclips.data.ProjectRepository;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
@@ -54,6 +56,11 @@ public class ExportWindow extends Stage {
     private final ProjectData  project;
     private final Timeline     timeline;
     private final VideoSettings settings;
+
+    // ── Render engine row (mirrors Android ExportActivity's renderEngineRadioGroup) ─
+    private final ToggleGroup renderEngineGroup = new ToggleGroup();
+    private final RadioButton ffmpegEngineRadio = new RadioButton("FFmpeg (CPU)");
+    private final RadioButton openGlEngineRadio = new RadioButton("OpenGL (GPU) — Recommended");
 
     // ── Advanced section ────────────────────────────────────────────────────
     private final TextArea commandTextArea = new TextArea();
@@ -108,6 +115,9 @@ public class ExportWindow extends Stage {
 
         // ── Top bar ────────────────────────────────────────────────────────
         root.getChildren().add(buildTopBar());
+
+        // ── Render engine choice ──────────────────────────────────────────
+        root.getChildren().add(buildRenderEngineRow());
 
         // ── Scrollable body ────────────────────────────────────────────────
         ScrollPane scroll = new ScrollPane();
@@ -169,17 +179,108 @@ public class ExportWindow extends Stage {
                 new AlertDialog.Builder().setTitle("Login required").setMessage("Please login to post template").create().show();
                 return;
             }
-            exportClip(true);
+            exportClipViaChosenEngine(true);
         });
 
         // Export
         exportButton.setGraphic(new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
         exportButton.getStyleClass().add("export-button");
-        exportButton.setOnAction(e -> exportClip(false));
+        exportButton.setOnAction(e -> exportClipViaChosenEngine(false));
 
         bar.getChildren().addAll(backBtn, settingsBtn, title, spacer,
                 exportAsTemplateButton, exportButton);
         return bar;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Render engine row
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private HBox buildRenderEngineRow() {
+        HBox row = new HBox(16);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(0, 16, 10, 16));
+        row.getStyleClass().add("export-render-engine-row");
+
+        ffmpegEngineRadio.setToggleGroup(renderEngineGroup);
+        openGlEngineRadio.setToggleGroup(renderEngineGroup);
+        ffmpegEngineRadio.setUserData("ffmpeg");
+        openGlEngineRadio.setUserData("opengl");
+
+        if (settings.isOpenGlRenderEngine()) {
+            openGlEngineRadio.setSelected(true);
+        } else {
+            ffmpegEngineRadio.setSelected(true);
+        }
+
+        renderEngineGroup.selectedToggleProperty().addListener((obs, oldToggle, newToggle) -> {
+            if (newToggle == null) return;
+            settings.setRenderEngine((String) newToggle.getUserData());
+            ProjectRepository.getInstance().saveVideoSettings(project, settings);
+        });
+
+        row.getChildren().addAll(ffmpegEngineRadio, openGlEngineRadio);
+        return row;
+    }
+
+    /**
+     * Desktop equivalent of Android's exportClipViaChosenEngine(). What the
+     * OpenGL renderer can't reproduce yet is defined in ONE place -
+     * OpenGLEdit's capability flags / getUnsupportedFeatures() - same as
+     * Android, so this screen doesn't need updating when a feature there
+     * gets implemented.
+     * <p>
+     * NOTE: there is no desktop/LWJGL OpenGLEditNative yet (Android only) -
+     * see the TODO in exportClipOpenGlPlaceholder() below. The UI and warning
+     * dialog are wired up now so the actual GPU path is a drop-in later.
+     */
+    private void exportClipViaChosenEngine(boolean exportAsTemplate) {
+        if (!settings.isOpenGlRenderEngine()) {
+            exportClip(exportAsTemplate);
+            return;
+        }
+
+        List<String> unsupported = OpenGLEdit.getUnsupportedFeatures(timeline);
+        if (unsupported.isEmpty()) {
+            exportClipOpenGlPlaceholder(exportAsTemplate);
+            return;
+        }
+
+        StringBuilder message = new StringBuilder("OpenGL export can't reproduce these yet:\n");
+        for (String feature : unsupported) message.append("\n  \u2022 ").append(feature);
+        message.append("\n\nUse FFmpeg to get them all, or continue with OpenGL and they will be left out of this export.");
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(this);
+        alert.setTitle("OpenGL export not complete yet");
+        alert.setHeaderText(null);
+        alert.setContentText(message.toString());
+
+        ButtonType useFfmpeg = new ButtonType("Use FFmpeg");
+        ButtonType useOpenGlAnyway = new ButtonType("Use OpenGL anyway");
+        ButtonType cancel = ButtonType.CANCEL;
+        alert.getButtonTypes().setAll(useFfmpeg, useOpenGlAnyway, cancel);
+
+        alert.showAndWait().ifPresent(choice -> {
+            if (choice == useFfmpeg) {
+                exportClip(exportAsTemplate);
+            } else if (choice == useOpenGlAnyway) {
+                exportClipOpenGlPlaceholder(exportAsTemplate);
+            }
+            // cancel: do nothing
+        });
+    }
+
+    /**
+     * TODO(desktop OpenGL renderer): OpenGLEditNative has no desktop/LWJGL
+     * implementation yet - Android's uses EGL14/MediaCodec/MediaMuxer, none
+     * of which exist here. Until a real GL compositor lands, route to FFmpeg
+     * instead of silently ignoring the user's engine choice - same honest
+     * fallback Android's own TemplateExportActivity uses for the same reason.
+     */
+    private void exportClipOpenGlPlaceholder(boolean exportAsTemplate) {
+        appendLog("OpenGL renderer isn't implemented on desktop yet — rendering with FFmpeg instead.");
+        exportClip(exportAsTemplate);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

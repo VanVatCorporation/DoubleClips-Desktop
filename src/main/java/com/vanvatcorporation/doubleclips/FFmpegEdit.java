@@ -43,7 +43,7 @@ import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import java.util.*;
 import java.util.function.Consumer;
 
-import static com.vanvatcorporation.doubleclips.FFmpegEditNative.hardwareAcceleratedName;
+
 
 public class FFmpegEdit {
     public static FfmpegRenderQueue queue = new FfmpegRenderQueue();
@@ -120,7 +120,7 @@ public class FFmpegEdit {
         {
             String previousRenderedClipPath = IOHelper.CombinePath(templateSettings.data.getProjectPath(), ((templateSettings.renderingIndex - 1) + "_") + Constants.DEFAULT_EXPORT_CLIP_FILENAME);
 
-            cmd.append(templateSettings.settings.isUseHardwareAccel() ? "-hwaccel " + hardwareAcceleratedName + " " : "").append("-i \"").append(previousRenderedClipPath).append("\" ");
+            cmd.append(templateSettings.settings.isUseHardwareAccel() && FFmpegEditNative.getHwAccelDecodeFlag() != null ? "-hwaccel " + FFmpegEditNative.getHwAccelDecodeFlag() + " " : "").append("-i \"").append(previousRenderedClipPath).append("\" ");
 
         }
         else {
@@ -181,7 +181,7 @@ public class FFmpegEdit {
                     if (clip.type == ClipType.VIDEO && clip.removeBackground) {
                         String maskPath = clip.getCutoutPath(templateSettings.data.getProjectPath()) + ".mp4";
                         if (IOHelper.isFileExist(maskPath)) {
-                            cmd.append(templateSettings.settings.isUseHardwareAccel() ? "-hwaccel " + hardwareAcceleratedName + " " : "")
+                            cmd.append(templateSettings.settings.isUseHardwareAccel() && FFmpegEditNative.getHwAccelDecodeFlag() != null ? "-hwaccel " + FFmpegEditNative.getHwAccelDecodeFlag() + " " : "")
                                     .append("-i \"").append(maskPath).append("\" ");
                         }
                     }
@@ -588,8 +588,6 @@ public class FFmpegEdit {
                             .append("trim=duration=").append(clip.duration).append(",")
                             .append("setpts=PTS-STARTPTS+").append(clip.startTime).append("/TB").append(transparentLabel).append(";\n");
 
-                    String textXExpr = clip.hasAnimatedProperties() ? 
-                            getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosX) : 
                     String textXExpr = clip.hasAnimatedProperties() ?
                             getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosX) :
                             String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.PosX));
@@ -772,8 +770,8 @@ public class FFmpegEdit {
         cmd.append(" -threads 0");
 
         // Encoder selection: hardware (MediaCodec) or software (libx264)
-        if (templateSettings.settings.isUseHardwareAccel()) {
-            cmd.append(" -c:v h264_" + hardwareAcceleratedName)
+        if (templateSettings.settings.isUseHardwareAccel() && FFmpegEditNative.getHardwareAcceleratedName() != null) {
+            cmd.append(" -c:v h264_" + FFmpegEditNative.getHardwareAcceleratedName())
                     .append(" -b:v ").append(templateSettings.settings.getBitrate()).append("M");
         } else {
             cmd.append(" -c:v libx264 -preset ").append(templateSettings.settings.getPreset())

@@ -5,6 +5,7 @@ import com.vanvatcorporation.doubleclips.manager.LoggingManager;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,21 +20,122 @@ public class FFmpegEditNative {
     // These function are specifically for Native (This is Desktop) version. This is part of work for uniting the FFmpegEdit across all platform.
 
 
-    public static String hardwareAcceleratedName = "videotoolbox";
+    /**
+     * Cross-platform replacement for the old hardcoded
+     * {@code hardwareAcceleratedName = "videotoolbox"} field. VideoToolbox is
+     * macOS-only (it happened to work there because that's the only platform
+     * this app ran hardware-accelerated exports on so far); on Windows/Linux
+     * it produced an invalid "-hwaccel videotoolbox"/"-c:v h264_videotoolbox"
+     * ffmpeg command whenever a user enabled hardware acceleration there.
+     * <p>
+     * Detected once, lazily, by asking the bundled ffmpeg binary which
+     * hardware encoders it actually has (`ffmpeg -encoders`) - this ffmpeg
+     * build's actual vendor support, not just "is this OS X". Result is
+     * {@code [hwaccelDecodeFlag, encoderSuffix]}, both null if nothing usable
+     * was found (callers must then fall back to libx264/software encoding).
+     */
+    private static volatile String[] detectedHwAccel;
+
+    private static synchronized void detectHardwareAccelIfNeeded() {
+        if (detectedHwAccel != null) return;
+
+        String os = System.getProperty("os.name").toLowerCase();
+
+        if (os.contains("mac")) {
+            // VideoToolbox is macOS's only hwaccel API and covers both Intel
+            // and Apple silicon Macs identically - no per-arch branching
+            // needed for this one.
+            detectedHwAccel = new String[]{"videotoolbox", "videotoolbox"};
+            return;
+        }
+
+        // Windows/Linux: no single universal API. Probe which hardware
+        // encoder this ffmpeg binary actually has, in vendor-portability
+        // order (NVENC/QSV are single-vendor but very common; VAAPI covers
+        // most Linux drivers; AMF is AMD-on-Windows only).
+        String[][] candidates = os.contains("win")
+                ? new String[][]{ {"cuda", "h264_nvenc"}, {"qsv", "h264_qsv"}, {"d3d11va", "h264_amf"} }
+                : new String[][]{ {"vaapi", "h264_vaapi"}, {"cuda", "h264_nvenc"} };
+
+        try {
+            List<String> availableEncoders = listFfmpegEncoders();
+            for (String[] candidate : candidates) {
+                if (availableEncoders.contains(candidate[1])) {
+                    detectedHwAccel = new String[]{candidate[0], candidate[1].substring("h264_".length())};
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Hardware encoder detection failed: " + e.getMessage());
+        }
+
+        detectedHwAccel = new String[]{null, null}; // none found - callers fall back to libx264
+    }
+
+    private static List<String> listFfmpegEncoders() throws IOException {
+        List<String> encoders = new ArrayList<>();
+        Process process = new ProcessBuilder(getFfmpegPath(), "-hide_banner", "-encoders").start();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                // ffmpeg -encoders lines look like " V..... h264_nvenc  NVIDIA NVENC H.264 encoder"
+                Matcher m = Pattern.compile("^\\s*[VAS.]{6}\\s+(\\S+)").matcher(line);
+                if (m.find()) encoders.add(m.group(1));
+            }
+        }
+        try { process.waitFor(); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        return encoders;
+    }
+
+    /** ffmpeg {@code -hwaccel} value for decode, or null if no working hardware accel was found. */
+    public static String getHwAccelDecodeFlag() {
+        detectHardwareAccelIfNeeded();
+        return detectedHwAccel[0];
+    }
+
+    /**
+     * Encoder-name suffix for {@code -c:v h264_<name>}. Replaces the old
+     * hardcoded "videotoolbox" constant; resolved per-OS/per-GPU (see
+     * detectHardwareAccelIfNeeded()). Null if hardware acceleration isn't
+     * available - callers must fall back to libx264 in that case.
+     */
+    public static String getHardwareAcceleratedName() {
+        detectHardwareAccelIfNeeded();
+        return detectedHwAccel[1];
+    }
 
 
     public static String getFfmpegPath() {
         String os = System.getProperty("os.name").toLowerCase();
         String arch = System.getProperty("os.arch").toLowerCase();
+        boolean isArm = arch.contains("aarch64") || arch.contains("arm");
 
         String binaryDir;
         if (os.contains("win")) {
-            binaryDir = arch.contains("aarch64") || arch.contains("arm") ? "windows-arm" : "windows";
+            binaryDir = isArm ? "windows-arm" : "windows";
         } else if (os.contains("mac")) {
-            binaryDir = "macos";
+            // Was a single "macos" folder with no arch split, unlike Windows
+            // above - fine while this only ran under Rosetta on Apple silicon,
+            // but macOS 28 stops launching Intel-only binaries entirely (see
+            // Apple's Rosetta phase-out, effective macOS 28), so an x86_64-only
+            // ffmpeg silently breaks exports there rather than merely losing
+            // performance. Prefer an arch-specific folder if bundled, but keep
+            // falling back to the legacy "macos" folder for old bundles/builds
+            // that only ship one (e.g. a lipo'd universal binary).
+            binaryDir = isArm ? "macos-arm64" : "macos-x86_64";
         } else {
             return "ffmpeg"; // Default to system PATH
         }
+
+        String exeName = os.contains("win") ? "ffmpeg.exe" : "ffmpeg";
+        // On mac, an existing bundle may still only ship the old single
+        // "macos" folder (e.g. a lipo'd universal binary covering both
+        // arches, or simply not rebuilt yet) - try the arch-specific folder
+        // first, then fall back to it, rather than failing to find ffmpeg at
+        // all on those bundles.
+        String[] binaryDirCandidates = os.contains("mac")
+                ? new String[]{binaryDir, "macos"}
+                : new String[]{binaryDir};
 
         try {
             // Find where the classes are loaded from
@@ -44,10 +146,11 @@ public class FFmpegEditNative {
             File appDir = jarFile.getParentFile();
 
             // The bundle structure we created is app/bin/[os]/ffmpeg
-            File expectedBundlePath = new File(appDir, "bin" + File.separator + binaryDir + File.separator + (os.contains("win") ? "ffmpeg.exe" : "ffmpeg"));
-
-            if (expectedBundlePath.exists()) {
-                return expectedBundlePath.getAbsolutePath();
+            for (String dirCandidate : binaryDirCandidates) {
+                File expectedBundlePath = new File(appDir, "bin" + File.separator + dirCandidate + File.separator + exeName);
+                if (expectedBundlePath.exists()) {
+                    return expectedBundlePath.getAbsolutePath();
+                }
             }
 
         } catch (Exception e) {
@@ -55,11 +158,13 @@ public class FFmpegEditNative {
         }
 
         // Handle development paths (when running via IDE or gradle run)
-        String devPath = IOHelper.CombinePath(System.getProperty("user.dir"), "desktop", "bin", binaryDir, os.contains("win") ? "ffmpeg.exe" : "ffmpeg");
-        if (new File(devPath).exists()) return devPath;
+        for (String dirCandidate : binaryDirCandidates) {
+            String devPath = IOHelper.CombinePath(System.getProperty("user.dir"), "desktop", "bin", dirCandidate, exeName);
+            if (new File(devPath).exists()) return devPath;
 
-        String bundleFallbackPath = IOHelper.CombinePath(System.getProperty("user.dir"), "bin", binaryDir, os.contains("win") ? "ffmpeg.exe" : "ffmpeg");
-        if (new File(bundleFallbackPath).exists()) return bundleFallbackPath;
+            String bundleFallbackPath = IOHelper.CombinePath(System.getProperty("user.dir"), "bin", dirCandidate, exeName);
+            if (new File(bundleFallbackPath).exists()) return bundleFallbackPath;
+        }
 
         return "ffmpeg"; // Fallback to system PATH
     }
