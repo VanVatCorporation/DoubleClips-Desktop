@@ -1,6 +1,7 @@
 package com.vanvatcorporation.doubleclips;
 
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
+import com.vanvatcorporation.doubleclips.ui.renderer.ClipRenderer;
 import javafx.scene.image.Image;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
@@ -63,7 +64,7 @@ public class AudioUtils {
             while (framesRead < framesToRead) {
                 int read = ais.read(buf);
                 if (read < 0) break;
-                
+                ClipRenderer.applyVolume(buf, read, clip.getAudioVolume());
                 // Process 16-bit PCM
                 for (int i = 0; i < read - 1; i += 2) {
                     short sample;

@@ -304,7 +304,7 @@
 }
 
 .canvas-wrapper {
-    -fx-background-color: black;
+    -fx-background-color: #aaaaaa; /* black */
     -fx-alignment: center;
 }
 

@@ -322,6 +322,8 @@ public class ClipRenderer {
                     }
 
                     if (read > 0) {
+                        // Apply software volume scaling
+                        applyVolume(buf, read, clip.getAudioVolume());
                         audioLine.flush();
                         audioLine.write(buf, 0, read);
                     }
@@ -354,6 +356,8 @@ public class ClipRenderer {
                         read = wavFile.read(buf);
                     }
                     if (read < 0) break;
+                    // Apply software volume scaling
+                    applyVolume(buf, read, clip.getAudioVolume());
                     audioLine.write(buf, 0, read);
                 }
             } catch (Exception ignored) {}
@@ -480,6 +484,21 @@ public class ClipRenderer {
             }
         } else {
             viewNode.setEffect(colorAdjust);
+        }
+    }
+    public static void applyVolume(byte[] buffer, int bytesRead, float volume) {
+        // 16-bit audio = 2 bytes per sample
+        for (int i = 0; i < bytesRead - 1; i += 2) {
+            // Convert 2 bytes (little-endian) to 16-bit signed integer
+            short sample = (short) ((buffer[i + 1] << 8) | (buffer[i] & 0xFF));
+
+            // Scale sample by volume and clamp to prevent clipping
+            int scaled = (int) (sample * volume);
+            scaled = Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, scaled));
+
+            // Write scaled sample back to byte array (little-endian)
+            buffer[i] = (byte) (scaled & 0xFF);
+            buffer[i + 1] = (byte) ((scaled >> 8) & 0xFF);
         }
     }
 
