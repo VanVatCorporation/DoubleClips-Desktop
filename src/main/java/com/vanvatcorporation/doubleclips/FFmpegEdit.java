@@ -369,7 +369,8 @@ public class FFmpegEdit {
 
                         filterComplex
                                 .append("setpts='(PTS-STARTPTS)/").append(speedExpr).append("+").append(clip.startTime).append("/TB'").append(",")
-                                .append("scale=w='").append(scaleXStretchExpr).append("':h='").append(scaleYStretchExpr).append("':eval=frame,")
+                                .append("scale=w='").append(scaleXStretchExpr).append("':h='").append(scaleYStretchExpr).append("':eval=")
+                                .append((scaleXStretchExpr.contains("t") || scaleYStretchExpr.contains("t")) ? "frame" : "init").append(",")
 //                                .append("pad=width=").append("'iw'").append(":height=").append("'ih'").append(":x=-1:y=-1:color=black:eval=frame,")
 //                                .append("pad=width=max(iw\\,ih*(16/9)):height=ow/(16/9):x=(ow-iw)/2:y=(oh-ih)/2:eval=frame,")
                                 //.append("crop=iw:ih:(iw-ow)/2:(ih-oh)/2,")
@@ -589,9 +590,11 @@ public class FFmpegEdit {
 
                     String textXExpr = clip.hasAnimatedProperties() ? 
                             getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosX) : 
+                    String textXExpr = clip.hasAnimatedProperties() ?
+                            getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosX) :
                             String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.PosX));
-                    String textYExpr = clip.hasAnimatedProperties() ? 
-                            getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosY) : 
+                    String textYExpr = clip.hasAnimatedProperties() ?
+                            getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosY) :
                             String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.PosY));
 
                     filterComplex.append(transparentLabel)
@@ -607,6 +610,9 @@ public class FFmpegEdit {
                     tags.storeTag(clip, outputLabel);
                     break;
 
+//                case EFFECT:
+//                    filterComplex.append("<Effect here - ").append("startTime: ").append(clip.startTime).append(" duration: ").append(clip.duration);
+
                 case AUDIO:
                     // 🎵 Pure audio clip logic
                     int delayMs = (int) (clip.startTime * 1000);
@@ -614,6 +620,7 @@ public class FFmpegEdit {
                             .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration).append(",")
                             .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
                             .append("volume=").append(clip.getAudioVolume()).append(",")
+                            .append("aformat=sample_fmts=s16").append(",")
                             .append("asetpts=PTS-STARTPTS")
                             .append(clip.isReverse() ? ",areverse" : "")
                             .append(audioLabel).append(";\n");
@@ -643,6 +650,7 @@ public class FFmpegEdit {
                         // This handle the extension in silent to match the video
                         .append("apad=pad_dur=").append(freezeFrameDuration).append(",")
                         .append("volume=").append(clip.getAudioVolume()).append(",")
+                        .append("aformat=sample_fmts=s16").append(",")
                         .append("asetpts=PTS-STARTPTS")
                         .append(clip.isReverse() ? ",areverse" : "")
                         .append(audioLabel).append(";\n");
@@ -998,7 +1006,7 @@ public class FFmpegEdit {
                                                         "pow(2,20*" + r + "-10)/2",
                                                         "(2-pow(2,-20*" + r + "+10))/2"
                                                 )
-                                                )
+                                        )
                                 )
                         )
                         .append(")")
@@ -1067,8 +1075,8 @@ public class FFmpegEdit {
 //                        .append("(").append(r).append("<0.5?-(pow(2,20*").append(r).append("-10)*sin((20*").append(r).append("-11.125)*(2*PI/4.5)))/2:(pow(2,-20*").append(r).append("+10)*sin((20*").append(r).append("-11.125)*(2*PI/4.5)))/2+1").append(")")
                         .append(getIfExpr(getConditionTwo(r, "==", "0"),"0",
                                 getIfExpr(getConditionTwo(r, "==", "1"),"1",
-                                getIfExpr(getConditionTwo(r, "<", "0.5"),"-(pow(2,20*" + r + "-10)*sin((20*" + r + "-11.125)*(2*PI/4.5)))/2", "(pow(2,-20*" + r + "+10)*sin((20*" + r + "-11.125)*(2*PI/4.5)))/2+1"
-                                ))))
+                                        getIfExpr(getConditionTwo(r, "<", "0.5"),"-(pow(2,20*" + r + "-10)*sin((20*" + r + "-11.125)*(2*PI/4.5)))/2", "(pow(2,-20*" + r + "+10)*sin((20*" + r + "-11.125)*(2*PI/4.5)))/2+1"
+                                        ))))
                         .append(")")
                         .toString();
 
@@ -1090,10 +1098,10 @@ public class FFmpegEdit {
                 String bo = getIfExpr(getConditionTwo(r, "<", Float.toString(1f/2.75f)),
                         (7.5625f) + "*" + r + "*" + r,
                         getIfExpr(getConditionTwo(r, "<", Float.toString(2f/2.75f)),
-                        (7.5625f) + "*pow(" + r + "-" + (1.5f/2.75f) + ",2)+" + 0.75f,
-                        getIfExpr(getConditionTwo(r, "<", Float.toString(2.5f/2.75f)),
-                                (7.5625f) + "*pow(" + r + "-" + (2.25f/2.75f) + ",2)+" + 0.9375f,
-                                (7.5625f) + "*pow(" + r + "-" + (2.625f/2.75f) + ",2)+" + 0.984375f
+                                (7.5625f) + "*pow(" + r + "-" + (1.5f/2.75f) + ",2)+" + 0.75f,
+                                getIfExpr(getConditionTwo(r, "<", Float.toString(2.5f/2.75f)),
+                                        (7.5625f) + "*pow(" + r + "-" + (2.25f/2.75f) + ",2)+" + 0.9375f,
+                                        (7.5625f) + "*pow(" + r + "-" + (2.625f/2.75f) + ",2)+" + 0.984375f
                                 )));
                 return expr.append(start).append("+").append(delta).append("*").append(bo).toString();
             }
@@ -1115,11 +1123,11 @@ public class FFmpegEdit {
                                 7.5625f + "*pow(1-" + r + ",2)",
                                 getIfExpr(getConditionTwo("(1-" + r + ")", "<", Float.toString(2f/2.75f)),
                                         7.5625f + "*pow(1-" + r + "-" + (1.5f/2.75f) + ",2)+0.75",
-                                getIfExpr(getConditionTwo("(1-" + r + ")", "<", Float.toString(2.5f/2.75f)),
-                                        7.5625f + "*pow(1-" + r + "-" + (2.25f/2.75f) + ",2)+0.9375",
-                                        7.5625f + "*pow(1-" + r + "-" + (2.625f/2.75f) + ",2)+0.984375"
+                                        getIfExpr(getConditionTwo("(1-" + r + ")", "<", Float.toString(2.5f/2.75f)),
+                                                7.5625f + "*pow(1-" + r + "-" + (2.25f/2.75f) + ",2)+0.9375",
+                                                7.5625f + "*pow(1-" + r + "-" + (2.625f/2.75f) + ",2)+0.984375"
                                         )
-                                        )
+                                )
                         ))
                         .toString();
             case EASE_IN_OUT_BOUNCE:

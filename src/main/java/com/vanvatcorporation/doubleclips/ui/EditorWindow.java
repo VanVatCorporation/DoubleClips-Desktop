@@ -146,6 +146,12 @@ public class EditorWindow extends Stage implements PropertyContext {
         this.timeline = ProjectRepository.getInstance().loadTimeline(project);
         this.videoSettings = ProjectRepository.getInstance().loadVideoSettings(project);
 
+
+        for (Clip clip : timeline.getAllClips())
+        {
+            clip.keyframes.reassignKeyframes(videoSettings.frameRate);
+        }
+
         BorderPane mainContent = new BorderPane();
         mainContent.getStyleClass().add("editor-root");
 
