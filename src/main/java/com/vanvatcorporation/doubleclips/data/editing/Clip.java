@@ -2,6 +2,7 @@ package com.vanvatcorporation.doubleclips.data.editing;
 
 import com.google.gson.annotations.Expose;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
+import com.vanvatcorporation.doubleclips.helper.FrameHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -110,6 +111,7 @@ public class Clip implements Serializable {
 
     public float getStartTime() { return startTime; }
     public void setStartTime(float startTime) { this.startTime = startTime; }
+    public void setStartTime(float startTime, int frameRate) { this.startTime = FrameHelper.calculateToNearestFrame(startTime, frameRate); }
 
     public float getDuration() { return duration; }
     public void setDuration(float duration) { this.duration = duration; }

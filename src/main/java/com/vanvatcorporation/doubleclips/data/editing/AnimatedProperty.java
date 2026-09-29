@@ -2,6 +2,7 @@ package com.vanvatcorporation.doubleclips.data.editing;
 
 import com.google.gson.annotations.Expose;
 import com.vanvatcorporation.doubleclips.constants.Constants;
+import com.vanvatcorporation.doubleclips.helper.FrameHelper;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -49,11 +50,7 @@ public class AnimatedProperty implements Serializable {
             // Example: 3.14 * 30 = 94.2. Round(94.2) = 94.
             long closestFrameIndex = Math.round(currentTime * framePerSecond);
 
-            // 2. Convert that frame index back into seconds
-            // Example: 94 / 30.0 = 3.1333...
-            double snappedTime = (double) closestFrameIndex / framePerSecond;
-
-            k.setLocalTime((float) snappedTime);
+            k.setLocalTime(FrameHelper.calculateToNearestFrame(k.getLocalTime(), framePerSecond));
             k.setLocalFrame(closestFrameIndex);
         }
     }
