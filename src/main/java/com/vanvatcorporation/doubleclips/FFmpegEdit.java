@@ -761,16 +761,45 @@ public class FFmpegEdit {
         // If it was template then insert the mark.
         String outputStr =
                 templateSettings.isTemplateCommand ? Constants.DEFAULT_TEMPLATE_CLIP_EXPORT_MARK :
-                        IOHelper.CombinePath(templateSettings.data.getProjectPath(), (templateSettings.isFinal ? "" : (templateSettings.renderingIndex + "_")) + Constants.DEFAULT_EXPORT_CLIP_FILENAME);
+                        IOHelper.CombinePath(templateSettings.data.getProjectPath(),
+                                templateSettings.audioOnly ? "opengl_audio_only_tmp.m4a" :
+                                        (templateSettings.isFinal ? "" : (templateSettings.renderingIndex + "_")) + Constants.DEFAULT_EXPORT_CLIP_FILENAME);
 
-        cmd.append("-filter_complex \"").append(filterComplex).append("\" ")
-                .append("-map \"").append( (mapTag != null ? mapTag.tag : "[base]") ).append("\" ")
-                .append(audioMaps);
-        cmd.append(" -shortest"); // TODO: PC only - Don't know why it keep rendering. Put shortest here as the last resort.
+        // audioOnly: keep ONLY the audio statements ("[N:a]...[audio-X];" per
+        // clip, plus the final amix -> [aout]). Every audio statement is
+        // self-contained, so dropping the video statements leaves a valid
+        // graph with no dangling video outputs and no video decoding at all.
+        // Mirrors Android's identical slicing in its own generateExportCmdPartially.
+        // (Caller must not request audioOnly for a timeline with no audio
+        // clips - the graph would be empty.)
+        String graphText = filterComplex.toString();
+        if (templateSettings.audioOnly) {
+            StringBuilder audioGraph = new StringBuilder();
+            for (String statement : graphText.split(";\n")) {
+                String trimmed = statement.trim();
+                if (trimmed.matches("(?s)^\\[\\d+:a\\].*") || trimmed.contains("[aout]")) {
+                    audioGraph.append(trimmed).append(";\n");
+                }
+            }
+            graphText = audioGraph.toString();
+        }
+        cmd.append("-filter_complex \"").append(graphText).append("\" ");
+
+        if (templateSettings.audioOnly) {
+            // No video map at all - video filter nodes still exist in the
+            // graph text above but are never referenced by an output, so
+            // FFmpeg's filtergraph optimizer skips running them.
+            cmd.append(audioMaps).append("-vn ");
+        } else {
+            cmd.append("-map \"").append( (mapTag != null ? mapTag.tag : "[base]") ).append("\" ")
+                    .append(audioMaps);
+            cmd.append(" -shortest"); // TODO: PC only - Don't know why it keep rendering. Put shortest here as the last resort.
+        }
         cmd.append(" -threads 0");
 
-        // Encoder selection: hardware (MediaCodec) or software (libx264)
-        if (templateSettings.settings.isUseHardwareAccel() && FFmpegEditNative.getHardwareAcceleratedName() != null) {
+        if (templateSettings.audioOnly) {
+            cmd.append(" -c:a aac");
+        } else if (templateSettings.settings.isUseHardwareAccel() && FFmpegEditNative.getHardwareAcceleratedName() != null) {
             cmd.append(" -c:v h264_" + FFmpegEditNative.getHardwareAcceleratedName())
                     .append(" -b:v ").append(templateSettings.settings.getBitrate()).append("M");
         } else {
@@ -1544,6 +1573,15 @@ public class FFmpegEdit {
         public boolean isFinal;
         public boolean isTemplateCommand;
         public boolean isTrimAllowed;
+        // Mirrors Android's RenderSettings.audioOnly - NOT part of the general
+        // Android/desktop sync work (deliberately left out of that), added
+        // narrowly because the OpenGL export path has no other way to get
+        // audio: OpenGLExportWorker renders video only (same as Android's own
+        // OpenGLEditNative - GL compositing doesn't touch audio on either
+        // platform), so ExportWindow.exportClipViaOpenGl needs an audio-only
+        // command to mix separately and mux onto the GL output afterward. See
+        // the audioOnly slicing below and OpenGLEditNative.buildAudioOnlyCommand().
+        public boolean audioOnly;
 
         public RenderSettings(VideoSettings settings, Timeline timeline, Clip[] clips, ProjectData data, int renderingIndex, boolean isFinal, boolean isTemplateCommand, boolean isTrimAllowed) {
             this.settings = settings;
@@ -1560,6 +1598,10 @@ public class FFmpegEdit {
 
         public void setClips(Clip[] clips) {
             this.clips = clips;
+        }
+
+        public void setAudioOnly(boolean audioOnly) {
+            this.audioOnly = audioOnly;
         }
     }
 

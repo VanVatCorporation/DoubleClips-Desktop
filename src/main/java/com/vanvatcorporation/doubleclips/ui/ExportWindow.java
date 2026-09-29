@@ -4,6 +4,7 @@ import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
 import com.vanvatcorporation.doubleclips.FFmpegEditNative;
 import com.vanvatcorporation.doubleclips.OpenGLEdit;
+import com.vanvatcorporation.doubleclips.OpenGLEditNative;
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.ProjectRepository;
@@ -33,6 +34,7 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignU;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -229,10 +231,6 @@ public class ExportWindow extends Stage {
      * OpenGLEdit's capability flags / getUnsupportedFeatures() - same as
      * Android, so this screen doesn't need updating when a feature there
      * gets implemented.
-     * <p>
-     * NOTE: there is no desktop/LWJGL OpenGLEditNative yet (Android only) -
-     * see the TODO in exportClipOpenGlPlaceholder() below. The UI and warning
-     * dialog are wired up now so the actual GPU path is a drop-in later.
      */
     private void exportClipViaChosenEngine(boolean exportAsTemplate) {
         if (!settings.isOpenGlRenderEngine()) {
@@ -242,7 +240,7 @@ public class ExportWindow extends Stage {
 
         List<String> unsupported = OpenGLEdit.getUnsupportedFeatures(timeline);
         if (unsupported.isEmpty()) {
-            exportClipOpenGlPlaceholder(exportAsTemplate);
+            exportClipViaOpenGl(exportAsTemplate);
             return;
         }
 
@@ -265,22 +263,158 @@ public class ExportWindow extends Stage {
             if (choice == useFfmpeg) {
                 exportClip(exportAsTemplate);
             } else if (choice == useOpenGlAnyway) {
-                exportClipOpenGlPlaceholder(exportAsTemplate);
+                exportClipViaOpenGl(exportAsTemplate);
             }
             // cancel: do nothing
         });
     }
 
+    /** Kept alongside cancelButton (if present) so a cancel click can reach the running worker process. */
+    private OpenGLEditNative activeOpenGlExport;
+
     /**
-     * TODO(desktop OpenGL renderer): OpenGLEditNative has no desktop/LWJGL
-     * implementation yet - Android's uses EGL14/MediaCodec/MediaMuxer, none
-     * of which exist here. Until a real GL compositor lands, route to FFmpeg
-     * instead of silently ignoring the user's engine choice - same honest
-     * fallback Android's own TemplateExportActivity uses for the same reason.
+     * Real GL export: OpenGLEditNative (video-only, via a separate worker
+     * process - see its own javadoc for why) + a separate audio-only FFmpeg
+     * pass + a final `-c copy` mux, same overall shape Android's own OpenGL
+     * export activity uses (its OpenGLEditNative is video-only too; FFmpeg
+     * handles audio there as well).
+     * <p>
+     * Template export isn't supported through this path yet - a template's
+     * output is a differently-shaped set of per-clip marker files, not a
+     * single mp4, which this pipeline doesn't produce. Falls back to FFmpeg
+     * for that case specifically rather than mishandling it silently.
      */
-    private void exportClipOpenGlPlaceholder(boolean exportAsTemplate) {
-        appendLog("OpenGL renderer isn't implemented on desktop yet — rendering with FFmpeg instead.");
-        exportClip(exportAsTemplate);
+    private void exportClipViaOpenGl(boolean exportAsTemplate) {
+        if (exportAsTemplate) {
+            appendLog("OpenGL template export isn't supported yet — using FFmpeg for this template.");
+            exportClip(true);
+            return;
+        }
+
+        if (isExporting) return;
+        startExportRendering();
+        appendLog("\n>>> STARTING OPENGL EXPORT <<<");
+
+        int width = settings.getRenderVideoWidth(false);
+        int height = settings.getRenderVideoHeight(false);
+        int frameRate = settings.getFrameRate();
+
+        String videoOnlyPath = IOHelper.CombinePath(project.getProjectPath(), "opengl_video_only_tmp.mp4");
+        String audioOnlyPath = IOHelper.CombinePath(project.getProjectPath(), "opengl_audio_only_tmp.m4a");
+        String finalPath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
+
+        Thread worker = new Thread(() -> {
+            try {
+                activeOpenGlExport = new OpenGLEditNative();
+                activeOpenGlExport.exportTimeline(timeline, settings, project.getProjectPath(), width, height, frameRate, videoOnlyPath,
+                        new OpenGLEditNative.ExportListener() {
+                            @Override
+                            public void onLog(String message) {
+                                Platform.runLater(() -> {
+                                    if (logCheckBox.isSelected()) appendLog("OpenGL: " + message);
+                                });
+                            }
+
+                            @Override
+                            public void onProgress(int frameIndex, int totalFrames) {
+                                // Video compositing is most of the work - reserve the
+                                // last slice of the bar for the audio pass + mux below.
+                                double fraction = totalFrames == 0 ? 0 : (double) frameIndex / totalFrames;
+                                Platform.runLater(() -> taskProgressBar.setProgress(fraction * 0.85));
+                            }
+                        });
+
+                String audioCmd = OpenGLEditNative.buildAudioOnlyCommand(settings, timeline, project);
+                if (!audioCmd.contains("[aout]")) {
+                    // Nothing to mix - this timeline has no audio at all.
+                    Files.move(Path.of(videoOnlyPath), Path.of(finalPath), StandardCopyOption.REPLACE_EXISTING);
+                    Platform.runLater(() -> finishOpenGlExportSuccess(finalPath));
+                    return;
+                }
+
+                Platform.runLater(() -> appendLog("OpenGL: mixing audio..."));
+                FFmpegEdit.runAnyCommand(audioCmd, "OpenGL export — audio pass",
+                        () -> {
+                            Platform.runLater(() -> {
+                                taskProgressBar.setProgress(0.92);
+                                appendLog("OpenGL: muxing...");
+                            });
+                            String muxCmd = "-y -i \"" + videoOnlyPath + "\" -i \"" + audioOnlyPath + "\" -c copy -shortest \"" + finalPath + "\"";
+                            FFmpegEdit.runAnyCommand(muxCmd, "OpenGL export — mux",
+                                    () -> Platform.runLater(() -> {
+                                        deleteQuietly(videoOnlyPath);
+                                        deleteQuietly(audioOnlyPath);
+                                        finishOpenGlExportSuccess(finalPath);
+                                    }),
+                                    () -> Platform.runLater(this::failOpenGlExport),
+                                    log -> Platform.runLater(() -> { if (logCheckBox.isSelected()) appendLog(log); }),
+                                    stats -> {});
+                        },
+                        () -> Platform.runLater(this::failOpenGlExport),
+                        log -> Platform.runLater(() -> { if (logCheckBox.isSelected()) appendLog(log); }),
+                        stats -> {});
+            } catch (Exception e) {
+                // Always shown in full, unlike routine "LOG "/"[stderr] " lines
+                // above which respect logCheckBox - a failure's detail (often
+                // the worker's own crash report for a native abort) shouldn't
+                // be hidden behind that preference right when it's needed most.
+                java.io.StringWriter stackTrace = new java.io.StringWriter();
+                e.printStackTrace(new java.io.PrintWriter(stackTrace));
+                String detail = "\n>>> OPENGL EXPORT ERROR <<<\n" + e.getMessage()
+                        + "\n----- exception stack trace -----\n" + stackTrace
+                        + "----------------------------------";
+                Platform.runLater(() -> {
+                    appendLog(detail);
+                    failOpenGlExport();
+                });
+            }
+        });
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void finishOpenGlExportSuccess(String finalPath) {
+        finishExportRendering();
+        taskStatusLabel.setText("Export Completed! ✓");
+        taskProgressBar.setProgress(1.0);
+        appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
+        appendLog("Location: " + finalPath);
+
+        FileChooser fc = new FileChooser();
+        fc.setTitle("Save Exported Video");
+        fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
+        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
+        File userDest = fc.showSaveDialog(this);
+
+        String shownPath = finalPath;
+        if (userDest != null) {
+            try {
+                Files.move(Path.of(finalPath), userDest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                shownPath = userDest.getAbsolutePath();
+            } catch (IOException e) {
+                appendLog("Error moving file to destination: " + e.getMessage());
+            }
+        }
+
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.initOwner(this);
+        alert.setTitle("Export Complete");
+        alert.setHeaderText("Success!");
+        alert.setContentText("Your video has been exported to:\n" + shownPath);
+        alert.showAndWait();
+    }
+
+    private void failOpenGlExport() {
+        finishExportRendering();
+        taskStatusLabel.setText("Export Failed ✗");
+        appendLog("\n>>> EXPORT FAILED <<<");
+    }
+
+    private void deleteQuietly(String path) {
+        try {
+            Files.deleteIfExists(Path.of(path));
+        } catch (IOException ignored) {
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

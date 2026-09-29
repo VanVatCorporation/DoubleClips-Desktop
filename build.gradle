@@ -7,6 +7,43 @@ plugins {
 group 'com.vanvatcorporation'
 version '1.2.0'
 
+// ─────────────────────────────────────────────────────────────────────────
+//  LWJGL (OpenGL export renderer)
+// ─────────────────────────────────────────────────────────────────────────
+// Used only by OpenGLExportWorker, which runs as its OWN separate JVM
+// process (see OpenGLEditNative's ProcessBuilder launch) - NOT loaded into
+// this application's main process. That's deliberate, not incidental:
+// LWJGL/GLFW window creation needs the process's "first thread" on macOS
+// (the same Cocoa main-thread requirement -XstartOnFirstThread exists for),
+// and JavaFX's own macOS toolkit (Glass) already claims that same first
+// thread in THIS process. Two native UI toolkits both wanting exclusive
+// main-thread affinity in one JVM is a real conflict, not a style choice -
+// so the GL work is isolated in its own process, which is free to take
+// -XstartOnFirstThread for itself without touching JavaFX at all.
+project.ext.lwjglVersion = "3.3.4"
+project.ext.lwjglNatives = {
+    def os = org.gradle.internal.os.OperatingSystem.current()
+    def arch = System.getProperty("os.arch").toLowerCase()
+    boolean isArm = arch.contains("arm") || arch.contains("aarch64")
+    if (os.isWindows()) {
+        return isArm ? "natives-windows-arm64" : "natives-windows"
+    } else if (os.isMacOsX()) {
+        return isArm ? "natives-macos-arm64" : "natives-macos"
+    } else {
+        return isArm ? "natives-linux-arm64" : "natives-linux"
+    }
+}()
+
+dependencies {
+    implementation platform("org.lwjgl:lwjgl-bom:${lwjglVersion}")
+    implementation "org.lwjgl:lwjgl"
+    implementation "org.lwjgl:lwjgl-glfw"
+    implementation "org.lwjgl:lwjgl-opengl"
+    runtimeOnly "org.lwjgl:lwjgl::${lwjglNatives}"
+    runtimeOnly "org.lwjgl:lwjgl-glfw::${lwjglNatives}"
+    runtimeOnly "org.lwjgl:lwjgl-opengl::${lwjglNatives}"
+}
+
 dependencies {
     implementation 'io.github.mkpaz:atlantafx-base:2.0.1'
     implementation 'org.kordamp.ikonli:ikonli-javafx:12.3.1'
