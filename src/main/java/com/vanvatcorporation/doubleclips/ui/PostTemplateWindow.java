@@ -168,7 +168,13 @@ public class PostTemplateWindow extends Stage {
         progressLabel = new Label("Uploading... 0%");
         progressLabel.getStyleClass().add("text-muted");
 
-        step3.getChildren().addAll(step3Title, progressBar, progressLabel);
+
+        Button backBtn = new Button("<- Back");
+        backBtn.getStyleClass().addAll("button-primary", "button-large");
+        backBtn.setMaxWidth(200);
+        backBtn.setOnAction(e -> goToStep(step3, step2));
+
+        step3.getChildren().addAll(step3Title, progressBar, progressLabel, backBtn);
 
         // --- STEP 4: Success Flow ---
         step4 = new VBox(20);
