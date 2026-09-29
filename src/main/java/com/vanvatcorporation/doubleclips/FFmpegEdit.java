@@ -177,6 +177,7 @@ public class FFmpegEdit {
                     cmd.append(templateSettings.isTemplateCommand ? "" : frameFilter)
                             .append(addHwAccel ? "-hwaccel " + hardwareAcceleratedName + " " : "")
                             .append("-i \"").append(inputPath).append("\" ");
+                                .append(addHwAccel ? "-hwaccel " + FFmpegEditNative.getHwAccelDecodeFlag() + " " : "")
 
                     if (clip.type == ClipType.VIDEO && clip.removeBackground) {
                         String maskPath = clip.getCutoutPath(templateSettings.data.getProjectPath()) + ".mp4";
