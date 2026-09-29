@@ -109,9 +109,85 @@ public class FFmpegEdit {
         return generateExportCmdPartially(renderSettings);
     }
 
+    // --- Image input deduplication ---
+    // When the same image file is used by multiple IMAGE clips in one ffmpeg command (e.g. a
+    // strobe/flash effect that reuses one screenshot many times), we don't want to open a brand new
+    // decoder ("-loop 1 -i path") for every single occurrence. Instead we open the file ONCE and use
+    // ffmpeg's "split" filter to fan it out into N identical streams inside the filter_complex. This
+    // does not change timing/behavior (split just duplicates already-decoded frames before each
+    // branch's own trim/setpts), it just avoids N-1 redundant image decoders being held open at once.
+    private static class ImageDedupGroup {
+        final List<Integer> occurrenceClipIndices; // clip indices sharing this path, in ascending order
+        final String splitLabelPrefix;
+        float maxDuration = 0f;
+
+        ImageDedupGroup(List<Integer> occurrenceClipIndices, String splitLabelPrefix) {
+            this.occurrenceClipIndices = occurrenceClipIndices;
+            this.splitLabelPrefix = splitLabelPrefix;
+        }
+    }
+
+    private static class ImageDedupRef {
+        final ImageDedupGroup group;
+        final int occurrence; // index of this clip within group.occurrenceClipIndices
+
+        ImageDedupRef(ImageDedupGroup group, int occurrence) {
+            this.group = group;
+            this.occurrence = occurrence;
+        }
+    }
+
+    // Mirrors the inputPath resolution logic used when building "-i" arguments, so the dedup
+    // pre-pass groups clips by the exact same path that will actually be opened.
+    private static String resolveClipInputPath(Clip clip, RenderSettings templateSettings) {
+        if (templateSettings.isTemplateCommand && clip.isLockedForTemplate()) {
+            return null; // template placeholder marks are not real file paths; never dedup these
+        } else if (templateSettings.isTemplateCommand) {
+            return null;
+        } else if (clip.removeBackground && clip.type == ClipType.IMAGE && IOHelper.isFileExist(clip.getCutoutPath(templateSettings.data.getProjectPath()))) {
+            return clip.getCutoutPath(templateSettings.data.getProjectPath());
+        } else {
+            return clip.getAbsolutePath(templateSettings.data);
+        }
+    }
+
+    // Builds a map of clipIndex -> ImageDedupRef for every IMAGE clip that shares its resolved file
+    // path with at least one other IMAGE clip in this same command. Clips whose path is unique are
+    // left out entirely (nothing to dedup, no need to pay the "split" overhead for them).
+    private static Map<Integer, ImageDedupRef> buildImageDedupMap(RenderSettings templateSettings) {
+        Map<Integer, ImageDedupRef> result = new HashMap<>();
+        if (templateSettings.isTemplateCommand) return result;
+
+        Map<String, List<Integer>> pathToClipIndices = new LinkedHashMap<>();
+        for (int i = 0; i < templateSettings.clips.length; i++) {
+            Clip clip = templateSettings.clips[i];
+            if (clip.type != ClipType.IMAGE) continue;
+            String path = resolveClipInputPath(clip, templateSettings);
+            if (path == null) continue;
+            pathToClipIndices.computeIfAbsent(path, k -> new ArrayList<>()).add(i);
+        }
+
+        int groupCounter = 0;
+        for (Map.Entry<String, List<Integer>> entry : pathToClipIndices.entrySet()) {
+            List<Integer> indices = entry.getValue();
+            if (indices.size() < 2) continue; // only dedup actual duplicates
+
+            ImageDedupGroup group = new ImageDedupGroup(indices, "imgdup" + (groupCounter++));
+            for (int idx : indices) {
+                group.maxDuration = Math.max(group.maxDuration, templateSettings.clips[idx].duration);
+            }
+            for (int occurrence = 0; occurrence < indices.size(); occurrence++) {
+                result.put(indices.get(occurrence), new ImageDedupRef(group, occurrence));
+            }
+        }
+        return result;
+    }
+
     public static String generateExportCmdPartially(RenderSettings templateSettings) {
 
         FfmpegFilterComplexTags tags = new FfmpegFilterComplexTags();
+
+        Map<Integer, ImageDedupRef> imageDedupMap = buildImageDedupMap(templateSettings);
 
         StringBuilder cmd = new StringBuilder();
 
@@ -158,6 +234,12 @@ public class FFmpegEdit {
                 inputPath = clip.getAbsolutePath(templateSettings.data);
             }
 
+            // If this IMAGE clip is a duplicate occurrence of a file we've already opened elsewhere
+            // in this command, skip opening a brand new decoder for it entirely - it will read from
+            // the first occurrence's decoded stream via a "split" filter in filter_complex instead.
+            ImageDedupRef dedupRefForInput = imageDedupMap.get(i);
+            boolean isDedupRepeatInput = dedupRefForInput != null && dedupRefForInput.occurrence > 0;
+
             switch (clip.type) {
                 case VIDEO:
                 case IMAGE:
@@ -165,10 +247,16 @@ public class FFmpegEdit {
                             .append(templateSettings.settings.getRenderVideoWidth(templateSettings.isTemplateCommand)).append("x").append(templateSettings.settings.getRenderVideoHeight(templateSettings.isTemplateCommand))
                             .append(":rate=").append(templateSettings.settings.getFrameRate()).append(",format=yuva420p\"").append(" ");
 
-                    String frameFilter =
-                            clip.type == ClipType.IMAGE ?
-                                    "-loop 1 -t " + clip.duration + " -framerate " + templateSettings.settings.getFrameRate() + " " :
-                                    "";
+                    if (!isDedupRepeatInput) {
+                        // Duplicate occurrences (occurrence > 0) use the shared group duration ("-t")
+                        // so the single decoded stream has enough frames for whichever occurrence needs
+                        // the most; occurrence 0 for a dedup group emits the -i here, later ones don't.
+                        float loopDuration = dedupRefForInput != null ? dedupRefForInput.group.maxDuration : clip.duration;
+
+                        String frameFilter =
+                                clip.type == ClipType.IMAGE ?
+                                        "-loop 1 -t " + loopDuration + " -framerate " + templateSettings.settings.getFrameRate() + " " :
+                                        "";
 
                         // For VIDEO clips, add hwaccel if enabled; IMAGE/SCENE frames do not use MediaCodec
                         boolean addHwAccel = clip.type == ClipType.VIDEO
@@ -291,8 +379,33 @@ public class FFmpegEdit {
                             .append("setpts=PTS-STARTPTS+").append(clip.startTime).append("/TB").append(transparentLabel).append(";\n");
                     inputLayerIndex++;
 
-                    int sourceInputIndex = inputLayerIndex;
-                    inputLayerIndex++;
+                    // --- Image dedup: route through split filter instead of a fresh input if needed ---
+                    // sourceInputIndex is only meaningful (and only used below) for the VIDEO mask
+                    // codepath, which never participates in image dedup since only IMAGE clips are deduped.
+                    ImageDedupRef dedupRef = imageDedupMap.get(clipIndex);
+                    int sourceInputIndex;
+                    String imageSourceLabel;
+                    if (dedupRef != null) {
+                        if (dedupRef.occurrence == 0) {
+                            int realInputIndex = inputLayerIndex;
+                            inputLayerIndex++;
+
+                            StringBuilder splitPads = new StringBuilder();
+                            for (int k = 0; k < dedupRef.group.occurrenceClipIndices.size(); k++) {
+                                splitPads.append("[").append(dedupRef.group.splitLabelPrefix).append("_").append(k).append("]");
+                            }
+                            filterComplex.append("[").append(realInputIndex).append(":v]split=")
+                                    .append(dedupRef.group.occurrenceClipIndices.size())
+                                    .append(splitPads).append(";\n");
+                        }
+                        // Occurrences after the first consume NO input index (no "-i" was emitted for them).
+                        imageSourceLabel = "[" + dedupRef.group.splitLabelPrefix + "_" + dedupRef.occurrence + "]";
+                        sourceInputIndex = -1;
+                    } else {
+                        sourceInputIndex = inputLayerIndex;
+                        inputLayerIndex++;
+                        imageSourceLabel = "[" + sourceInputIndex + ":v]";
+                    }
 
                     boolean hasVideoMask = false;
                     int maskInputIndex = -1;
@@ -314,12 +427,14 @@ public class FFmpegEdit {
                                             "trim=duration=" + (clip.duration + fillingTransitionDuration);
 
                     // First we declared the stream of video
+                    // (imageSourceLabel is either "[N:v]" for a normal input, or "[imgdupX_k]" when this
+                    // clip is reading from a shared/deduped image decoded once and split into N copies)
                     if (hasVideoMask) {
-                        filterComplex.append("[").append(sourceInputIndex).append(":v]").append(trimFilter).append(",setpts=PTS-STARTPTS[v-raw-").append(clipIndex).append("];\n")
+                        filterComplex.append(imageSourceLabel).append(trimFilter).append(",setpts=PTS-STARTPTS[v-raw-").append(clipIndex).append("];\n")
                                 .append("[").append(maskInputIndex).append(":v]").append(trimFilter).append(",setpts=PTS-STARTPTS[v-mask-").append(clipIndex).append("];\n")
                                 .append("[v-raw-").append(clipIndex).append("][v-mask-").append(clipIndex).append("]alphamerge,");
                     } else {
-                        filterComplex.append("[").append(sourceInputIndex).append(":v]").append(trimFilter).append(",");
+                        filterComplex.append(imageSourceLabel).append(trimFilter).append(",");
                     }
 
 
@@ -884,13 +999,21 @@ public class FFmpegEdit {
 //                                "T" : "t";
         // TODO: If zooming feature is up, then use "it" for it. Scale isn't it based.
         String timeUnit = "t"; // default
+        String evalTimeUnit = "t"; // default
         if (valueType == VideoProperties.ValueType.Speed || valueType == VideoProperties.ValueType.Opacity) {
             timeUnit = "T";
+            evalTimeUnit = "T";
         } else if (valueType == VideoProperties.ValueType.ScaleX || valueType == VideoProperties.ValueType.ScaleY) {
             // For now scale is handled by 'scale' filter which uses 't',
             // but we might want 'it' if zoompan is enabled.
             // For now, let's stick to 't' for the scale filter.
             timeUnit = "t";
+            evalTimeUnit = "t";
+        }
+        // TODO: Brightness. Test purpose only.
+        else if (valueType == VideoProperties.ValueType.Brightness) {
+            timeUnit = "n";
+            evalTimeUnit = "t";
         }
 
         // Skipping matching value element
@@ -908,11 +1031,11 @@ public class FFmpegEdit {
                 .append(getConditionThree(
                         timeUnit,
                         String.valueOf(getTimeInTimebase(timeUnit, valueType, prevKeyframe, clip)),
-                        String.valueOf(getTimeInTimebase(timeUnit, valueType, nextKeyframe, clip)), "~")
+                        String.valueOf(getTimeInTimebase(timeUnit, valueType, nextKeyframe, clip)), "[~)")
                 ).append(",")
                 // insert the expr here
                 // previous: nextKeyframe.value.getValue(valueType)
-                .append(generateEasing(prevKeyframe, nextKeyframe, clip, valueType, timeUnit)).append(",")
+                .append(generateEasing(prevKeyframe, nextKeyframe, clip, valueType, evalTimeUnit)).append(",")
                 .append(getKeyframeFFmpegExpr(keyframes, clip, nextIndex, valueType))
                 .append(")");
 
