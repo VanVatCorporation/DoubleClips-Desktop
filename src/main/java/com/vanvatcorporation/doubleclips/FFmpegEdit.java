@@ -170,14 +170,15 @@ public class FFmpegEdit {
                                     "-loop 1 -t " + clip.duration + " -framerate " + templateSettings.settings.getFrameRate() + " " :
                                     "";
 
-                    // For VIDEO clips, add hwaccel if enabled; IMAGE/SCENE frames do not use MediaCodec
-                    boolean addHwAccel = clip.type == ClipType.VIDEO
-                            && templateSettings.settings.isUseHardwareAccel()
-                            && !templateSettings.isTemplateCommand;
-                    cmd.append(templateSettings.isTemplateCommand ? "" : frameFilter)
-                            .append(addHwAccel ? "-hwaccel " + hardwareAcceleratedName + " " : "")
-                            .append("-i \"").append(inputPath).append("\" ");
+                        // For VIDEO clips, add hwaccel if enabled; IMAGE/SCENE frames do not use MediaCodec
+                        boolean addHwAccel = clip.type == ClipType.VIDEO
+                                && templateSettings.settings.isUseHardwareAccel()
+                                && !templateSettings.isTemplateCommand
+                                && FFmpegEditNative.getHwAccelDecodeFlag() != null;
+                        cmd.append(templateSettings.isTemplateCommand ? "" : frameFilter)
                                 .append(addHwAccel ? "-hwaccel " + FFmpegEditNative.getHwAccelDecodeFlag() + " " : "")
+                                .append("-i \"").append(inputPath).append("\" ");
+                    }
 
                     if (clip.type == ClipType.VIDEO && clip.removeBackground) {
                         String maskPath = clip.getCutoutPath(templateSettings.data.getProjectPath()) + ".mp4";
