@@ -81,18 +81,29 @@ tasks.withType(JavaCompile).configureEach {
 // Custom task to inject FFmpeg binary into the prepared JPackage image
 tasks.register("copyFfmpegBinaries", Copy) {
     mustRunAfter(tasks.named("jpackageImage"))
-    
+
     def os = org.gradle.internal.os.OperatingSystem.current()
     def arch = System.getProperty("os.arch").toLowerCase()
-    
+    def isArm = arch.contains("aarch64") || arch.contains("arm")
+
     def binaryDir = ""
     def binaryName = ""
-    
+
     if (os.isWindows()) {
-        binaryDir = arch.contains("aarch64") || arch.contains("arm") ? "windows-arm" : "windows"
+        binaryDir = isArm ? "windows-arm" : "windows"
         binaryName = "bin/ffmpeg.exe"
     } else if (os.isMacOsX()) {
-        binaryDir = "macos"
+        // Was a single "macos" folder regardless of arch, unlike Windows
+        // above - fine while every build ran on/for Intel and Apple silicon
+        // Macs used Rosetta to run it, but Apple is retiring general Rosetta
+        // support: Intel-only binaries stop launching on Apple silicon Macs
+        // starting with macOS 28 (Rosetta 2 remains only for certain older,
+        // unmaintained games after that point). A bundled ffmpeg still built
+        // for one arch would then fail exports on the other Mac arch even if
+        // the JVM app itself got a native build. Falls back to the legacy
+        // "macos" folder (see resolveMacFfmpegBinaryDir below) for repos that
+        // haven't split their bin/ folder yet.
+        binaryDir = resolveMacFfmpegBinaryDir(isArm)
         binaryName = "ffmpeg"
     } else {
         // Fallback or Linux
@@ -104,7 +115,7 @@ tasks.register("copyFfmpegBinaries", Copy) {
         // Ensure executable permissions are preserved when copied
         fileMode = 0755
     }
-    
+
     // Inject into the correct image directory structure based on OS
     if (os.isMacOsX()) {
         into("${layout.buildDirectory.get()}/jpackage/DoubleClips.app/Contents/app/bin/${binaryDir}")
@@ -113,7 +124,69 @@ tasks.register("copyFfmpegBinaries", Copy) {
     }
 }
 
+// Picks "macos-x86_64" / "macos-arm64" if that folder exists (matches
+// FFmpegEditNative.getFfmpegPath()'s own lookup order on the Java side),
+// otherwise falls back to the legacy shared "macos" folder so this doesn't
+// break a repo that only has the one folder committed.
+def resolveMacFfmpegBinaryDir(boolean isArm) {
+    def archSpecific = isArm ? "macos-arm64" : "macos-x86_64"
+    return project.file("bin/${archSpecific}").exists() ? archSpecific : "macos"
+}
+
 // Hook into the jpackage lifecycle
 tasks.named("jpackage") {
     dependsOn("copyFfmpegBinaries")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Universal ("either Mac") installer
+// ─────────────────────────────────────────────────────────────────────────
+// jpackage bakes the *build machine's* architecture into whatever it
+// produces (see JDK-8266179 - the .pkg's hostArchitectures attribute comes
+// straight from the JVM running jpackage, via System.getProperty("os.arch")).
+// There is no jlink/jpackage option to emit one truly-universal Mach-O app
+// image from a single build; Oracle's own investigation into that
+// (JDK-8266259) never shipped as a jpackage feature. So getting BOTH
+// distributables means:
+//   1. Two separate jpackage runs, each producing its own single-arch app -
+//      one run with an aarch64 JDK on Apple silicon hardware (jpackage can
+//      only emit for the arch it's actually running on), one run with an
+//      x86_64 JDK (either on an Intel Mac, or on Apple silicon hardware
+//      under Rosetta - Rosetta can still run an x86_64 JDK's jpackage, just
+//      not the reverse). In CI this is a build-matrix concern (e.g. a
+//      macos-13 Intel runner + a macos-14/15 Apple silicon runner), not
+//      something this build.gradle alone can express.
+//   2. A "universal" download that still gives every user one link: this
+//      task wraps both ALREADY-BUILT per-arch .app bundles into one
+//      productbuild .pkg whose installer picks the matching payload at
+//      *install time* via macOS's own system.arch predicate mechanism (the
+//      same mechanism jpackage itself uses for hostArchitectures) - not a
+//      merged binary, but one file, one download, that installs correctly
+//      on either Mac.
+//
+// Usage: after producing both DoubleClips.app bundles (one per arch, see
+// scripts/build-universal-installer.sh), run:
+//   ./gradlew buildUniversalInstaller \
+//       -PintelAppPath=/path/to/x86_64/DoubleClips.app \
+//       -ParmAppPath=/path/to/arm64/DoubleClips.app
+tasks.register("buildUniversalInstaller", Exec) {
+    group = "distribution"
+    description = "Wraps a pre-built Intel .app and Apple silicon .app into one arch-picking .pkg installer."
+
+    onlyIf { org.gradle.internal.os.OperatingSystem.current().macOsX }
+
+    doFirst {
+        if (!project.hasProperty("intelAppPath") || !project.hasProperty("armAppPath")) {
+            throw new GradleException(
+                "buildUniversalInstaller needs both -PintelAppPath=... and -ParmAppPath=... " +
+                "pointing at the two already-built DoubleClips.app bundles (see scripts/build-universal-installer.sh).")
+        }
+    }
+
+    def outputDir = "${layout.buildDirectory.get()}/universal-installer"
+    commandLine "bash", "${project.rootDir}/scripts/build-universal-installer.sh",
+            "--intel-app", project.findProperty("intelAppPath") ?: "",
+            "--arm-app", project.findProperty("armAppPath") ?: "",
+            "--version", project.version.toString(),
+            "--out-dir", outputDir
 }
