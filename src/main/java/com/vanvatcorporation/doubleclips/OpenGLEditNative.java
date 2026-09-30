@@ -121,6 +121,7 @@ public class OpenGLEditNative {
 
             String ffmpegPath = FFmpegEditNative.getFfmpegPath();
             String encoderArgs = buildEncoderArgs(settings);
+            if (listener != null) listener.onLog("Encoder: " + encoderArgs);
 
             String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator
                     + (System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java");
@@ -382,7 +383,50 @@ public class OpenGLEditNative {
                 settings, timeline, new Clip[0], project, 0, true, false, false);
         renderSettings.setClips(timeline.getStreamOfClip());
         renderSettings.setAudioOnly(true);
-        return FFmpegEdit.generateExportCmdPartially(renderSettings).replace("\n", "");
+        String command = FFmpegEdit.generateExportCmdPartially(renderSettings).replace("\n", "");
+        return sanitizeAudioCommand(command, timeline.duration);
+    }
+
+    /**
+     * Makes the audio-only command safe to mux, whatever the ffmpeg build does inside its
+     * filters. Two problems seen on a real export (ffmpeg 8.1, macOS):
+     * <ul>
+     *   <li><b>Garbage timestamps.</b> The AAC encoder received frames whose PTS was near
+     *       INT64_MAX ("Non-monotonic DTS; previous: 9223372036854775709 ..."), so the file's
+     *       start time was ~2e14 seconds and the {@code -c copy} mux silently dropped the whole
+     *       track (audio:0KiB). The mixed output is contiguous samples from t=0, so its
+     *       timestamps are simply rebuilt from the sample count: {@code asetpts=N/SR/TB} on the
+     *       final label. That is correct for any cause upstream (atrim / adelay / apad / amix).</li>
+     *   <li><b>Unbounded length.</b> Nothing limited the output, so audio could run past the
+     *       video (30.7 s of audio for a 23 s timeline). It is now capped at the timeline
+     *       duration with {@code -t}.</li>
+     * </ul>
+     * Package-visible so it can be tested on its own. A command without {@code [aout]} (no
+     * audio at all) is returned unchanged.
+     */
+    static String sanitizeAudioCommand(String command, float timelineDurationSeconds) {
+        if (command == null || !command.contains("[aout]")) return command;
+        final String marker = "-filter_complex \"";
+        int start = command.indexOf(marker);
+        if (start < 0) return command;
+        int graphStart = start + marker.length();
+        int graphEnd = command.indexOf('"', graphStart);
+        if (graphEnd < 0) return command;
+
+        String graph = command.substring(graphStart, graphEnd).trim().replace("[aout]", "[aout_raw]");
+        if (!graph.endsWith(";")) graph += ";";
+        graph += "[aout_raw]asetpts=N/SR/TB[aout]";
+        String rebuilt = command.substring(0, graphStart) + graph + command.substring(graphEnd);
+
+        if (timelineDurationSeconds > 0) {
+            int y = rebuilt.lastIndexOf(" -y ");
+            if (y >= 0) {
+                rebuilt = rebuilt.substring(0, y)
+                        + String.format(Locale.US, " -t %.3f", timelineDurationSeconds)
+                        + rebuilt.substring(y);
+            }
+        }
+        return rebuilt;
     }
 
     /** The `-c copy` mux of the GL video-only file and the mixed audio (ported from Android). */
