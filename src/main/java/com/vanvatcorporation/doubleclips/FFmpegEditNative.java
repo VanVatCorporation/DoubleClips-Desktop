@@ -211,11 +211,15 @@ public class FFmpegEditNative {
                                     String finalLine = line;
                                     onLogRunnable.accept(finalLine);
 
-                                    // Parse progress
+                                    // Parse progress (frame=, fps=, time= appear on the same FFmpeg progress line)
                                     if (finalLine.contains("time=")) {
                                         Matcher timeMatcher = Pattern.compile("time=([0-9:.]+)").matcher(finalLine);
                                         if (timeMatcher.find()) {
-                                            onStatisticsRunnable.accept(new FFmpegEditNative.FfmpegStatistics(timeMatcher.group(1)));
+                                            Matcher frameMatcher = Pattern.compile("frame=\\s*(\\d+)").matcher(finalLine);
+                                            int frame = frameMatcher.find() ? Integer.parseInt(frameMatcher.group(1)) : 0;
+                                            Matcher fpsMatcher = Pattern.compile("fps=\\s*([0-9.]+)").matcher(finalLine);
+                                            float fps = fpsMatcher.find() ? Float.parseFloat(fpsMatcher.group(1)) : 0f;
+                                            onStatisticsRunnable.accept(new FFmpegEditNative.FfmpegStatistics(timeMatcher.group(1), frame, fps));
                                         }
                                     }
                                 }
@@ -252,9 +256,23 @@ public class FFmpegEditNative {
 
 
     public static class FfmpegStatistics {
-        private String time;
-        public FfmpegStatistics(String time) { this.time = time; }
+        private final String time;
+        private final int frame;
+        private final float fps;
+
+        public FfmpegStatistics(String time) { this(time, 0, 0f); }
+        public FfmpegStatistics(String time, int frame, float fps) {
+            this.time = time;
+            this.frame = frame;
+            this.fps = fps;
+        }
+
         public String getTime() { return time; }
+        /** Equivalent to Android Statistics.getVideoFrameNumber() */
+        public int getVideoFrameNumber() { return frame; }
+        /** Equivalent to Android Statistics.getVideoFps() */
+        public float getVideoFps() { return fps; }
+
         public long getTimeInMs() {
             try {
                 String[] parts = time.split(":");

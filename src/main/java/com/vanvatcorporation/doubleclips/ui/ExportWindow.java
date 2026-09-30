@@ -315,6 +315,9 @@ public class ExportWindow extends Stage {
             final java.util.Map<Clip, String> reversedClipPaths = new java.util.IdentityHashMap<>();
             final OpenGLEditNative gl = new OpenGLEditNative();
             activeOpenGlExport = gl;
+            // FPS tracking state for onProgress
+            final long[] lastProgressTimeMs = {System.currentTimeMillis()};
+            final int[] lastFrameIndex = {0};
             try {
                 OpenGLEditNative.ExportListener listener = new OpenGLEditNative.ExportListener() {
                     @Override
@@ -326,10 +329,38 @@ public class ExportWindow extends Stage {
 
                     @Override
                     public void onProgress(int frameIndex, int totalFrames) {
-                        // Video compositing is most of the work - reserve the
-                        // last slice of the bar for the audio pass + mux below.
+                        // FPS tracking state
                         double fraction = totalFrames == 0 ? 0 : (double) frameIndex / totalFrames;
-                        Platform.runLater(() -> taskProgressBar.setProgress(fraction * 0.85));
+                        float percent = (float) (fraction * 100);
+
+                        long now = System.currentTimeMillis();
+                        long elapsedMs = now - lastProgressTimeMs[0];
+                        float fps = 0f;
+                        if (elapsedMs > 0) {
+                            fps = (frameIndex - lastFrameIndex[0]) * 1000f / elapsedMs;
+                        }
+                        lastProgressTimeMs[0] = now;
+                        lastFrameIndex[0] = frameIndex;
+
+                        final String fpsStr = String.format(java.util.Locale.US, "%.2f", fps);
+                        final String percentStr = String.format(java.util.Locale.US, "%.1f", percent);
+                        Platform.runLater(() -> {
+                            taskProgressBar.setProgress(fraction * 0.85);
+                            taskStatusLabel.setText(
+                                    new StringBuilder()
+                                            .append("Compositing Video (OpenGL)...")
+                                            .append(" (")
+                                            .append(frameIndex)
+                                            .append("/")
+                                            .append(totalFrames)
+                                            .append(" frames - ")
+                                            .append(fpsStr)
+                                            .append(" frames per second)")
+                                            .append(" (")
+                                            .append(percentStr)
+                                            .append("%)")                                            
+                                            .toString());
+                        });
                     }
                 };
 
@@ -804,10 +835,33 @@ public class ExportWindow extends Stage {
                         long progressMs = stats.getTimeInMs();
                         long durationMs = project.getProjectDuration();
                         if (durationMs > 0 && progressMs > 0) {
-                            double progress = Math.min(1.0, (double) progressMs / durationMs);
-                            taskProgressBar.setProgress(progress);
-                            taskStatusLabel.setText(String.format(
-                                    "Exporting: %d%%  (%s)", (int)(progress * 100), stats.getTime()));
+                            float progress = (float) Math.min(100.0, (double) progressMs * 100 / durationMs);
+                            double fraction = progress / 100.0;
+                            taskProgressBar.setProgress(fraction);
+
+                            long totalFrames = (long) (durationMs / 1000.0 * settings.getFrameRate());
+                            int frameNumber = stats.getVideoFrameNumber();
+                            float fps = stats.getVideoFps();
+                            String fpsStr = String.format(java.util.Locale.US, "%.2f", fps);
+                            String percentStr = String.format(java.util.Locale.US, "%.1f", progress);
+                            String taskName = FFmpegEdit.queue.currentRenderQueue != null
+                                    ? FFmpegEdit.queue.currentRenderQueue.taskName
+                                    : "Exporting";
+                            taskStatusLabel.setText(
+                                    new StringBuilder()
+                                            .append(taskName)
+                                            .append("...")
+                                            .append(" (")
+                                            .append(frameNumber)
+                                            .append("/")
+                                            .append(totalFrames)
+                                            .append(" frames - ")
+                                            .append(fpsStr)
+                                            .append(" frames per second)")
+                                            .append(" (")
+                                            .append(percentStr)
+                                            .append("%)")                                            
+                                            .toString());
                         }
 
                         globalProgressBar.setProgress((double) FFmpegEdit.queue.queueDone / FFmpegEdit.queue.totalQueue);
