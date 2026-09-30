@@ -10,32 +10,37 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Desktop port of Android's OpenGLEdit. Kept a 1:1 port on purpose: the
- * original class has no android.* imports and is documented there as ready
- * for "a JavaFX/LWJGL equivalent later" - this is that later. Only the
- * type references changed, from EditingActivity.Timeline/Track/Clip/
- * ClipType/VideoProperties (Android) to data.editing.* (desktop); the
- * matrix math and FFmpeg-parity logic are unchanged.
+ * Desktop port of Android's OpenGLEdit, synced with the Android version that is
+ * already tested end to end. Kept a 1:1 port on purpose: the only differences
+ * from the Android file are the type references (EditingActivity.Timeline/
+ * Track/Clip/ClipType/VideoProperties -> data.editing.*); the matrix math, the
+ * pivot model, speed/reverse time mapping and keyframe sampling are identical,
+ * so a project renders the same on both platforms.
  * <p>
- * One real difference: desktop's ClipType has no TRANSITION value yet
- * (that's tracked separately as the Android/desktop sync work), so there is
- * no TRANSITION case below - transitions are covered here purely via each
- * clip's endTransitionEnabled flag, same as Android.
+ * Platform-agnostic half of the OpenGL export pipeline - mirrors FFmpegEdit's
+ * role: walks Timeline/Track/Clip and produces platform-neutral output
+ * (transform matrices + per-clip draw info) that the GL side executes
+ * (Android: OpenGLEditNative; desktop: OpenGLExportWorker, a separate process).
+ * No GL, no android.*, no javafx.* imports here.
  * <p>
- * Executed by a desktop OpenGLEditNative once that exists (LWJGL-backed);
- * until then, this class only needs to answer getUnsupportedFeatures() for
- * ExportWindow's warning dialog.
+ * SCOPE (same as Android): position / scale / rotation / pivot / opacity /
+ * colour grading (hue, saturation, brightness, temperature) / speed / reverse /
+ * keyframes, for VIDEO and IMAGE clips composited across tracks. Text, effects,
+ * 3D scenes and transitions are NOT rendered (see getUnsupportedFeatures()).
  */
 public class OpenGLEdit {
 
     // ---- Capability flags -------------------------------------------------------
-    // Single source of truth for what this renderer can't do yet. Flip a flag to
-    // true once implemented and getUnsupportedFeatures()'s warning stops applying
-    // to it automatically - no caller change needed.
+    // The single source of truth for what this renderer can't do yet. The export
+    // screen asks getUnsupportedFeatures() and warns from that list, so when a
+    // feature is implemented, flip its flag to true and the warning (and the
+    // "use OpenGL anyway" choice) stops applying to it automatically - no UI
+    // change needed. Anything unsupported is currently skipped/ignored by the
+    // compositor rather than approximated. Values match Android's.
     public static final boolean SUPPORTS_TRANSITIONS = false;
-    public static final boolean SUPPORTS_REVERSE = false;
-    public static final boolean SUPPORTS_KEYFRAMES = false;
-    public static final boolean SUPPORTS_IMAGES = false;
+    public static final boolean SUPPORTS_REVERSE = true;
+    public static final boolean SUPPORTS_KEYFRAMES = true;
+    public static final boolean SUPPORTS_IMAGES = true;
 
     /**
      * Human-readable list of timeline features this renderer will NOT reproduce
@@ -64,6 +69,9 @@ public class OpenGLEdit {
                     case SCENE_3D:
                         found.add("3D scene clips");
                         break;
+                    case TRANSITION:
+                        found.add("Transition clips");
+                        break;
                     default: // VIDEO, AUDIO
                         break;
                 }
@@ -83,21 +91,35 @@ public class OpenGLEdit {
         /** Column-major 4x4, ready for glUniformMatrix4fv(..., false, mvpMatrix, ...). */
         public final float[] mvpMatrix;
         public final float opacity;
+        // Color grading, matching FFmpegEdit's hue=h=..:s=..:b=.. and
+        // colortemperature=temperature=.. filters. Units match FFmpeg's own:
+        // hueDegrees is degrees, saturation/brightness are the same
+        // multiplier/offset the hue filter takes, temperatureKelvin is Kelvin
+        // (6500 = neutral/no change).
+        public final float hueDegrees;
+        public final float saturation;
+        public final float brightness;
+        public final float temperatureKelvin;
 
-        public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity) {
+        public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
+                           float hueDegrees, float saturation, float brightness, float temperatureKelvin) {
             this.clip = clip;
             this.localSourceTimeSeconds = localSourceTimeSeconds;
             this.mvpMatrix = mvpMatrix;
             this.opacity = opacity;
+            this.hueDegrees = hueDegrees;
+            this.saturation = saturation;
+            this.brightness = brightness;
+            this.temperatureKelvin = temperatureKelvin;
         }
     }
 
     /**
      * Computes what to draw for one output timestamp. Tracks are walked in
-     * ascending timelineIndex order and returned in that same order, matching
-     * FFmpegEdit's overlay chain (tracks iterated in list order, each overlaid
-     * on top of the accumulated base) - track index 0 is bottom/first-drawn,
-     * higher indices composite on top.
+     * ascending timelineIndex order and returned in that same order - this
+     * matches FFmpegEdit's overlay chain (tracks iterated in list order, each
+     * overlaid on top of the accumulated base), so track index 0 is
+     * bottom/first-drawn, higher indices composite on top.
      * <p>
      * Only one clip per track is normally active at a given timestamp (clips
      * within a track don't overlap - transitions between adjacent clips are a
@@ -105,7 +127,7 @@ public class OpenGLEdit {
      * skipped.
      */
     public List<DrawCommand> computeFrameForTimestamp(Timeline timeline, float outputTimeSeconds,
-                                                        int canvasWidth, int canvasHeight) {
+                                                      int canvasWidth, int canvasHeight, boolean stretchToFull) {
         List<DrawCommand> commands = new ArrayList<>();
         if (timeline == null || timeline.tracks == null) return commands;
 
@@ -120,21 +142,49 @@ public class OpenGLEdit {
 
             Clip activeClip = findActiveClip(track, outputTimeSeconds);
             if (activeClip == null) continue;
-            if (activeClip.type != ClipType.VIDEO) {
-                continue; // audio has no picture; image/text/effects/3D: see getUnsupportedFeatures
+            if (activeClip.type != ClipType.VIDEO && activeClip.type != ClipType.IMAGE) {
+                continue; // audio has no picture; text/effects/3D: see getUnsupportedFeatures
             }
 
-            float localSourceTime = (outputTimeSeconds - activeClip.startTime) + activeClip.startClipTrim;
+            // Speed: FFmpeg remaps clip-local time via
+            // setpts='(PTS-STARTPTS)/Speed+...', i.e. the clip plays Speed times
+            // faster than the output timeline. Elapsed OUTPUT time must be scaled
+            // by Speed to get elapsed SOURCE time.
+            float speed = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Speed);
+            if (speed <= 0f) speed = 1f; // guard against a bad/zero value stalling the decoder forever
+            float elapsedOutput = outputTimeSeconds - activeClip.startTime;
+            // Reversed clips are decoded from a pre-rendered, already-reversed
+            // intermediate that OpenGLEditNative builds for just the used trim
+            // range - that file starts at local time 0 with the trim-in point, so
+            // no startClipTrim offset applies here, unlike the normal (forward,
+            // original-file) case.
+            float localSourceTime = activeClip.isReverse()
+                    ? elapsedOutput * speed
+                    : activeClip.startClipTrim + elapsedOutput * speed;
 
-            float[] mvp = buildClipMvp(activeClip, projection);
-            float opacity = activeClip.videoProperties != null
-                    ? activeClip.videoProperties.getValue(VideoProperties.ValueType.Opacity)
-                    : 1f;
+            float[] mvp = buildClipMvp(activeClip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull);
+            float opacity = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Opacity);
+            float hue = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Hue);
+            float saturation = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Saturation);
+            float brightness = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Brightness);
+            float temperature = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Temperature);
 
-            commands.add(new DrawCommand(activeClip, localSourceTime, mvp, opacity));
+            commands.add(new DrawCommand(activeClip, localSourceTime, mvp, opacity, hue, saturation, brightness, temperature));
         }
 
         return commands;
+    }
+
+    /**
+     * Reads a property at outputTimeSeconds (the ABSOLUTE output-timeline time -
+     * AnimatedProperty.getValueAtTime subtracts clip.startTime itself). Works
+     * for both keyframed and static clips: getValueAtTime already falls back to
+     * clip.videoProperties.getValue(valueType) when there are no keyframes, so
+     * no branching is needed here - this always matches whichever the clip has.
+     */
+    private float readAtTime(Clip clip, float outputTimeSeconds, VideoProperties.ValueType valueType) {
+        if (clip.keyframes != null) return clip.keyframes.getValueAtTime(clip, outputTimeSeconds, valueType);
+        return clip.videoProperties != null ? clip.videoProperties.getValue(valueType) : 0f;
     }
 
     private Clip findActiveClip(Track track, float t) {
@@ -148,47 +198,65 @@ public class OpenGLEdit {
     }
 
     /**
-     * Builds the MVP matrix for one clip, matching FFmpegEdit's
-     * scale(iw*ScaleX, ih*ScaleY) -> rotate(auto-expand bbox) -> overlay(PosX,PosY)
-     * chain exactly, so OpenGL and FFmpeg output land the clip in the same place:
-     * <p>
-     * - scaledW/H: the clip's own intrinsic size times ScaleX/ScaleY (matches
-     *   FFmpeg's "iw*ScaleX"/"ih*ScaleY" - NOT the timeline canvas size).
-     * - rotation is around the clip's own center, by valueRot degrees.
-     * - FFmpeg's rotate filter auto-expands its output canvas to the rotated
-     *   bounding box (rotw/roth) BEFORE overlay positions it - so PosX/PosY is
-     *   the top-left corner of that EXPANDED box, not the unrotated one. We
-     *   don't need to actually expand a canvas in GL (alpha blending handles
-     *   the transparent margins for free), but the CENTER position must still
-     *   be computed from the expanded bbox to land in the same place FFmpeg would.
+     * Builds the MVP matrix for one clip. FFmpegEdit's scale -> rotate(auto-expand bbox)
+     * -> overlay chain compensates for the pivot with the same math, so OpenGL and FFmpeg
+     * output land the clip in the same place:
+     *
+     * - baseW/H: the clip's own size (or the canvas size when stretch-to-full);
+     *   scaledW/H = baseW/H times ScaleX/ScaleY.
+     * - PosX/PosY is the clip's UNSCALED, unrotated top-left corner, independent of pivot.
+     * - Scale and rotation both happen around the pivot (normalized 0..1 of the clip).
+     *   FFmpeg's rotate filter expands to the rotated bounding box, so FFmpegEdit overlays
+     *   that box by its center: pivotPoint + R * (center - pivot), minus overlay_w/2, h/2.
+     *   GL needs no expanded canvas; alpha blending handles the transparent margins.
      */
-    private float[] buildClipMvp(Clip clip, float[] projection) {
-        VideoProperties vp = clip.videoProperties;
-        float scaleX = vp != null ? vp.getValue(VideoProperties.ValueType.ScaleX) : 1f;
-        float scaleY = vp != null ? vp.getValue(VideoProperties.ValueType.ScaleY) : 1f;
-        float posX = vp != null ? vp.getValue(VideoProperties.ValueType.PosX) : 0f;
-        float posY = vp != null ? vp.getValue(VideoProperties.ValueType.PosY) : 0f;
-        float rotRadians = vp != null ? vp.getValue(VideoProperties.ValueType.RotInRadians) : 0f;
+    private float[] buildClipMvp(Clip clip, float outputTimeSeconds, float[] projection,
+                                 int canvasWidth, int canvasHeight, boolean stretchToFull) {
+        float scaleX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.ScaleX);
+        float scaleY = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.ScaleY);
+        float posX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PosX);
+        float posY = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PosY);
+        float pivotX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PivotX);
+        float pivotY = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PivotY);
+        float rotRadians = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.RotInRadians);
 
-        float scaledW = clip.width * scaleX;
-        float scaledH = clip.height * scaleY;
+        // Stretch-to-fit: matches FFmpegEdit's scale=w=(stretchToFull ? renderWidth
+        // : iw)*ScaleX:h=(stretchToFull ? renderHeight : ih)*ScaleY - the OUTPUT
+        // canvas size replaces the clip's own intrinsic size as the base
+        // ScaleX/ScaleY multiplies against.
+        float baseW = stretchToFull ? canvasWidth : clip.width;
+        float baseH = stretchToFull ? canvasHeight : clip.height;
+        float scaledW = baseW * scaleX;
+        float scaledH = baseH * scaleY;
 
         float cos = (float) Math.cos(rotRadians);
         float sin = (float) Math.sin(rotRadians);
 
-        // FFmpeg's rotw()/roth(): the axis-aligned bounding box of a
-        // scaledW x scaledH rectangle rotated by rotRadians.
-        float bboxW = Math.abs(scaledW * cos) + Math.abs(scaledH * sin);
-        float bboxH = Math.abs(scaledW * sin) + Math.abs(scaledH * cos);
+        // Pivot is ONLY the transform origin for scale and rotation (like CSS
+        // transform-origin / Android View.setPivotX). It must NOT move the clip:
+        // PosX/PosY is always the canvas position of the clip's UNSCALED, unrotated
+        // top-left corner, regardless of pivot. Normalized pivot: [0, 1],
+        // 0 = left/top, 1 = right/bottom.
+        float halfW = scaledW / 2f;
+        float halfH = scaledH / 2f;
 
-        float centerX = posX + bboxW / 2f;
-        float centerY = posY + bboxH / 2f;
+        // Pivot point in canvas pixel space. It is located on the UNSCALED clip, so it
+        // stays fixed while scale and rotation are applied around it.
+        float pivotCanvasX = posX + pivotX * baseW;
+        float pivotCanvasY = posY + pivotY * baseH;
+
+        // Vector from pivot to quad center after scaling about the pivot, then rotated
+        // about the pivot by rotRadians to get the final center.
+        float toCenterX = (0.5f - pivotX) * scaledW;
+        float toCenterY = (0.5f - pivotY) * scaledH;
+        float rotatedOffsetX = toCenterX * cos - toCenterY * sin;
+        float rotatedOffsetY = toCenterX * sin + toCenterY * cos;
+        float centerX = pivotCanvasX + rotatedOffsetX;
+        float centerY = pivotCanvasY + rotatedOffsetY;
 
         // Model matrix for a unit quad spanning (-1,-1)..(1,1): rotate + scale
         // by the clip's own half-extents, then translate to its center.
         // Column-major (index = column*4 + row), same layout glUniformMatrix4fv expects.
-        float halfW = scaledW / 2f;
-        float halfH = scaledH / 2f;
         float[] model = new float[16];
         model[0] = halfW * cos;   model[1] = halfW * sin;   model[2] = 0; model[3] = 0;
         model[4] = -halfH * sin;  model[5] = halfH * cos;   model[6] = 0; model[7] = 0;
@@ -202,8 +270,8 @@ public class OpenGLEdit {
 
 
     // ---- Minimal platform-neutral 4x4 matrix math (column-major, OpenGL layout) -
-    // Deliberately not android.opengl.Matrix: that class doesn't exist on desktop
-    // (and wasn't used here on Android either, for exactly this reason).
+    // Deliberately not android.opengl.Matrix: that class doesn't exist on desktop,
+    // and this class stays usable from both platforms' GL sides.
 
     public static void orthoM(float[] m, float left, float right, float bottom, float top, float near, float far) {
         float rWidth = 1.0f / (right - left);

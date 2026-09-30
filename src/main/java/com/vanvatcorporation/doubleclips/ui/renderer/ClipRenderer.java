@@ -68,6 +68,7 @@ public class ClipRenderer {
     // --- Transforms ---
     private float posX = 0, posY = 0;
     private float scaleX = 1, scaleY = 1;
+    private float pivotX = 0, pivotY = 0;
     private float rot = 0;
     private float opacity = 1;
     private float hue = 0;
@@ -383,6 +384,8 @@ public class ClipRenderer {
         rot = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Rot);
         scaleX = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.ScaleX);
         scaleY = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.ScaleY);
+        pivotX = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.PivotX);
+        pivotY = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.PivotY);
         opacity = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Opacity);
         hue = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Hue);
         saturation = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Saturation);
@@ -443,6 +446,8 @@ public class ClipRenderer {
 
         viewNode.setScaleX(scaleX * extraScaleX);
         viewNode.setScaleY(scaleY * extraScaleY);
+        // TODO: Set pivot here. For viewNode.
+//        viewNode.setPivot(pivotX, pivotY);
         viewNode.setRotate(rot);
         viewNode.setOpacity(opacity);
 

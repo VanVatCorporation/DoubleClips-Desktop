@@ -303,57 +303,99 @@ public class ExportWindow extends Stage {
         String audioOnlyPath = IOHelper.CombinePath(project.getProjectPath(), "opengl_audio_only_tmp.m4a");
         String finalPath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
 
-        Thread worker = new Thread(() -> {
-            try {
-                activeOpenGlExport = new OpenGLEditNative();
-                activeOpenGlExport.exportTimeline(timeline, settings, project.getProjectPath(), width, height, frameRate, videoOnlyPath,
-                        new OpenGLEditNative.ExportListener() {
-                            @Override
-                            public void onLog(String message) {
-                                Platform.runLater(() -> {
-                                    if (logCheckBox.isSelected()) appendLog("OpenGL: " + message);
-                                });
-                            }
+        // Closing the window is the only cancel this screen has: without this the
+        // worker process would keep rendering (and holding the GPU) with nobody watching.
+        setOnCloseRequest(e -> {
+            OpenGLEditNative running = activeOpenGlExport;
+            if (running != null) running.cancel();
+        });
 
-                            @Override
-                            public void onProgress(int frameIndex, int totalFrames) {
-                                // Video compositing is most of the work - reserve the
-                                // last slice of the bar for the audio pass + mux below.
-                                double fraction = totalFrames == 0 ? 0 : (double) frameIndex / totalFrames;
-                                Platform.runLater(() -> taskProgressBar.setProgress(fraction * 0.85));
-                            }
+        Thread worker = new Thread(() -> {
+            // Identity-keyed (Clip has no equals); filled by the reversed-clip pre-pass below.
+            final java.util.Map<Clip, String> reversedClipPaths = new java.util.IdentityHashMap<>();
+            final OpenGLEditNative gl = new OpenGLEditNative();
+            activeOpenGlExport = gl;
+            try {
+                OpenGLEditNative.ExportListener listener = new OpenGLEditNative.ExportListener() {
+                    @Override
+                    public void onLog(String message) {
+                        Platform.runLater(() -> {
+                            if (logCheckBox.isSelected()) appendLog("OpenGL: " + message);
                         });
+                    }
+
+                    @Override
+                    public void onProgress(int frameIndex, int totalFrames) {
+                        // Video compositing is most of the work - reserve the
+                        // last slice of the bar for the audio pass + mux below.
+                        double fraction = totalFrames == 0 ? 0 : (double) frameIndex / totalFrames;
+                        Platform.runLater(() -> taskProgressBar.setProgress(fraction * 0.85));
+                    }
+                };
+
+                // Reversed-clip pre-pass (Android does the same): a forward-only decode
+                // pipe can't play backward, so each reversed VIDEO clip's used range is
+                // reversed into a temp file first. Fails the export rather than letting
+                // GL quietly play that clip forward.
+                Platform.runLater(() -> taskStatusLabel.setText("Preparing clips…"));
+                reversedClipPaths.putAll(OpenGLEditNative.renderReversedIntermediates(timeline, project, gl::isCancelled, listener));
+                if (gl.isCancelled()) {
+                    cleanupOpenGlTemp(videoOnlyPath, audioOnlyPath, reversedClipPaths);
+                    Platform.runLater(this::cancelOpenGlExport);
+                    return;
+                }
+
+                Platform.runLater(() -> taskStatusLabel.setText("Compositing video (OpenGL)…"));
+                gl.exportTimeline(timeline, settings, project.getProjectPath(), width, height, frameRate, videoOnlyPath,
+                        reversedClipPaths, listener);
+
+                if (gl.isCancelled()) {
+                    cleanupOpenGlTemp(videoOnlyPath, audioOnlyPath, reversedClipPaths);
+                    Platform.runLater(this::cancelOpenGlExport);
+                    return;
+                }
 
                 String audioCmd = OpenGLEditNative.buildAudioOnlyCommand(settings, timeline, project);
                 if (!audioCmd.contains("[aout]")) {
                     // Nothing to mix - this timeline has no audio at all.
                     Files.move(Path.of(videoOnlyPath), Path.of(finalPath), StandardCopyOption.REPLACE_EXISTING);
+                    cleanupOpenGlTemp(null, audioOnlyPath, reversedClipPaths);
                     Platform.runLater(() -> finishOpenGlExportSuccess(finalPath));
                     return;
                 }
 
-                Platform.runLater(() -> appendLog("OpenGL: mixing audio..."));
+                Platform.runLater(() -> {
+                    taskStatusLabel.setText("Mixing audio…");
+                    appendLog("OpenGL: mixing audio...");
+                });
                 FFmpegEdit.runAnyCommand(audioCmd, "OpenGL export — audio pass",
                         () -> {
                             Platform.runLater(() -> {
                                 taskProgressBar.setProgress(0.92);
+                                taskStatusLabel.setText("Finalizing…");
                                 appendLog("OpenGL: muxing...");
                             });
-                            String muxCmd = "-y -i \"" + videoOnlyPath + "\" -i \"" + audioOnlyPath + "\" -c copy -shortest \"" + finalPath + "\"";
+                            String muxCmd = OpenGLEditNative.buildMuxCommand(videoOnlyPath, audioOnlyPath, finalPath);
                             FFmpegEdit.runAnyCommand(muxCmd, "OpenGL export — mux",
-                                    () -> Platform.runLater(() -> {
-                                        deleteQuietly(videoOnlyPath);
-                                        deleteQuietly(audioOnlyPath);
-                                        finishOpenGlExportSuccess(finalPath);
-                                    }),
-                                    () -> Platform.runLater(this::failOpenGlExport),
+                                    () -> {
+                                        cleanupOpenGlTemp(videoOnlyPath, audioOnlyPath, reversedClipPaths);
+                                        Platform.runLater(() -> finishOpenGlExportSuccess(finalPath));
+                                    },
+                                    () -> {
+                                        cleanupOpenGlTemp(videoOnlyPath, audioOnlyPath, reversedClipPaths);
+                                        Platform.runLater(this::failOpenGlExport);
+                                    },
                                     log -> Platform.runLater(() -> { if (logCheckBox.isSelected()) appendLog(log); }),
                                     stats -> {});
                         },
-                        () -> Platform.runLater(this::failOpenGlExport),
+                        () -> {
+                            cleanupOpenGlTemp(videoOnlyPath, audioOnlyPath, reversedClipPaths);
+                            Platform.runLater(this::failOpenGlExport);
+                        },
                         log -> Platform.runLater(() -> { if (logCheckBox.isSelected()) appendLog(log); }),
                         stats -> {});
             } catch (Exception e) {
+                cleanupOpenGlTemp(videoOnlyPath, audioOnlyPath, reversedClipPaths);
                 // Always shown in full, unlike routine "LOG "/"[stderr] " lines
                 // above which respect logCheckBox - a failure's detail (often
                 // the worker's own crash report for a native abort) shouldn't
@@ -367,6 +409,8 @@ public class ExportWindow extends Stage {
                     appendLog(detail);
                     failOpenGlExport();
                 });
+            } finally {
+                activeOpenGlExport = null;
             }
         });
         worker.setDaemon(true);
@@ -408,6 +452,20 @@ public class ExportWindow extends Stage {
         finishExportRendering();
         taskStatusLabel.setText("Export Failed ✗");
         appendLog("\n>>> EXPORT FAILED <<<");
+    }
+
+    private void cancelOpenGlExport() {
+        finishExportRendering();
+        taskStatusLabel.setText("Export Cancelled");
+        taskProgressBar.setProgress(0);
+        appendLog("\n>>> EXPORT CANCELLED <<<");
+    }
+
+    /** Removes every temp file an OpenGL export can leave behind, on any exit path. Null paths are skipped. */
+    private void cleanupOpenGlTemp(String videoOnlyPath, String audioOnlyPath, java.util.Map<Clip, String> reversedClipPaths) {
+        if (videoOnlyPath != null) deleteQuietly(videoOnlyPath);
+        if (audioOnlyPath != null) deleteQuietly(audioOnlyPath);
+        OpenGLEditNative.deleteReversedIntermediates(reversedClipPaths);
     }
 
     private void deleteQuietly(String path) {

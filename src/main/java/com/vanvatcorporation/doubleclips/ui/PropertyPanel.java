@@ -181,6 +181,8 @@ public class PropertyPanel extends VBox {
             addKeyframeableField(fields, "Rotation", selectedClip.videoProperties.valueRot, VideoProperties.ValueType.Rot, selectedClip);
             addKeyframeableField(fields, "Scale X", selectedClip.videoProperties.valueScaleX, VideoProperties.ValueType.ScaleX, selectedClip);
             addKeyframeableField(fields, "Scale Y", selectedClip.videoProperties.valueScaleY, VideoProperties.ValueType.ScaleY, selectedClip);
+            addKeyframeableField(fields, "Pivot X", selectedClip.videoProperties.valuePivotX, VideoProperties.ValueType.PivotX, selectedClip);
+            addKeyframeableField(fields, "Pivot Y", selectedClip.videoProperties.valuePivotY, VideoProperties.ValueType.PivotY, selectedClip);
 
             fields.getChildren().add(buildSectionDivider("Color & Effects"));
             addKeyframeableField(fields, "Opacity", selectedClip.videoProperties.valueOpacity, VideoProperties.ValueType.Opacity, selectedClip);

@@ -4,18 +4,17 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
-import com.vanvatcorporation.doubleclips.data.editing.ClipType;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
+import com.vanvatcorporation.doubleclips.data.editing.Track;
 
-import java.io.*;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import static org.lwjgl.glfw.GLFW.*;
@@ -26,27 +25,31 @@ import static org.lwjgl.system.MemoryUtil.NULL;
  * Runs as its OWN separate JVM process - see the comment in build.gradle for
  * why (LWJGL/GLFW's macOS main-thread requirement collides with JavaFX's own
  * main-thread requirement if they share a process). Launched by
- * OpenGLEditNative via ProcessBuilder; talks back to it over stdout with
- * plain "PROGRESS n total" / "LOG message" lines, and reads a cancel-flag
- * file each frame instead of a shared in-memory flag (there is no shared
- * memory across processes).
+ * OpenGLEditNative via ProcessBuilder; talks back over stdout with plain
+ * "PROGRESS n total" / "LOG message" / "CANCELLED" lines, and reads a
+ * cancel-flag file each frame (there is no shared memory across processes).
  * <p>
- * Mirrors Android's OpenGLEditNative.exportTimeline() algorithm shape
- * (per-frame: compute draw commands via OpenGLEdit, lazily open/close a
- * per-clip frame source, draw, present) - what differs is entirely how
- * frames get in and out, because there's no MediaCodec/EGL on the JVM:
- * - decode: one streaming `ffmpeg ... -f rawvideo -pix_fmt rgba pipe:1`
- *   subprocess per active clip, read one frame at a time
- * - render: LWJGL/GLFW hidden window + GL33 core profile + an FBO (the
- *   window itself is never drawn to or shown - it exists only because GLFW
- *   needs one to create a GL context)
- * - encode: one streaming `ffmpeg -f rawvideo -pix_fmt rgba pipe:0 ...`
- *   subprocess fed via glReadPixels, video-only (audio is handled entirely
- *   outside this class - see OpenGLEditNative's audio pass + mux)
+ * This class is deliberately thin. The algorithm - which clip is drawn where and
+ * when, decoder lifetime, speed / trim / reverse / images, cancel, progress - is
+ * {@link OpenGLTimelineExporter}, the desktop port of Android's
+ * OpenGLEditNative.exportTimeline(); the media plumbing (ffmpeg decode/encode
+ * subprocesses, since there is no MediaCodec on the JVM) is {@link OpenGLFrameIO}.
+ * What is left here is only the GPU: a hidden GLFW window to get a GL 3.3 core
+ * context, one FBO the size of the output canvas, and one textured-quad shader
+ * carrying the same colour-grading maths as Android's fragment shaders.
  * <p>
- * NOT verified on real hardware/GPU from this environment (no display or
- * GPU driver available here to actually run LWJGL/GLFW). Test on a real
- * machine - Windows, Linux, and BOTH Mac architectures - before shipping.
+ * Positional args (an internal contract with OpenGLEditNative, not a CLI):
+ * <pre>
+ *  0 timeline JSON path        1 project path           2 output (video-only mp4)
+ *  3 width                     4 height                 5 bitrate (Mbps, informational)
+ *  6 frame rate                7 ffmpeg binary path     8 encoder args
+ *  9 cancel-flag file path    10 stretchToFull (true/false)
+ * 11 reversed-clips manifest path, or "-" for none
+ *    (lines: trackIndex TAB clipIndex TAB pre-reversed file path)
+ * </pre>
+ * The GL calls in this file have NOT been run from the environment this was
+ * written in (no GPU/display, no LWJGL jars). Everything else in the pipeline is
+ * exercised by a software compositor; test this class on a real machine.
  */
 public class OpenGLExportWorker {
 
@@ -54,7 +57,7 @@ public class OpenGLExportWorker {
 
     public static void main(String[] args) {
         try {
-            run(args);
+            run(args); // a cancelled export is reported by its CANCELLED line, not by the exit code
             System.exit(0);
         } catch (Throwable t) {
             System.err.println("ERROR " + t);
@@ -64,19 +67,10 @@ public class OpenGLExportWorker {
     }
 
     private static void run(String[] args) throws Exception {
-        // Args (all required, positional - this is an internal IPC contract
-        // with OpenGLEditNative, not a user-facing CLI):
-        //   0: timeline JSON file path
-        //   1: project path (for Clip.getAbsolutePath)
-        //   2: output video-only mp4 path
-        //   3: width  4: height  5: bitrate(Mbps)  6: frameRate
-        //   7: ffmpeg binary path (already resolved by the launcher - see
-        //      FFmpegEditNative.getFfmpegPath(), not re-resolved here)
-        //   8: encoder args, e.g. "-c:v h264_videotoolbox -b:v 15M" or
-        //      "-c:v libx264 -preset medium -crf 23" (already decided by the
-        //      launcher, which already has FFmpegEditNative's hwaccel
-        //      detection - not duplicated here)
-        //   9: cancel-flag file path (its mere existence means "stop")
+        if (args.length < 12) {
+            throw new IllegalArgumentException("Expected 12 arguments, got " + args.length
+                    + " (OpenGLEditNative and OpenGLExportWorker are out of sync)");
+        }
         Path timelineJsonPath = Path.of(args[0]);
         String projectPath = args[1];
         String outputPath = args[2];
@@ -86,35 +80,52 @@ public class OpenGLExportWorker {
         String ffmpegPath = args[7];
         String encoderArgs = args[8];
         Path cancelFlagPath = Path.of(args[9]);
+        boolean stretchToFull = Boolean.parseBoolean(args[10]);
+        String reversedManifest = args[11];
 
         Timeline timeline = GSON.fromJson(Files.readString(timelineJsonPath), Timeline.class);
         ProjectData projectData = new ProjectData(projectPath, "", 0, 0, 0);
-        OpenGLEdit edit = new OpenGLEdit();
+        Map<Clip, String> reversedClipPaths = readReversedManifest(reversedManifest, timeline);
 
-        log("OpenGL worker starting - " + width + "x" + height + " @" + frameRate + "fps");
+        log("OpenGL worker starting - " + width + "x" + height + " @" + frameRate + "fps"
+                + (stretchToFull ? ", stretch-to-full" : "")
+                + (reversedClipPaths.isEmpty() ? "" : ", " + reversedClipPaths.size() + " reversed clip(s)"));
 
-        glfwInit();
+        org.lwjgl.glfw.GLFWErrorCallback.createPrint(System.err).set();
+        if (!glfwInit()) {
+            throw new RuntimeException("Failed to initialise GLFW - is a display/GPU available to this process?");
+        }
         try {
             glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
             glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE); // required for core profile on macOS
-            // 1x1: this window is never shown or drawn to directly - it only
-            // exists because GLFW needs SOME window to create a GL context.
-            // All real rendering happens into the FBO created below.
+            // 1x1: never shown or drawn to - GLFW just needs SOME window to create a
+            // GL context. All real rendering goes into the FBO created below.
             long window = glfwCreateWindow(1, 1, "DoubleClips OpenGL export (hidden)", NULL, NULL);
             if (window == NULL) throw new RuntimeException("Failed to create hidden GLFW window/GL context");
             try {
                 glfwMakeContextCurrent(window);
                 org.lwjgl.opengl.GL.createCapabilities();
+                log("GL " + glGetString(GL_VERSION) + " on " + glGetString(GL_RENDERER));
 
-                Renderer renderer = new Renderer(width, height);
+                GlCompositor compositor = new GlCompositor(width, height);
                 try {
-                    exportTimeline(timeline, edit, projectData, renderer, width, height, frameRate,
-                            outputPath, ffmpegPath, encoderArgs, cancelFlagPath);
+                    boolean completed = OpenGLTimelineExporter.export(timeline, new OpenGLEdit(), projectData, compositor,
+                            width, height, frameRate, stretchToFull, reversedClipPaths,
+                            ffmpegPath, encoderArgs, outputPath,
+                            OpenGLTimelineExporter.CancelSignal.fileExists(cancelFlagPath),
+                            new OpenGLTimelineExporter.Listener() {
+                                @Override public void onLog(String message) { log(message); }
+                                @Override public void onProgress(int frameIndex, int totalFrames) { progress(frameIndex, totalFrames); }
+                            });
+                    if (!completed) {
+                        System.out.println("CANCELLED");
+                        System.out.flush();
+                    }
                 } finally {
-                    renderer.close();
+                    compositor.close();
                 }
             } finally {
                 glfwDestroyWindow(window);
@@ -124,77 +135,26 @@ public class OpenGLExportWorker {
         }
     }
 
-    private static void exportTimeline(Timeline timeline, OpenGLEdit edit, ProjectData projectData,
-                                        Renderer renderer, int width, int height, int frameRate,
-                                        String outputPath, String ffmpegPath, String encoderArgs,
-                                        Path cancelFlagPath) throws Exception {
-        float timelineDuration = timeline != null ? timeline.duration : 0f;
-        int totalFrames = (int) Math.max(1, Math.ceil(timelineDuration * frameRate - 1e-6));
-        log("Compositing " + totalFrames + " frames");
-
-        Map<Clip, ClipFrameSource> activeSources = new IdentityHashMap<>();
-        VideoEncoder encoder = new VideoEncoder(ffmpegPath, width, height, frameRate, encoderArgs, outputPath);
-        ByteBuffer pixelBuffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder());
-
-        int frameIndex = 0;
-        try {
-            for (; frameIndex < totalFrames; frameIndex++) {
-                if (Files.exists(cancelFlagPath)) {
-                    log("Export cancelled");
-                    break;
-                }
-
-                float outputTimeSeconds = (float) (frameIndex / (double) frameRate);
-                List<OpenGLEdit.DrawCommand> commands = edit.computeFrameForTimestamp(timeline, outputTimeSeconds, width, height);
-
-                // Close sources for clips no longer active this frame - clips don't
-                // recur within a track, so once inactive they're done for good.
-                java.util.Set<Clip> stillActive = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
-                for (OpenGLEdit.DrawCommand cmd : commands) stillActive.add(cmd.clip);
-                activeSources.entrySet().removeIf(entry -> {
-                    if (!stillActive.contains(entry.getKey())) {
-                        entry.getValue().close();
-                        return true;
-                    }
-                    return false;
-                });
-
-                renderer.beginFrame();
-
-                for (OpenGLEdit.DrawCommand cmd : commands) {
-                    if (cmd.clip.type != ClipType.VIDEO) continue; // see OpenGLEdit.getUnsupportedFeatures()
-
-                    ClipFrameSource source = activeSources.get(cmd.clip);
-                    if (source == null) {
-                        try {
-                            source = new ClipFrameSource(ffmpegPath, cmd.clip, projectData, frameRate);
-                            activeSources.put(cmd.clip, source);
-                        } catch (IOException e) {
-                            log("Could not open a clip, it will be missing from this export: " + e.getMessage());
-                            continue;
-                        }
-                    }
-
-                    ByteBuffer frame = source.nextFrame();
-                    if (frame == null) continue; // this clip ran out of frames early - just skip it this frame
-
-                    renderer.drawClip(frame, cmd.clip.width, cmd.clip.height, cmd.mvpMatrix, cmd.opacity);
-                }
-
-                renderer.readPixelsInto(pixelBuffer);
-                encoder.writeFrame(pixelBuffer);
-
-                if (frameIndex % 5 == 0) progress(frameIndex, totalFrames);
-                if (frameIndex % 30 == 0 && frameIndex > 0) {
-                    log(String.format(Locale.US, "frame %d/%d (t=%.2fs)", frameIndex, totalFrames, outputTimeSeconds));
-                }
-            }
-            progress(frameIndex, totalFrames);
-            log("Timeline export finished, " + frameIndex + " frames -> " + outputPath);
-        } finally {
-            for (ClipFrameSource source : activeSources.values()) source.close();
-            encoder.close();
+    /**
+     * Clips cross the process boundary as JSON, so they are matched back up by
+     * position (track index, clip index) - stable, because the launcher writes
+     * the manifest from the same Timeline object it serialised.
+     */
+    private static Map<Clip, String> readReversedManifest(String manifestPath, Timeline timeline) throws IOException {
+        Map<Clip, String> map = new IdentityHashMap<>();
+        if (manifestPath == null || manifestPath.equals("-") || timeline == null || timeline.tracks == null) return map;
+        for (String line : Files.readAllLines(Path.of(manifestPath), StandardCharsets.UTF_8)) {
+            if (line.isBlank()) continue;
+            String[] parts = line.split("\t", 3);
+            if (parts.length != 3) continue;
+            int trackIndex = Integer.parseInt(parts[0].trim());
+            int clipIndex = Integer.parseInt(parts[1].trim());
+            if (trackIndex < 0 || trackIndex >= timeline.tracks.size()) continue;
+            Track track = timeline.tracks.get(trackIndex);
+            if (track == null || track.clips == null || clipIndex < 0 || clipIndex >= track.clips.size()) continue;
+            map.put(track.clips.get(clipIndex), parts[2]);
         }
+        return map;
     }
 
     private static void log(String message) {
@@ -208,148 +168,25 @@ public class OpenGLExportWorker {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    //  Per-clip decode: a streaming ffmpeg subprocess emitting raw RGBA
-    //  frames, read one at a time. No seeking mid-stream - output frames are
-    //  requested in monotonically increasing time order (OpenGLEdit doesn't
-    //  support reverse/speed effects yet), so a single sequential decode
-    //  matches what's asked for.
+    //  GL33 core-profile compositor: one FBO sized to the output canvas, one
+    //  textured-quad shader, one texture per active clip (so a held frame or a
+    //  still image is uploaded once, not re-uploaded every output frame).
+    //  No depth buffer - clips are composited purely by track order + alpha
+    //  blending (painter's algorithm), like FFmpeg's overlay chain.
     // ─────────────────────────────────────────────────────────────────────
-    private static class ClipFrameSource {
-        private final Process process;
-        private final InputStream stdout;
-        private final int clipWidth;
-        private final int clipHeight;
-        // LWJGL's GL calls hand the buffer's memory address straight to native
-        // OpenGL, which REQUIRES a direct buffer - a heap buffer's backing
-        // array can be relocated by the JVM's garbage collector at any time,
-        // so passing one in works by luck until it doesn't (the classic
-        // symptom: runs fine for a while, then an unexplained native crash -
-        // exactly what a mid-export SIGABRT looks like). Allocated once here
-        // and reused every frame, filled via a channel read rather than
-        // read-into-byte-array-then-wrap, so there's no heap buffer in the
-        // path at all, not even transiently.
-        private final ByteBuffer frameBuffer;
-        private final java.nio.channels.ReadableByteChannel channel;
-        private boolean ended = false;
+    private static final class GlCompositor implements OpenGLTimelineExporter.Compositor {
 
-        ClipFrameSource(String ffmpegPath, Clip clip, ProjectData projectData, int frameRate) throws IOException {
-            this.clipWidth = Math.max(1, clip.width);
-            this.clipHeight = Math.max(1, clip.height);
-            this.frameBuffer = ByteBuffer.allocateDirect(clipWidth * clipHeight * 4).order(ByteOrder.nativeOrder());
+        private static final class GlLayer implements OpenGLTimelineExporter.Layer {
+            final int texture;
+            final int width, height;
 
-            String inputPath = (clip.removeBackground && clip.type == ClipType.VIDEO
-                    && new File(clip.getCutoutPath(projectData.getProjectPath())).exists())
-                    ? clip.getCutoutPath(projectData.getProjectPath())
-                    : clip.getAbsolutePath(projectData);
-
-            List<String> command = List.of(
-                    ffmpegPath,
-                    "-ss", String.valueOf(clip.startClipTrim),
-                    "-i", inputPath,
-                    "-an",
-                    "-f", "rawvideo",
-                    "-pix_fmt", "rgba",
-                    "-r", String.valueOf(frameRate),
-                    "pipe:1"
-            );
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-            this.process = pb.start();
-            this.stdout = new BufferedInputStream(process.getInputStream(), frameBuffer.capacity());
-            this.channel = java.nio.channels.Channels.newChannel(stdout);
-        }
-
-        /** Returns null once this clip's decoder has no more frames. */
-        ByteBuffer nextFrame() {
-            if (ended) return null;
-            try {
-                frameBuffer.clear();
-                while (frameBuffer.hasRemaining()) {
-                    int read = channel.read(frameBuffer);
-                    if (read < 0) { ended = true; return null; } // EOF - including a partial trailing frame, discarded
-                }
-                frameBuffer.flip();
-                return frameBuffer;
-            } catch (IOException e) {
-                ended = true;
-                return null;
+            GlLayer(int texture, int width, int height) {
+                this.texture = texture;
+                this.width = width;
+                this.height = height;
             }
         }
 
-        int getClipWidth() { return clipWidth; }
-        int getClipHeight() { return clipHeight; }
-
-        void close() {
-            process.destroy();
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    //  Encode: a streaming ffmpeg subprocess consuming raw RGBA frames on
-    //  stdin, video-only (audio is handled entirely outside this worker).
-    // ─────────────────────────────────────────────────────────────────────
-    private static class VideoEncoder {
-        private final Process process;
-        private final OutputStream stdin;
-
-        VideoEncoder(String ffmpegPath, int width, int height, int frameRate, String encoderArgs, String outputPath) throws IOException {
-            java.util.ArrayList<String> command = new java.util.ArrayList<>(List.of(
-                    ffmpegPath,
-                    "-f", "rawvideo",
-                    "-pix_fmt", "rgba",
-                    "-video_size", width + "x" + height,
-                    "-framerate", String.valueOf(frameRate),
-                    "-i", "pipe:0",
-                    // glReadPixels returns rows bottom-first (OpenGL window-coordinate
-                    // convention); every video/image pixel format expects top-first.
-                    // OpenGLEdit's own world-space Y-down setup is unrelated to this -
-                    // that's about where content lands ON the canvas, this is purely
-                    // glReadPixels' own readback order. Cheaper to let ffmpeg's own
-                    // optimized filter flip it than to reverse rows in Java.
-                    "-vf", "vflip",
-                    "-pix_fmt", "yuv420p"
-            ));
-            for (String part : encoderArgs.trim().split("\\s+")) {
-                if (!part.isEmpty()) command.add(part);
-            }
-            command.add("-y");
-            command.add(outputPath);
-
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-            this.process = pb.start();
-            this.stdin = new BufferedOutputStream(process.getOutputStream(), width * height * 4);
-        }
-
-        void writeFrame(ByteBuffer frame) throws IOException {
-            frame.rewind();
-            byte[] bytes = new byte[frame.remaining()];
-            frame.get(bytes);
-            stdin.write(bytes);
-        }
-
-        void close() {
-            try {
-                stdin.flush();
-                stdin.close();
-            } catch (IOException ignored) {
-            }
-            try {
-                process.waitFor();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    //  GL33 core-profile renderer: one FBO sized to the output canvas, one
-    //  textured-quad shader, one texture reused (re-uploaded) per draw call.
-    //  No depth buffer - clips are composited purely by track-index draw
-    //  order + alpha blending (painter's algorithm), matching OpenGLEdit's
-    //  own track-ordering guarantee and FFmpeg's own overlay chain.
-    // ─────────────────────────────────────────────────────────────────────
-    private static class Renderer {
         private static final String VERTEX_SHADER =
                 "#version 330 core\n" +
                 "layout(location=0) in vec2 aPos;\n" +
@@ -361,25 +198,50 @@ public class OpenGLExportWorker {
                 "    vUV = aUV;\n" +
                 "}\n";
 
+        // Same colour maths as Android OpenGLEditNative's fragment shaders (the
+        // ImageTransformShader variant - a plain sampler2D, which is what a decoded
+        // RGBA frame is here): hue rotates the chroma (U,V) plane, saturation scales
+        // chroma magnitude, brightness offsets luma (uBrightness arrives in the app's
+        // own -10..10 range, hence * 0.1), temperature is a red/blue gain around
+        // 6500K. Kept line-for-line identical so the two renderers agree.
         private static final String FRAGMENT_SHADER =
                 "#version 330 core\n" +
                 "in vec2 vUV;\n" +
                 "uniform sampler2D uTex;\n" +
                 "uniform float uOpacity;\n" +
+                "uniform float uHueDegrees;\n" +
+                "uniform float uSaturation;\n" +
+                "uniform float uBrightness;\n" +
+                "uniform float uTemperatureKelvin;\n" +
                 "out vec4 fragColor;\n" +
                 "void main() {\n" +
-                "    vec4 c = texture(uTex, vUV);\n" +
-                "    fragColor = vec4(c.rgb, c.a * uOpacity);\n" +
+                "    vec4 color = texture(uTex, vUV);\n" +
+                "    vec3 rgb = color.rgb;\n" +
+                "    float y = dot(rgb, vec3(0.299, 0.587, 0.114));\n" +
+                "    float u = dot(rgb, vec3(-0.14713, -0.28886, 0.43600));\n" +
+                "    float v = dot(rgb, vec3(0.61500, -0.51499, -0.10001));\n" +
+                "    float hueRad = radians(uHueDegrees);\n" +
+                "    float cosH = cos(hueRad);\n" +
+                "    float sinH = sin(hueRad);\n" +
+                "    float u2 = (u * cosH - v * sinH) * uSaturation;\n" +
+                "    float v2 = (u * sinH + v * cosH) * uSaturation;\n" +
+                "    float y2 = clamp(y + uBrightness * 0.1, 0.0, 1.0);\n" +
+                "    rgb = vec3(\n" +
+                "        y2 + 1.13983 * v2,\n" +
+                "        y2 - 0.39465 * u2 - 0.58060 * v2,\n" +
+                "        y2 + 2.03211 * u2\n" +
+                "    );\n" +
+                "    float tempNorm = clamp((uTemperatureKelvin - 6500.0) / 6500.0, -1.0, 1.0);\n" +
+                "    rgb.r *= (1.0 + tempNorm * 0.3);\n" +
+                "    rgb.b *= (1.0 - tempNorm * 0.3);\n" +
+                "    fragColor = vec4(clamp(rgb, 0.0, 1.0), color.a * uOpacity);\n" +
                 "}\n";
 
         // Unit quad (-1,-1)..(1,1); OpenGLEdit's model matrix scales/rotates/
-        // translates this into the clip's actual on-canvas position and size.
-        // UV is NOT flipped here (unlike Android's OES-sampler version) - our
-        // texture upload is a plain top-row-first RGBA buffer from ffmpeg's
-        // rawvideo output, and OpenGLEdit's projection already places world
-        // Y=0 (canvas top) at NDC+1 (window top), so the straightforward
-        // V=(y+1)/2 mapping already lines up: local y=-1 (this quad's top,
-        // after the model matrix) samples V=0 (the buffer's first/top row).
+        // translates it into the clip's on-canvas position and size. UV is NOT
+        // flipped: uploads are top-row-first RGBA buffers, and OpenGLEdit's projection
+        // already places canvas Y=0 at NDC +1, so local y=-1 (the quad's top after the
+        // model matrix) samples V=0, the buffer's first/top row.
         private static final float[] QUAD_VERTICES = {
                 // x, y,     u, v
                 -1f, -1f,    0f, 0f,
@@ -391,12 +253,10 @@ public class OpenGLExportWorker {
         private final int width, height;
         private final int fbo, colorTex;
         private final int program;
-        private final int uMvpLoc, uOpacityLoc, uTexLoc;
+        private final int uMvpLoc, uOpacityLoc, uTexLoc, uHueLoc, uSaturationLoc, uBrightnessLoc, uTemperatureLoc;
         private final int vao, vbo;
-        private int clipTexture; // reused each drawClip() call; resized via glTexImage2D when clip dimensions change
-        private int clipTextureW = -1, clipTextureH = -1;
 
-        Renderer(int width, int height) {
+        GlCompositor(int width, int height) {
             this.width = width;
             this.height = height;
 
@@ -411,13 +271,18 @@ public class OpenGLExportWorker {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTex, 0);
             int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
             if (status != GL_FRAMEBUFFER_COMPLETE) {
-                throw new RuntimeException("FBO incomplete: 0x" + Integer.toHexString(status));
+                throw new RuntimeException("FBO incomplete: 0x" + Integer.toHexString(status)
+                        + " (canvas " + width + "x" + height + " may exceed this GPU's limits)");
             }
 
             program = buildProgram(VERTEX_SHADER, FRAGMENT_SHADER);
             uMvpLoc = glGetUniformLocation(program, "uMvp");
             uOpacityLoc = glGetUniformLocation(program, "uOpacity");
             uTexLoc = glGetUniformLocation(program, "uTex");
+            uHueLoc = glGetUniformLocation(program, "uHueDegrees");
+            uSaturationLoc = glGetUniformLocation(program, "uSaturation");
+            uBrightnessLoc = glGetUniformLocation(program, "uBrightness");
+            uTemperatureLoc = glGetUniformLocation(program, "uTemperatureKelvin");
 
             vao = glGenVertexArrays();
             glBindVertexArray(vao);
@@ -432,54 +297,72 @@ public class OpenGLExportWorker {
             glVertexAttribPointer(1, 2, GL_FLOAT, false, 16, 8);
             glEnableVertexAttribArray(1);
 
-            clipTexture = glGenTextures();
-            glBindTexture(GL_TEXTURE_2D, clipTexture);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        }
+
+        @Override
+        public OpenGLTimelineExporter.Layer createLayer(int w, int h) {
+            int tex = glGenTextures();
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, (ByteBuffer) null);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            return new GlLayer(tex, w, h);
         }
 
-        void beginFrame() {
+        @Override
+        public void destroyLayer(OpenGLTimelineExporter.Layer layer) {
+            glDeleteTextures(((GlLayer) layer).texture);
+        }
+
+        @Override
+        public void beginFrame() {
             glBindFramebuffer(GL_FRAMEBUFFER, fbo);
             glViewport(0, 0, width, height);
-            glClearColor(0f, 0f, 0f, 1f); // opaque black canvas base - final output has no alpha channel anyway
+            glClearColor(0f, 0f, 0f, 1f); // opaque black canvas base - the encoded output has no alpha anyway
             glClear(GL_COLOR_BUFFER_BIT);
             glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            // Colour blends normally; alpha is kept opaque so the canvas never goes translucent.
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         }
 
-        void drawClip(ByteBuffer rgbaFrame, int clipW, int clipH, float[] mvpMatrix, float opacity) {
+        @Override
+        public void draw(OpenGLTimelineExporter.Layer layer, ByteBuffer newPixels, OpenGLEdit.DrawCommand cmd) {
+            GlLayer gl = (GlLayer) layer;
             glUseProgram(program);
             glBindVertexArray(vao);
 
             glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, clipTexture);
-            rgbaFrame.rewind();
-            if (clipW != clipTextureW || clipH != clipTextureH) {
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, clipW, clipH, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgbaFrame);
-                clipTextureW = clipW;
-                clipTextureH = clipH;
-            } else {
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, clipW, clipH, GL_RGBA, GL_UNSIGNED_BYTE, rgbaFrame);
+            glBindTexture(GL_TEXTURE_2D, gl.texture);
+            if (newPixels != null) {
+                ByteBuffer view = newPixels.duplicate();
+                view.clear();
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, gl.width, gl.height, GL_RGBA, GL_UNSIGNED_BYTE, view);
             }
             glUniform1i(uTexLoc, 0);
 
-            glUniformMatrix4fv(uMvpLoc, false, mvpMatrix);
-            glUniform1f(uOpacityLoc, opacity);
+            glUniformMatrix4fv(uMvpLoc, false, cmd.mvpMatrix);
+            glUniform1f(uOpacityLoc, cmd.opacity);
+            glUniform1f(uHueLoc, cmd.hueDegrees);
+            glUniform1f(uSaturationLoc, cmd.saturation);
+            glUniform1f(uBrightnessLoc, cmd.brightness);
+            glUniform1f(uTemperatureLoc, cmd.temperatureKelvin);
 
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
 
-        void readPixelsInto(ByteBuffer outBuffer) {
-            outBuffer.rewind();
+        @Override
+        public void readFrame(ByteBuffer out) {
+            out.clear();
             glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-            glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, outBuffer);
+            glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, out);
         }
 
         void close() {
             glDeleteTextures(colorTex);
-            glDeleteTextures(clipTexture);
             glDeleteFramebuffers(fbo);
             glDeleteBuffers(vbo);
             glDeleteVertexArrays(vao);
