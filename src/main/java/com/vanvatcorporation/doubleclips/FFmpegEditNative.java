@@ -185,7 +185,7 @@ public class FFmpegEditNative {
         queue.enqueue(new FFmpegEdit.FfmpegRenderQueue.FfmpegRenderQueueInfo(
                 taskName,
                 () -> {
-                    Executors.newSingleThreadExecutor().execute(() -> {
+                    runOnDaemonThread(() -> {
                         try {
                             String ffmpegPath = getFfmpegPath();
                             List<String> fullCmd = new ArrayList<>();
@@ -241,7 +241,7 @@ public class FFmpegEditNative {
 
 
                         // TODO: Add a slightly user friendly delay (Execute next ffmpeg rendering part in 3, 2, 1), dynamically into logText
-                        Executors.newSingleThreadExecutor().execute(() -> {
+                        runOnDaemonThread(() -> {
                             try {
                                 Thread.sleep(1000);
                             } catch (InterruptedException ignored) {
@@ -254,6 +254,18 @@ public class FFmpegEditNative {
         ));
     }
 
+
+    /**
+     * Runs a task on its own DAEMON thread. This replaces {@code Executors.newSingleThreadExecutor().execute(..)},
+     * which created a new, never-shut-down, non-daemon executor per ffmpeg command: each left a
+     * thread alive that kept the JVM from exiting after the last window closed (the app then
+     * sat in the Dock as "Application Not Responding", depending on GC timing).
+     */
+    private static void runOnDaemonThread(Runnable task) {
+        Thread thread = new Thread(task, "FFmpegEditNative-task");
+        thread.setDaemon(true);
+        thread.start();
+    }
 
     public static class FfmpegStatistics {
         private final String time;

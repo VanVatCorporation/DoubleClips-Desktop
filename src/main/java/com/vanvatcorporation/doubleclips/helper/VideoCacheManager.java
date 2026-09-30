@@ -18,7 +18,13 @@ import java.util.function.Consumer;
 public class VideoCacheManager {
 
     private static final long MAX_CACHE_SIZE = 100 * 1024 * 1024; // 100 MB
-    private static final ExecutorService executor = Executors.newCachedThreadPool();
+    // Daemon threads: a default cached pool keeps non-daemon workers alive for 60s after the last
+    // download, which stops the JVM exiting when the app window is closed.
+    private static final ExecutorService executor = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "VideoCacheManager");
+        t.setDaemon(true);
+        return t;
+    });
     private static final OkHttpClient client = new OkHttpClient();
 
     public static void getCachedVideoPath(String url, Consumer<String> onResult) {

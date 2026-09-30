@@ -134,6 +134,17 @@ public class DoubleClipsDesktop extends Application {
         });
     }
 
+    /**
+     * Called by JavaFX on the FX thread once the last window has closed (or on Cmd+Q). Without
+     * this the JVM only exits when every non-daemon thread has finished, and on macOS a process
+     * that outlives its event loop sits in the Dock as "Application Not Responding" (see
+     * {@link AppShutdown}). Kills ffmpeg / the OpenGL worker and exits explicitly.
+     */
+    @Override
+    public void stop() {
+        AppShutdown.shutdownAndExit(0);
+    }
+
     public void openEditor(com.vanvatcorporation.doubleclips.data.ProjectData project) {
         primaryStage.hide();
         com.vanvatcorporation.doubleclips.ui.EditorWindow editor = new com.vanvatcorporation.doubleclips.ui.EditorWindow(project);
