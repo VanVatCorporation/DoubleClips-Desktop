@@ -80,7 +80,10 @@ runtime {
         'java.xml',
         'jdk.unsupported',
         'java.sql',
-        'java.net.http'
+        'java.net.http',
+
+        'jdk.crypto.ec',
+        'jdk.crypto.cryptoki'
     ]
 
     jpackage {
