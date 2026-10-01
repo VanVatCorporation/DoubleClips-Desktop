@@ -63,6 +63,18 @@ public class EditorWindow extends Stage implements PropertyContext {
     private boolean isPlaying = false;
     private boolean isPlayingInReverse = false;
     private float pixelsPerSecond = 100f; // 100px = 1s
+
+    // ── Zoom state (see requestZoom / applyPendingZoom) ───────────────────────
+    private boolean zoomApplyScheduled = false;
+    private double zoomTargetPps = -1;            // -1 = no zoom pending
+    private double zoomAnchorTime = 0;            // timeline time that must stay put on screen ...
+    private double zoomAnchorViewportX = 0;       // ... at this x, measured from the viewport's left edge
+    private boolean suppressZoomSliderListener = false;
+    private javafx.animation.PauseTransition thumbnailSettleTimer;
+    // Direct references instead of tracksPane.lookup("#id"), which walks the ENTIRE node tree
+    // (every clip, thumbnail tile, knot ...) once per lookup.
+    private final java.util.Map<Integer, Rectangle> trackBands = new java.util.HashMap<>();
+    private final java.util.Map<Clip, Rectangle> transitionCubes = new java.util.IdentityHashMap<>();
     private final float TRACK_HEIGHT = 70f;
     private final float TRACK_SPACING = 5f;
 
@@ -1455,8 +1467,9 @@ public class EditorWindow extends Stage implements PropertyContext {
         zoomSlider.setPrefWidth(100);
         zoomSlider.getStyleClass().add("timeline-zoom-slider");
         zoomSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
-            pixelsPerSecond = newVal.floatValue();
-            refreshTimelineUI();
+            if (suppressZoomSliderListener) return; // our own sync after a cursor zoom
+            // The slider has no cursor position: zoom from 0s (the scroll offset stays as it is).
+            requestZoom(newVal.doubleValue(), Double.NaN);
         });
 
         Button keyframeBtn = buildToolBtn(MaterialDesignD.DIAMOND);
@@ -1656,10 +1669,16 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         // --- Playhead Sync Listeners ---
         // Update position when scrolling
-        tracksScrollPane.hvalueProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
+        tracksScrollPane.hvalueProperty().addListener((obs, old, newVal) -> {
+            updatePlayheadPosition();
+            scheduleVisibleThumbnailRefresh();
+        });
 
         // Update position when resizing viewport
-        tracksScrollPane.viewportBoundsProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
+        tracksScrollPane.viewportBoundsProperty().addListener((obs, old, newVal) -> {
+            updatePlayheadPosition();
+            scheduleVisibleThumbnailRefresh();
+        });
 
         // Update position when content width changes (e.g. zoom)
         tracksPane.widthProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
@@ -1674,10 +1693,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         rulerScrollPane.hvalueProperty().bindBidirectional(tracksScrollPane.hvalueProperty());
 
         // Zoom Gestures
+        // Both gestures happen with the cursor over the ruler/tracks, so they zoom around the
+        // cursor: the moment under it stays under it.
         rulerAndTracks.addEventFilter(javafx.scene.input.ZoomEvent.ZOOM, e -> {
-            double zoomFactor = e.getZoomFactor();
-            double newZoom = zoomSlider.getValue() * zoomFactor;
-            zoomSlider.setValue(Math.min(zoomSlider.getMax(), Math.max(zoomSlider.getMin(), newZoom)));
+            requestZoomFactor(e.getZoomFactor(), e.getSceneX());
             e.consume();
         });
 
@@ -1689,8 +1708,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                 double zoomFactor = 1.0 + (delta / 400.0);
 
                 if (zoomFactor != 1.0 && zoomFactor > 0) {
-                    double newZoom = zoomSlider.getValue() * zoomFactor;
-                    zoomSlider.setValue(Math.min(zoomSlider.getMax(), Math.max(zoomSlider.getMin(), newZoom)));
+                    requestZoomFactor(zoomFactor, e.getSceneX());
                 }
                 e.consume(); // prevent natural scrolling while zooming
             }
@@ -1699,6 +1717,172 @@ public class EditorWindow extends Stage implements PropertyContext {
         trackLayout.getChildren().addAll(trackSidebar, rulerAndTracks);
         timeline.getChildren().addAll(toolbar, trackLayout);
         return timeline;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Timeline zoom
+    //
+    //  Zooming used to call refreshTimelineUI() on every slider change, and ctrl+scroll / pinch
+    //  fire that many times per second. Each call re-sorted the timeline, rebuilt the preview
+    //  renderer, searched the whole node tree by id, and queued new ffmpeg thumbnail decodes
+    //  (one process per tile), waveform renders and image loads for EVERY clip - including ones
+    //  far off-screen - whose results then flooded the FX thread with Platform.runLater calls.
+    //
+    //  Now a zoom only re-lays-out geometry (ruler, clip x/width, knots, transition cubes), at
+    //  most once per frame. Thumbnails are regenerated once the zoom settles, only for clips near
+    //  the viewport, and only when what they show actually changed (see ensureThumbnails).
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /** Multiplies the zoom by {@code factor} (relative to any zoom still waiting to be applied). */
+    private void requestZoomFactor(double factor, double sceneX) {
+        double base = zoomTargetPps > 0 ? zoomTargetPps : pixelsPerSecond;
+        requestZoom(base * factor, cursorViewportX(sceneX));
+    }
+
+    /**
+     * @param cursorViewportX cursor x relative to the tracks viewport's left edge, or NaN when
+     *                        the zoom did not come from over the timeline (zoom slider): then the
+     *                        anchor is 0s and the scroll offset is left exactly as it is.
+     */
+    private void requestZoom(double targetPps, double cursorViewportX) {
+        zoomTargetPps = TimelineZoomMath.clamp(targetPps, zoomSlider.getMin(), zoomSlider.getMax());
+
+        // Captured from the logical state (pixelsPerSecond, hvalue, content width), which only
+        // changes inside applyPendingZoom, so it stays valid even if layout hasn't caught up yet.
+        double[] anchor = TimelineZoomMath.captureAnchor(cursorViewportX, pixelsPerSecond, currentScrollPx());
+        zoomAnchorTime = anchor[0];
+        zoomAnchorViewportX = anchor[1];
+
+        if (!zoomApplyScheduled) {
+            zoomApplyScheduled = true;
+            Platform.runLater(this::applyPendingZoom); // coalesces a burst of events into one relayout
+        }
+    }
+
+    private void applyPendingZoom() {
+        zoomApplyScheduled = false;
+        double newPps = zoomTargetPps;
+        zoomTargetPps = -1;
+        if (newPps <= 0) return;
+
+        // pixelsPerSecond is a float, so compare with a tolerance rather than exactly
+        if (Math.abs(newPps - pixelsPerSecond) > 1e-3) {
+            applyZoomLayout((float) newPps);
+
+            // Put the anchor back where it was on screen. Set before layout runs: the ScrollPane
+            // resolves hvalue against the new content width when it lays out.
+            double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+            tracksScrollPane.setHvalue(TimelineZoomMath.hvalueForAnchor(
+                    zoomAnchorTime, zoomAnchorViewportX, newPps, tracksPane.getPrefWidth(), viewportWidth));
+
+            updatePlayheadPosition();
+            scheduleVisibleThumbnailRefresh();
+        }
+
+        // Keep the slider in step with gesture zooms without re-triggering the listener.
+        if (Math.abs(zoomSlider.getValue() - pixelsPerSecond) > 1e-3) {
+            suppressZoomSliderListener = true;
+            try {
+                zoomSlider.setValue(pixelsPerSecond);
+            } finally {
+                suppressZoomSliderListener = false;
+            }
+        }
+    }
+
+    /** Geometry-only relayout for a new scale. Deliberately does NOT touch the timeline data, the preview, or thumbnails. */
+    private void applyZoomLayout(float newPps) {
+        pixelsPerSecond = newPps;
+        double contentWidth = Math.max(1200, timeline.duration * newPps + 1000); // same padding as refreshTimelineUI
+
+        buildRuler(contentWidth);
+        tracksPane.setPrefWidth(contentWidth);
+
+        for (Rectangle band : trackBands.values()) band.setWidth(contentWidth);
+
+        for (Track track : timeline.tracks) {
+            for (Clip clip : track.clips) {
+                if (!(clip.viewRef instanceof ClipNode node) || node.getParent() != tracksPane) continue;
+                double clipW = clip.duration * newPps;
+                node.setLayoutX(clip.startTime * newPps);
+                node.setPrefWidth(clipW);
+                node.setMinWidth(clipW);
+                node.setMaxWidth(clipW);
+                node.relayoutKeyframeKnots(newPps);
+                node.setupTrimInteractions(newPps); // trim drags convert pixels to time with this scale
+                node.refreshThumbnails();           // tile count follows the width; images refill once zoom settles
+            }
+        }
+
+        for (java.util.Map.Entry<Clip, Rectangle> entry : transitionCubes.entrySet()) {
+            Clip clip = entry.getKey();
+            entry.getValue().setX((clip.startTime + clip.duration) * newPps - TRANSITION_CUBE_SIZE / 2.0);
+        }
+    }
+
+    /** Content x currently at the left edge of the tracks viewport. */
+    private double currentScrollPx() {
+        double contentWidth = tracksPane.getPrefWidth() > 0 ? tracksPane.getPrefWidth() : tracksPane.getWidth();
+        return TimelineZoomMath.scrollPx(tracksScrollPane.getHvalue(), contentWidth,
+                tracksScrollPane.getViewportBounds().getWidth());
+    }
+
+    /** Scene x -> x relative to the tracks viewport's left edge (NaN stays NaN). */
+    private double cursorViewportX(double sceneX) {
+        if (Double.isNaN(sceneX)) return Double.NaN;
+        javafx.geometry.Point2D origin = tracksScrollPane.localToScene(0, 0);
+        return sceneX - origin.getX() - tracksScrollPane.getInsets().getLeft();
+    }
+
+    // ── Thumbnails: only when needed, only near the viewport ─────────────────
+
+    private boolean isNodeNearViewport(Clip clip) {
+        double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+        return TimelineZoomMath.nearViewport(clip.startTime * pixelsPerSecond, clip.duration * pixelsPerSecond,
+                currentScrollPx(), viewportWidth, viewportWidth);
+    }
+
+    /** What the clip's thumbnails/waveform depend on. Unchanged signature = nothing to regenerate. */
+    private String thumbnailSignature(ClipNode node) {
+        Clip clip = node.getContainerClip();
+        switch (clip.type) {
+            case VIDEO:
+                return "V|" + node.computeTileCount() + "|" + clip.startClipTrim + "|" + clip.duration;
+            case AUDIO:
+                // The waveform bitmap is drawn for a specific scale.
+                return "A|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration;
+            case IMAGE:
+                return "I|" + clip.getClipName();
+            default:
+                return "O|" + clip.type;
+        }
+    }
+
+    /** Generates thumbnails for a clip only if it is near the viewport and what it shows has changed. */
+    private void ensureThumbnails(ClipNode node) {
+        if (!isNodeNearViewport(node.getContainerClip())) return; // picked up when scrolled/zoomed near
+        String signature = thumbnailSignature(node);
+        if (signature.equals(node.getThumbSignature())) return;
+        node.setThumbSignature(signature);
+        generateThumbnailsForNode(node, signature);
+    }
+
+    /** Debounced: runs once scrolling/zooming has been quiet for a moment. */
+    private void scheduleVisibleThumbnailRefresh() {
+        if (thumbnailSettleTimer == null) {
+            thumbnailSettleTimer = new javafx.animation.PauseTransition(javafx.util.Duration.millis(200));
+            thumbnailSettleTimer.setOnFinished(e -> refreshVisibleThumbnails());
+        }
+        thumbnailSettleTimer.playFromStart();
+    }
+
+    private void refreshVisibleThumbnails() {
+        if (timeline == null || timeline.tracks == null) return;
+        for (Track track : timeline.tracks) {
+            for (Clip clip : track.clips) {
+                if (clip.viewRef instanceof ClipNode node && node.getParent() == tracksPane) ensureThumbnails(node);
+            }
+        }
     }
 
     private float getRulerInterval(float pixelsPerSecond) {
@@ -1852,43 +2036,68 @@ public class EditorWindow extends Stage implements PropertyContext {
         refreshTimelineUI();
     }
 
-    private void generateThumbnailsForNode(ClipNode node) {
+    /**
+     * @param signature what this generation is for (see thumbnailSignature). If the node's current
+     *                  signature changes, or the node leaves the timeline, the job is stale: it
+     *                  stops decoding and drops its results instead of flooding the FX thread.
+     */
+    private void generateThumbnailsForNode(ClipNode node, String signature) {
         Clip clip = node.getContainerClip();
-        if (clip.type == ClipType.VIDEO) {
-            thumbnailExecutor.submit(() -> {
-                int tileCount = node.getTileCount();
-                if (tileCount <= 0)
-                    return;
-                float tileDuration = (float) (clip.duration / tileCount);
-                for (int i = 0; i < tileCount; i++) {
-                    // Stop extracting if node was removed or hidden
-                    if (node.getParent() == null)
-                        return;
+        java.util.function.BooleanSupplier stale =
+                () -> node.getParent() == null || !signature.equals(node.getThumbSignature());
 
+        if (clip.type == ClipType.VIDEO) {
+            node.refreshThumbnails(); // make sure the tile slots exist before images arrive
+            final int tileCount = node.computeTileCount();
+            if (tileCount <= 0) {
+                node.setThumbSignature(null); // not sized yet - try again on the next refresh
+                return;
+            }
+            thumbnailExecutor.submit(() -> {
+                float tileDuration = (float) (clip.duration / tileCount);
+                int decoded = 0;
+                for (int i = 0; i < tileCount; i++) {
+                    if (stale.getAsBoolean())
+                        return; // node removed, or re-zoomed/re-trimmed since this job was queued
                     float time = clip.startClipTrim + (i * tileDuration);
                     Image img = decodeVideoFrame(clip, time);
                     if (img != null) {
+                        decoded++;
                         int finalI = i;
-                        javafx.application.Platform.runLater(() -> node.setThumbnailImage(finalI, img));
+                        javafx.application.Platform.runLater(() -> {
+                            if (!stale.getAsBoolean()) node.setThumbnailImage(finalI, img);
+                        });
                     }
+                }
+                if (decoded == 0) {
+                    // Nothing could be decoded (file not ready yet?): allow a later refresh to retry.
+                    javafx.application.Platform.runLater(() -> {
+                        if (signature.equals(node.getThumbSignature())) node.setThumbSignature(null);
+                    });
                 }
             });
         } else if (clip.type == ClipType.AUDIO) {
+            final float scale = pixelsPerSecond;
             thumbnailExecutor.submit(() -> {
+                if (stale.getAsBoolean()) return;
                 Image img = AudioUtils.generateAudioWaveformImage(
-                        clip.getAbsolutePreviewPath(project, ".wav"), clip, pixelsPerSecond, (int) TRACK_HEIGHT, 1, 0); // 2
-                                                                                                                        // 1
+                        clip.getAbsolutePreviewPath(project, ".wav"), clip, scale, (int) TRACK_HEIGHT, 1, 0); // 2
                 if (img != null) {
-                    javafx.application.Platform.runLater(() -> node.setSingleThumbnail(img));
+                    javafx.application.Platform.runLater(() -> {
+                        if (!stale.getAsBoolean()) node.setSingleThumbnail(img);
+                    });
                 }
             });
         } else if (clip.type == ClipType.IMAGE) {
             thumbnailExecutor.submit(() -> {
+                if (stale.getAsBoolean()) return;
                 try {
                     java.io.File file = new java.io.File(clip.getAbsolutePath(project));
                     if (file.exists()) {
                         Image img = new Image(file.toURI().toString(), -1, TRACK_HEIGHT, true, true);
-                        javafx.application.Platform.runLater(() -> node.setSingleThumbnail(img));
+                        javafx.application.Platform.runLater(() -> {
+                            if (!stale.getAsBoolean()) node.setSingleThumbnail(img);
+                        });
                     }
                 } catch (Exception ignored) {
                 }
@@ -2006,13 +2215,15 @@ public class EditorWindow extends Stage implements PropertyContext {
             
             // 1. Manage Track Band (Background)
             String bandId = "track-band-" + track.timelineIndex;
-            Rectangle band = (Rectangle) tracksPane.lookup("#" + bandId);
+            Rectangle band = trackBands.get(track.timelineIndex);
+            if (band != null && band.getParent() != tracksPane) band = null; // was removed elsewhere
             if (band == null) {
                 band = new Rectangle(0, y, contentWidth, TRACK_HEIGHT);
                 band.setId(bandId);
                 band.getStyleClass().add(track.timelineIndex % 2 == 0 ? "track-band-even" : "track-band-odd");
                 band.setMouseTransparent(true); // Crucial: don't interrupt gestures
                 tracksPane.getChildren().add(0, band); // Add at back
+                trackBands.put(track.timelineIndex, band);
             } else {
                 band.setY(y);
                 band.setWidth(contentWidth);
@@ -2023,7 +2234,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             // 2. Manage Clips
             for (Clip clip : track.clips) {
                 ClipNode node;
-                if (clip.viewRef instanceof ClipNode && tracksPane.getChildren().contains((ClipNode) clip.viewRef)) {
+                if (clip.viewRef instanceof ClipNode && ((ClipNode) clip.viewRef).getParent() == tracksPane) { // O(1); contains() scanned every child
                     node = (ClipNode) clip.viewRef;
                 } else {
                     node = new ClipNode(clip, this);
@@ -2091,8 +2302,8 @@ public class EditorWindow extends Stage implements PropertyContext {
                 // 3. Manage Transitions
                 renderTransitionCubeIfNeededStable(track, clip, activeNodes);
                 
-                // Start thumbnail generation (ClipNode handles internal debounce via width listener)
-                generateThumbnailsForNode(node);
+                // Regenerates only if this clip is near the viewport and what it shows changed
+                ensureThumbnails(node);
             }
         }
 
@@ -2100,6 +2311,8 @@ public class EditorWindow extends Stage implements PropertyContext {
         // We exclude playhead overlay components if they are in the same pane
         // (But in this app, playhead is in a separate Pane, so we're safe)
         tracksPane.getChildren().removeIf(n -> !activeNodes.contains(n));
+        trackBands.values().removeIf(n -> !activeNodes.contains(n));
+        transitionCubes.values().removeIf(n -> !activeNodes.contains(n));
 
         // Rebuild TimelineRenderer
         if (timelineRenderer != null) {
@@ -2139,7 +2352,8 @@ public class EditorWindow extends Stage implements PropertyContext {
         double cubeY = trackY + (TRACK_HEIGHT / 2.0) - (TRANSITION_CUBE_SIZE / 2.0);
 
         String cubeId = "transition-cube-" + clip.hashCode();
-        Rectangle cube = (Rectangle) tracksPane.lookup("#" + cubeId);
+        Rectangle cube = transitionCubes.get(clip);
+        if (cube != null && cube.getParent() != tracksPane) cube = null;
         if (cube == null) {
             cube = new Rectangle(cubeX, cubeY, TRANSITION_CUBE_SIZE, TRANSITION_CUBE_SIZE);
             cube.setId(cubeId);
@@ -2162,6 +2376,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                 e.consume();
             });
             tracksPane.getChildren().add(cube);
+            transitionCubes.put(clip, cube);
         } else {
             cube.setX(cubeX);
             cube.setY(cubeY);

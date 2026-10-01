@@ -43,6 +43,17 @@ public class ClipNode extends Pane {
     private final Label   timecodeLabel;
     private final Rectangle selBorder;
     
+    /**
+     * Identifies what the current thumbnails / waveform were generated for (tile count, trim,
+     * duration, zoom for waveforms ...). EditorWindow only regenerates when this changes, so a
+     * zoom or an unrelated edit no longer re-decodes every clip. Volatile: background thumbnail
+     * jobs read it to notice they have become stale.
+     */
+    private volatile String thumbSignature;
+    /** Scale the keyframe knots were last laid out with; their drag maths must use the CURRENT one. */
+    private float keyframePps = 100f;
+    private double lastTileWidth = -1, lastTileHeight = -1;
+
     private java.util.function.Consumer<Keyframe> onKeyframeClicked;
     private Runnable onKeyframesModified;
     public interface KeyframeMoveHandler { void onKeyframeMoved(Keyframe kf, float oldTime, float newTime); }
@@ -189,6 +200,17 @@ public class ClipNode extends Pane {
         singleImageOverlay.setVisible(true);
     }
 
+    /** Tile count implied by the assigned size (same formula as {@link #refreshThumbnails()}). */
+    public int computeTileCount() {
+        double w = getPrefWidth() > 0 ? getPrefWidth() : getWidth();
+        double h = getPrefHeight() > 0 ? getPrefHeight() : getHeight();
+        if (w <= 0 || h <= 0) return 0;
+        return (int) Math.ceil(w / (h * THUMB_ASPECT)) + 1;
+    }
+
+    public String getThumbSignature() { return thumbSignature; }
+    public void setThumbSignature(String signature) { this.thumbSignature = signature; }
+
     /** Number of currently rendered thumbnail tiles. */
     public int getTileCount() {
         if (thumbnailRow.getChildren().isEmpty()) refreshThumbnails();
@@ -329,6 +351,7 @@ public class ClipNode extends Pane {
      * Called by EditorWindow after any keyframe add/remove and on zoom changes.
      */
     public void updateKeyframes(float pixelsPerSecond) {
+        keyframePps = pixelsPerSecond;
         // Remove existing knots first
         clearKeyframeKnots();
 
@@ -392,7 +415,7 @@ public class ClipNode extends Pane {
                 
                 // Update keyframe time temporarily
                 double newCx = newLayoutX + knotSize / 2.0;
-                double newLocalTime = newCx / pixelsPerSecond;
+                double newLocalTime = newCx / keyframePps; // current scale, even after a zoom that only repositioned the knots
                 kf.setLocalTime((float) newLocalTime);
                 
                 e.consume();
@@ -420,6 +443,20 @@ public class ClipNode extends Pane {
         }
     }
 
+    /**
+     * Zoom-time update: moves the existing knots to the new scale instead of destroying and
+     * recreating every knot (and its handlers) for every clip on every zoom step.
+     */
+    public void relayoutKeyframeKnots(float pixelsPerSecond) {
+        keyframePps = pixelsPerSecond;
+        double knotSize = 10.0;
+        for (javafx.scene.Node n : getChildren()) {
+            if (n instanceof Rectangle r && r.getUserData() instanceof Keyframe kf) {
+                r.setLayoutX(kf.getLocalTime() * pixelsPerSecond - knotSize / 2.0);
+            }
+        }
+    }
+
     /** Remove all keyframe diamond knots (Rectangle nodes tagged with a Keyframe). */
     public void clearKeyframeKnots() {
         List<javafx.scene.Node> toRemove = new ArrayList<>();
@@ -438,15 +475,18 @@ public class ClipNode extends Pane {
      * Called automatically on zoom (width change).
      */
     public void refreshThumbnails() {
-        double w = getWidth();
-        double h = getHeight();
-        if (w <= 0) w = getPrefWidth();
-        if (h <= 0) h = getPrefHeight();
+        // Prefer the size the timeline assigned (pref == min == max) over the laid-out size: it is
+        // correct immediately, whereas getWidth() lags a layout pass behind after a zoom.
+        double w = getPrefWidth() > 0 ? getPrefWidth() : getWidth();
+        double h = getPrefHeight() > 0 ? getPrefHeight() : getHeight();
         if (w <= 0 || h <= 0) return;
 
         double tw      = h * THUMB_ASPECT;                    // tile pixel width
         int    needed  = (int) Math.ceil(w / tw) + 1;         // +1 for partial right tile
         int    current = thumbnailRow.getChildren().size();
+        if (needed == current && tw == lastTileWidth && h == lastTileHeight) return; // nothing changed
+        lastTileWidth = tw;
+        lastTileHeight = h;
 
         if (needed > current) {
             for (int i = current; i < needed; i++) {
