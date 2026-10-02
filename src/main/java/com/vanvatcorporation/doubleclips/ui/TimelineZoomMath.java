@@ -25,21 +25,27 @@ public final class TimelineZoomMath {
     }
 
     /**
-     * The timeline time under the cursor (or at time 0, see below) plus where on screen it is,
-     * captured BEFORE the zoom so that it can be put back at the same screen position after.
+     * Picks the point that must stay still on screen while zooming, captured BEFORE the zoom so it
+     * can be put back at the same screen position after: the playhead.
+     * <p>
+     * The playhead is the right reference because zooming never moves it in time - only the
+     * content around it stretches or shrinks - so it holds steady while everything else
+     * (including whatever is under the mouse) changes position relative to it.
+     * <p>
+     * If the playhead is scrolled out of view there is no visible point to hold still, and
+     * anchoring on an off-screen point would make the view fly away from what the user is looking
+     * at. In that case the centre of the view is used instead.
      *
-     * @param cursorViewportX cursor x relative to the viewport's left edge, or NaN when the
-     *                        cursor is not over the timeline (zoom slider, keyboard ...)
-     * @return {anchorTimeSeconds, anchorViewportX}. With no cursor the anchor is time 0 held
-     *         wherever it currently is on screen (viewport x = -scrollPx), which means the
-     *         scroll offset stays exactly as it is and the content grows/shrinks from 0s.
+     * @return {anchorTimeSeconds, anchorViewportX}, x measured from the viewport's left edge
      */
-    public static double[] captureAnchor(double cursorViewportX, double pixelsPerSecond, double scrollPx) {
-        if (Double.isNaN(cursorViewportX)) {
-            return new double[]{0.0, -scrollPx};
+    public static double[] captureAnchorAtPlayhead(double playheadTimeSeconds, double pixelsPerSecond,
+                                                    double scrollPx, double viewportWidth) {
+        double playheadX = playheadTimeSeconds * pixelsPerSecond - scrollPx;
+        if (viewportWidth <= 0 || (playheadX >= 0 && playheadX <= viewportWidth)) {
+            return new double[]{playheadTimeSeconds, playheadX};
         }
-        double contentX = cursorViewportX + scrollPx;
-        return new double[]{contentX / pixelsPerSecond, cursorViewportX};
+        double centerX = viewportWidth / 2.0;
+        return new double[]{(scrollPx + centerX) / pixelsPerSecond, centerX};
     }
 
     /**

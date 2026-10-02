@@ -1468,8 +1468,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         zoomSlider.getStyleClass().add("timeline-zoom-slider");
         zoomSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
             if (suppressZoomSliderListener) return; // our own sync after a cursor zoom
-            // The slider has no cursor position: zoom from 0s (the scroll offset stays as it is).
-            requestZoom(newVal.doubleValue(), Double.NaN);
+            requestZoom(newVal.doubleValue());
         });
 
         Button keyframeBtn = buildToolBtn(MaterialDesignD.DIAMOND);
@@ -1693,10 +1692,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         rulerScrollPane.hvalueProperty().bindBidirectional(tracksScrollPane.hvalueProperty());
 
         // Zoom Gestures
-        // Both gestures happen with the cursor over the ruler/tracks, so they zoom around the
-        // cursor: the moment under it stays under it.
+        // Only handled while the cursor is over the ruler/tracks (the filter is on that node), and
+        // they zoom around the playhead - see requestZoom.
         rulerAndTracks.addEventFilter(javafx.scene.input.ZoomEvent.ZOOM, e -> {
-            requestZoomFactor(e.getZoomFactor(), e.getSceneX());
+            requestZoomFactor(e.getZoomFactor());
             e.consume();
         });
 
@@ -1708,7 +1707,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                 double zoomFactor = 1.0 + (delta / 400.0);
 
                 if (zoomFactor != 1.0 && zoomFactor > 0) {
-                    requestZoomFactor(zoomFactor, e.getSceneX());
+                    requestZoomFactor(zoomFactor);
                 }
                 e.consume(); // prevent natural scrolling while zooming
             }
@@ -1728,28 +1727,30 @@ public class EditorWindow extends Stage implements PropertyContext {
     //  (one process per tile), waveform renders and image loads for EVERY clip - including ones
     //  far off-screen - whose results then flooded the FX thread with Platform.runLater calls.
     //
-    //  Now a zoom only re-lays-out geometry (ruler, clip x/width, knots, transition cubes), at
-    //  most once per frame. Thumbnails are regenerated once the zoom settles, only for clips near
+    //  Now a zoom (always anchored on the playhead) only re-lays-out geometry (ruler, clip x/width,
+    //  knots, transition cubes), at most once per frame. Thumbnails are regenerated once the zoom settles, only for clips near
     //  the viewport, and only when what they show actually changed (see ensureThumbnails).
     // ═════════════════════════════════════════════════════════════════════════
 
     /** Multiplies the zoom by {@code factor} (relative to any zoom still waiting to be applied). */
-    private void requestZoomFactor(double factor, double sceneX) {
-        double base = zoomTargetPps > 0 ? zoomTargetPps : pixelsPerSecond;
-        requestZoom(base * factor, cursorViewportX(sceneX));
+    private void requestZoomFactor(double factor) {
+        requestZoom((zoomTargetPps > 0 ? zoomTargetPps : pixelsPerSecond) * factor);
     }
 
     /**
-     * @param cursorViewportX cursor x relative to the tracks viewport's left edge, or NaN when
-     *                        the zoom did not come from over the timeline (zoom slider): then the
-     *                        anchor is 0s and the scroll offset is left exactly as it is.
+     * Zooms around the PLAYHEAD: zooming never changes the playhead's time, so it stays exactly where
+     * it is on screen while the rest of the timeline stretches or shrinks around it. (The mouse
+     * position is deliberately not used: whatever is under the cursor moves relative to the
+     * timeline as the zoom changes.) If the playhead is scrolled out of view, the centre of the
+     * view is held instead - see {@link TimelineZoomMath#captureAnchorAtPlayhead}.
      */
-    private void requestZoom(double targetPps, double cursorViewportX) {
+    private void requestZoom(double targetPps) {
         zoomTargetPps = TimelineZoomMath.clamp(targetPps, zoomSlider.getMin(), zoomSlider.getMax());
 
         // Captured from the logical state (pixelsPerSecond, hvalue, content width), which only
         // changes inside applyPendingZoom, so it stays valid even if layout hasn't caught up yet.
-        double[] anchor = TimelineZoomMath.captureAnchor(cursorViewportX, pixelsPerSecond, currentScrollPx());
+        double[] anchor = TimelineZoomMath.captureAnchorAtPlayhead(currentTime, pixelsPerSecond,
+                currentScrollPx(), tracksScrollPane.getViewportBounds().getWidth());
         zoomAnchorTime = anchor[0];
         zoomAnchorViewportX = anchor[1];
 
@@ -1825,13 +1826,6 @@ public class EditorWindow extends Stage implements PropertyContext {
         double contentWidth = tracksPane.getPrefWidth() > 0 ? tracksPane.getPrefWidth() : tracksPane.getWidth();
         return TimelineZoomMath.scrollPx(tracksScrollPane.getHvalue(), contentWidth,
                 tracksScrollPane.getViewportBounds().getWidth());
-    }
-
-    /** Scene x -> x relative to the tracks viewport's left edge (NaN stays NaN). */
-    private double cursorViewportX(double sceneX) {
-        if (Double.isNaN(sceneX)) return Double.NaN;
-        javafx.geometry.Point2D origin = tracksScrollPane.localToScene(0, 0);
-        return sceneX - origin.getX() - tracksScrollPane.getInsets().getLeft();
     }
 
     // ── Thumbnails: only when needed, only near the viewport ─────────────────
