@@ -171,9 +171,17 @@ public class ClipNode extends Pane {
 
     /** Select / deselect visual highlight. */
     public void setSelected(boolean selected) {
+        setSelected(selected, selected);
+    }
+
+    /**
+     * @param showTrimHandles false for the non-primary clips of a multi-selection: they get the border
+     *                        but not the trim handles (trimming acts on one clip at a time).
+     */
+    public void setSelected(boolean selected, boolean showTrimHandles) {
         selBorder.setStroke(selected ? Color.web("#00D4FF") : Color.TRANSPARENT);
-        leftHandle.setVisible(selected);
-        rightHandle.setVisible(selected);
+        leftHandle.setVisible(selected && showTrimHandles);
+        rightHandle.setVisible(selected && showTrimHandles);
         if (selected) toFront();
     }
 

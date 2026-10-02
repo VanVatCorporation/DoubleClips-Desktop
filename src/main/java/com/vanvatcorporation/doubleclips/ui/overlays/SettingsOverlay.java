@@ -21,6 +21,8 @@ public class SettingsOverlay extends StackPane {
 
     private final Consumer<Void> onClose;
     private final AppSettings settings = AppSettings.getInstance();
+    /** Every shortcut row by its title, so a new shortcut can be checked against the others. */
+    private final java.util.Map<String, javafx.beans.property.StringProperty> keybindRows = new java.util.LinkedHashMap<>();
 
     public SettingsOverlay(Consumer<Void> onClose) {
         this.onClose = onClose;
@@ -175,49 +177,110 @@ public class SettingsOverlay extends StackPane {
         keyBtn.getStyleClass().add("button-transparent");
         keyBtn.setStyle("-fx-border-color: -color-border-default; -fx-border-radius: 4;");
         
+        keybindRows.put(title, bindProperty);
+
         keyBtn.setOnAction(e -> {
             keyBtn.setText("Press key...");
-            keyBtn.addEventFilter(KeyEvent.ANY, new EventHandler<KeyEvent>() {
-                @Override
-                public void handle(KeyEvent ke) {
-                    ke.consume();
-                    if (ke.getEventType() != KeyEvent.KEY_PRESSED) return;
+            settings.setRecordingKeybind(true); // the editor must not react to this key press
+            keyBtn.requestFocus();
 
-                    KeyCode code = ke.getCode();
-                    if (code == KeyCode.ESCAPE) {
-                        keyBtn.setText(bindProperty.get());
-                        keyBtn.removeEventFilter(KeyEvent.ANY, this);
-                        return;
-                    }
+            // Both the key filter and the focus listener must be able to undo each other, hence the holders.
+            final EventHandler<KeyEvent>[] keyFilter = new EventHandler[1];
+            final javafx.beans.value.ChangeListener<Boolean>[] focusListener = new javafx.beans.value.ChangeListener[1];
+            final Runnable finish = () -> {
+                settings.setRecordingKeybind(false);
+                keyBtn.removeEventFilter(KeyEvent.ANY, keyFilter[0]);
+                keyBtn.focusedProperty().removeListener(focusListener[0]);
+            };
 
-                    String combo = "";
-                    if (ke.isControlDown() && code != KeyCode.CONTROL) {
-                        combo += "Control+";
-                    }
-                    if (ke.isAltDown() && code != KeyCode.ALT) {
-                        combo += "Alt+";
-                    }
-                    if (ke.isShiftDown() && code != KeyCode.SHIFT) {
-                        combo += "Shift+";
-                    }
-                    if (ke.isMetaDown() && code != KeyCode.META && code != KeyCode.COMMAND && code != KeyCode.WINDOWS) {
-                        combo += "Meta+";
-                    }
+            keyFilter[0] = ke -> {
+                ke.consume();
+                if (ke.getEventType() != KeyEvent.KEY_PRESSED) return;
 
-                    if (!code.isModifierKey()) {
-                        combo += code.name();
+                KeyCode code = ke.getCode();
+                if (code == KeyCode.ESCAPE) {
+                    keyBtn.setText(formatForDisplay(bindProperty.get()));
+                    finish.run();
+                    return;
+                }
+
+                String combo = "";
+                if (ke.isControlDown() && code != KeyCode.CONTROL) {
+                    combo += "Control+";
+                }
+                if (ke.isAltDown() && code != KeyCode.ALT) {
+                    combo += "Alt+";
+                }
+                if (ke.isShiftDown() && code != KeyCode.SHIFT) {
+                    combo += "Shift+";
+                }
+                if (ke.isMetaDown() && code != KeyCode.META && code != KeyCode.COMMAND && code != KeyCode.WINDOWS) {
+                    combo += "Meta+";
+                }
+
+                if (!code.isModifierKey()) {
+                    combo += code.name();
+
+                    // Two actions on one shortcut would make one of them unreachable: refuse and say which.
+                    String clash = findConflict(combo, bindProperty);
+                    if (clash != null) {
+                        keyBtn.setText("Used by " + clash);
+                        javafx.animation.PauseTransition back = new javafx.animation.PauseTransition(javafx.util.Duration.seconds(1.6));
+                        back.setOnFinished(ev -> keyBtn.setText(formatForDisplay(bindProperty.get())));
+                        back.play();
+                    } else {
                         bindProperty.set(combo);
                         keyBtn.setText(formatForDisplay(combo));
-                        keyBtn.removeEventFilter(KeyEvent.ANY, this);
                     }
+                    finish.run();
                 }
-            });
+            };
+            focusListener[0] = (obs, was, now) -> {
+                if (!now) { // clicked elsewhere: stop recording so the editor shortcuts come back
+                    keyBtn.setText(formatForDisplay(bindProperty.get()));
+                    finish.run();
+                }
+            };
+            keyBtn.addEventFilter(KeyEvent.ANY, keyFilter[0]);
+            keyBtn.focusedProperty().addListener(focusListener[0]);
         });
-        
+
         bindProperty.addListener((obs, oldVal, newVal) -> keyBtn.setText(formatForDisplay(newVal)));
         
         row.getChildren().addAll(icon, textVBox, spacer, keyBtn);
         return row;
+    }
+
+    /** Title of the action that already uses {@code combo} (ignoring the property being edited), or null. */
+    private String findConflict(String combo, javafx.beans.property.StringProperty editing) {
+        String wanted = canonicalCombo(combo);
+        for (java.util.Map.Entry<String, javafx.beans.property.StringProperty> en : keybindRows.entrySet()) {
+            if (en.getValue() == editing) continue;
+            if (canonicalCombo(en.getValue().get()).equals(wanted)) return en.getKey();
+        }
+        return null;
+    }
+
+    /** "Shortcut+Shift+Z", "Cmd+Shift+Z" and "Meta+Shift+Z" (on a Mac) are the same key: compare them as one. */
+    private static String canonicalCombo(String combo) {
+        if (combo == null) return "";
+        boolean mac = System.getProperty("os.name").toLowerCase().contains("mac");
+        java.util.List<String> mods = new java.util.ArrayList<>();
+        String key = "";
+        for (String part : combo.split("\\+")) {
+            String p = part.trim();
+            if (p.isEmpty()) continue;
+            switch (p.toLowerCase()) {
+                case "shortcut": mods.add(mac ? "meta" : "control"); break;
+                case "ctrl": case "control": mods.add("control"); break;
+                case "cmd": case "command": case "meta": mods.add("meta"); break;
+                case "alt": mods.add("alt"); break;
+                case "shift": mods.add("shift"); break;
+                default: key = p.toUpperCase();
+            }
+        }
+        java.util.Collections.sort(mods);
+        return String.join("+", mods) + "+" + key;
     }
 
     private String formatForDisplay(String combo) {

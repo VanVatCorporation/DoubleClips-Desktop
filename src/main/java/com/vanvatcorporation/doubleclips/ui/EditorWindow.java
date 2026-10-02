@@ -1,5 +1,9 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 import com.vanvatcorporation.doubleclips.AudioUtils;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
@@ -85,7 +89,10 @@ public class EditorWindow extends Stage implements PropertyContext {
     private int thumbnailAudioBarWidth = 1;
     private int thumbnailAudioBarGap = 0;
 
+    /** The "primary" selected clip: the one the properties panel edits (the last one clicked). Always a member of selectedClips, or null. */
     private Clip selectedClip;
+    /** Every selected clip (Ctrl/Cmd+click adds to it). Insertion-ordered. */
+    private final java.util.Set<Clip> selectedClips = new java.util.LinkedHashSet<>();
     private Track selectedTrack;
     private Clip selectedTransitionSourceClip; // clip whose endTransition cube was clicked
 
@@ -138,11 +145,29 @@ public class EditorWindow extends Stage implements PropertyContext {
         double dragOffsetX; // mouse X offset from clip left edge
         boolean dragging; // becomes true once mouse moves > 0 px
         boolean isNewClip; // true if dragging from media browser
+
+        // ── Group drag (existing clips) ─────────────────────────────────────
+        /** Every clip that moves with this drag (the selection), including {@link #clip}. Empty for media-browser drags. */
+        final List<Clip> members = new ArrayList<>();
+        /** One semi-transparent ghost per member. {@link #ghost} is the grabbed clip's. */
+        final java.util.Map<Clip, ClipNode> ghosts = new java.util.IdentityHashMap<>();
+        int anchorTrack;          // track of the grabbed clip when the drag started
+        int minMemberTrack, maxMemberTrack;
+        float minMemberStart;     // earliest start among members (seconds)
+        double groupWidthPx;      // from the earliest start to the latest end, at the zoom the drag started with
+        double deltaPx;           // current horizontal shift of the whole group
+        int deltaTrack;           // current vertical shift of the whole group, in tracks
+        /** Pressed (without Ctrl/Cmd) on a clip that was already part of a multi-selection: a plain click should collapse to it. */
+        boolean collapseOnRelease;
     }
+
+    /** Dashed "this track will be created" rows shown below the last track while a group is dragged past it. */
+    private final java.util.Map<Integer, Rectangle> phantomBands = new java.util.HashMap<>();
 
     private final DragContext activeDrag = new DragContext();
     private AnimationTimer edgeScrollTimer;
-    private double edgeScrollVelocity = 0; // pixels per frame to scroll
+    private double edgeScrollVelocity = 0; // pixels per frame to scroll horizontally
+    private double edgeScrollVelocityY = 0; // pixels per frame to scroll vertically
     private double lastDragSceneX;
     private double lastDragSceneY;
 
@@ -207,97 +232,33 @@ public class EditorWindow extends Stage implements PropertyContext {
         scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
             if (event.getTarget() instanceof javafx.scene.control.TextInputControl)
                 return;
+            // Settings is recording a new shortcut: it needs the raw key press, not the action bound to it.
+            if (AppSettings.getInstance().isRecordingKeybind())
+                return;
 
-            String deleteBindingStr = sanitizeKeybind(AppSettings.getInstance().getDeleteKeybind());
-            String selectAllBindingStr = sanitizeKeybind(AppSettings.getInstance().getSelectAllKeybind());
-            String undoBindingStr = sanitizeKeybind(AppSettings.getInstance().getUndoKeybind());
-            String redoBindingStr = sanitizeKeybind(AppSettings.getInstance().getRedoKeybind());
-            String togglePlayBindingStr = sanitizeKeybind(AppSettings.getInstance().getTogglePlayKeybind());
-            String copyBindingStr = sanitizeKeybind(AppSettings.getInstance().getCopyKeybind());
-            String pasteBindingStr = sanitizeKeybind(AppSettings.getInstance().getPasteKeybind());
+            AppSettings settings = AppSettings.getInstance();
 
-            boolean deleteMatched = false;
-            try {
-                if (javafx.scene.input.KeyCombination.valueOf(deleteBindingStr).match(event))
-                    deleteMatched = true;
-            } catch (Exception e) {
-                if (event.getCode().name().equalsIgnoreCase(deleteBindingStr))
-                    deleteMatched = true;
-            }
-
-            boolean selectAllMatched = false;
-            try {
-                if (javafx.scene.input.KeyCombination.valueOf(selectAllBindingStr).match(event))
-                    selectAllMatched = true;
-            } catch (Exception e) {
-                if (event.getCode().name().equalsIgnoreCase(selectAllBindingStr))
-                    selectAllMatched = true;
-            }
-
-            boolean undoMatched = false;
-            try {
-                if (javafx.scene.input.KeyCombination.valueOf(undoBindingStr).match(event))
-                    undoMatched = true;
-            } catch (Exception e) {
-            }
-
-            boolean redoMatched = false;
-            try {
-                if (javafx.scene.input.KeyCombination.valueOf(redoBindingStr).match(event))
-                    redoMatched = true;
-            } catch (Exception e) {
-            }
-
-            boolean togglePlayMatched = false;
-            try {
-                if (javafx.scene.input.KeyCombination.valueOf(togglePlayBindingStr).match(event))
-                    togglePlayMatched = true;
-            } catch (Exception e) {
-                if (event.getCode().name().equalsIgnoreCase(togglePlayBindingStr))
-                    togglePlayMatched = true;
-            }
-
-            boolean copyMatched = false;
-            try {
-                if (javafx.scene.input.KeyCombination.valueOf(copyBindingStr).match(event))
-                    copyMatched = true;
-            } catch (Exception e) {
-                if (event.getCode().name().equalsIgnoreCase(copyBindingStr))
-                    copyMatched = true;
-            }
-
-            boolean pasteMatched = false;
-            try {
-                if (javafx.scene.input.KeyCombination.valueOf(pasteBindingStr).match(event))
-                    pasteMatched = true;
-            } catch (Exception e) {
-                if (event.getCode().name().equalsIgnoreCase(pasteBindingStr))
-                    pasteMatched = true;
-            }
-
-            if (undoMatched) {
+            if (matchesKeybind(settings.getUndoKeybind(), event)) {
                 historyManager.undo();
                 event.consume();
-            } else if (redoMatched) {
+            } else if (matchesKeybind(settings.getRedoKeybind(), event)) {
                 historyManager.redo();
                 event.consume();
-            } else if (deleteMatched || (event.getCode() == javafx.scene.input.KeyCode.BACK_SPACE
-                    && deleteBindingStr.equalsIgnoreCase("DELETE"))) {
+            } else if (matchesKeybind(settings.getDeleteKeybind(), event)
+                    || (event.getCode() == javafx.scene.input.KeyCode.BACK_SPACE
+                    && sanitizeKeybind(settings.getDeleteKeybind()).equalsIgnoreCase("DELETE"))) {
                 handleDelete();
                 event.consume();
-            } else if (selectAllMatched) {
-                System.out.println("Select All triggered - Multiple selection not yet supported by data model");
+            } else if (matchesKeybind(settings.getSelectAllKeybind(), event)) {
+                selectAllClips();
                 event.consume();
-            }
-            else if (togglePlayMatched) {
+            } else if (matchesKeybind(settings.getTogglePlayKeybind(), event)) {
                 triggerPlayAction();
                 event.consume();
-            }
-            else if (copyMatched) {
+            } else if (matchesKeybind(settings.getCopyKeybind(), event)) {
                 handleCopy();
                 event.consume();
-            }
-            else if (pasteMatched) {
+            } else if (matchesKeybind(settings.getPasteKeybind(), event)) {
                 handlePaste();
                 event.consume();
             }
@@ -359,20 +320,32 @@ public class EditorWindow extends Stage implements PropertyContext {
         edgeScrollTimer = new AnimationTimer() {
             @Override
             public void handle(long now) {
-                if (edgeScrollVelocity == 0 || activeDrag.ghost == null) {
+                if ((edgeScrollVelocity == 0 && edgeScrollVelocityY == 0) || activeDrag.ghost == null) {
                     stop();
                     return;
                 }
 
-                double contentWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
-                double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
-                double maxScrollX = contentWidth - viewportWidth;
-                if (maxScrollX <= 0) return;
+                if (edgeScrollVelocity != 0) {
+                    double contentWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
+                    double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+                    double maxScrollX = contentWidth - viewportWidth;
+                    if (maxScrollX > 0) {
+                        double currentScrollX = tracksScrollPane.getHvalue() * maxScrollX;
+                        double newScrollX = Math.max(0, Math.min(maxScrollX, currentScrollX + edgeScrollVelocity));
+                        tracksScrollPane.setHvalue(newScrollX / maxScrollX);
+                    }
+                }
 
-                double currentScrollX = tracksScrollPane.getHvalue() * maxScrollX;
-                double newScrollX = Math.max(0, Math.min(maxScrollX, currentScrollX + edgeScrollVelocity));
-
-                tracksScrollPane.setHvalue(newScrollX / maxScrollX);
+                if (edgeScrollVelocityY != 0) {
+                    double contentHeight = tracksScrollPane.getContent().getBoundsInLocal().getHeight();
+                    double viewportHeight = tracksScrollPane.getViewportBounds().getHeight();
+                    double maxScrollY = contentHeight - viewportHeight;
+                    if (maxScrollY > 0) {
+                        double currentScrollY = tracksScrollPane.getVvalue() * maxScrollY;
+                        double newScrollY = Math.max(0, Math.min(maxScrollY, currentScrollY + edgeScrollVelocityY));
+                        tracksScrollPane.setVvalue(newScrollY / maxScrollY);
+                    }
+                }
 
                 // Keep ghost in sync with mouse scene position as we scroll
                 updateActiveDragGhost(lastDragSceneX, lastDragSceneY);
@@ -384,19 +357,92 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (activeDrag.ghost == null) return;
 
         javafx.geometry.Point2D local = tracksPane.sceneToLocal(sceneX, sceneY);
-        double rawX = local.getX() - activeDrag.dragOffsetX;
-        double clampedX = Math.max(0, rawX);
 
-        double ghostW = activeDrag.ghost.getPrefWidth();
-        double snappedX = applySnap(clampedX, ghostW, activeDrag.currentTrackIdx);
-        activeDrag.ghost.setLayoutX(snappedX);
+        // Media-browser drag: a single new clip, always lands on an existing track.
+        if (activeDrag.isNewClip || activeDrag.members.isEmpty()) {
+            double rawX = local.getX() - activeDrag.dragOffsetX;
+            double clampedX = Math.max(0, rawX);
 
-        int newTrackIdx = trackIdxFromLocalY(local.getY());
-        if (newTrackIdx != activeDrag.currentTrackIdx) {
-            activeDrag.currentTrackIdx = newTrackIdx;
-            double newY = newTrackIdx * (TRACK_HEIGHT + TRACK_SPACING) + 3;
-            activeDrag.ghost.setLayoutY(newY);
+            double ghostW = activeDrag.ghost.getPrefWidth();
+            double snappedX = applySnap(clampedX, ghostW, activeDrag.currentTrackIdx);
+            activeDrag.ghost.setLayoutX(snappedX);
+
+            int newTrackIdx = trackIdxFromLocalY(local.getY());
+            if (newTrackIdx != activeDrag.currentTrackIdx) {
+                activeDrag.currentTrackIdx = newTrackIdx;
+                double newY = newTrackIdx * (TRACK_HEIGHT + TRACK_SPACING) + 3;
+                activeDrag.ghost.setLayoutY(newY);
+            }
+            return;
         }
+
+        // Existing clips: the whole selection moves as one group (see ClipGroupMath for the rules).
+        double rowH = TRACK_HEIGHT + TRACK_SPACING;
+        double groupLeftPx = activeDrag.minMemberStart * pixelsPerSecond;
+
+        // Horizontal: where the grabbed clip wants to be, applied to the whole group, never before time 0.
+        double wantedGrabbedX = local.getX() - activeDrag.dragOffsetX;
+        double dxPx = wantedGrabbedX - activeDrag.clip.startTime * pixelsPerSecond;
+        dxPx = ClipGroupMath.clampTimeDeltaPx(dxPx, groupLeftPx);
+
+        // Vertical: relative to the track the grabbed clip started on. Stops at the top, may run past the bottom.
+        int pointerTrack = ClipGroupMath.rawTrackFromY(local.getY(), rowH);
+        int dTrack = ClipGroupMath.clampTrackDelta(pointerTrack - activeDrag.anchorTrack,
+                activeDrag.minMemberTrack, activeDrag.maxMemberTrack, timeline.tracks.size());
+
+        // Snap the group's outer edges (not just the grabbed clip) to the playhead / neighbouring clips.
+        double snappedLeft = applySnap(groupLeftPx + dxPx, activeDrag.groupWidthPx, activeDrag.anchorTrack + dTrack);
+        dxPx = ClipGroupMath.clampTimeDeltaPx(snappedLeft - groupLeftPx, groupLeftPx);
+
+        activeDrag.deltaPx = dxPx;
+        activeDrag.deltaTrack = dTrack;
+        activeDrag.currentTrackIdx = activeDrag.anchorTrack + dTrack;
+
+        for (Clip m : activeDrag.members) {
+            ClipNode g = activeDrag.ghosts.get(m);
+            if (g == null) continue;
+            g.setLayoutX(m.startTime * pixelsPerSecond + dxPx);
+            g.setLayoutY((m.trackIndex + dTrack) * rowH + 3);
+        }
+
+        updatePhantomTracks(ClipGroupMath.lowestTrackAfterMove(activeDrag.maxMemberTrack, dTrack));
+    }
+
+    /**
+     * While a group is dragged past the last track, show the blank rows it would land on (and make the
+     * scrollable area tall enough to see them). The real tracks are only created when the group is dropped.
+     */
+    private void updatePhantomTracks(int lowestTrack) {
+        double rowH = TRACK_HEIGHT + TRACK_SPACING;
+        int rows = Math.max(timeline.tracks.size(), lowestTrack + 1);
+        tracksPane.setPrefHeight(rows * rowH);
+
+        for (int i = timeline.tracks.size(); i < rows; i++) {
+            Rectangle band = phantomBands.get(i);
+            if (band == null || band.getParent() != tracksPane) {
+                band = new Rectangle(0, i * rowH, tracksPane.getPrefWidth(), TRACK_HEIGHT);
+                band.getStyleClass().add(i % 2 == 0 ? "track-band-even" : "track-band-odd");
+                band.setOpacity(0.45);
+                band.setMouseTransparent(true);
+                tracksPane.getChildren().add(0, band);
+                phantomBands.put(i, band);
+            } else {
+                band.setWidth(tracksPane.getPrefWidth());
+            }
+        }
+        // Rows the group no longer reaches (pointer moved back up) disappear again.
+        phantomBands.entrySet().removeIf(en -> {
+            if (en.getKey() >= rows || en.getKey() < timeline.tracks.size()) {
+                tracksPane.getChildren().remove(en.getValue());
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void clearPhantomTracks() {
+        for (Rectangle band : phantomBands.values()) tracksPane.getChildren().remove(band);
+        phantomBands.clear();
     }
 
     private void checkEdgeScroll(double sceneX, double sceneY) {
@@ -405,13 +451,16 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         if (activeDrag.ghost == null) {
             edgeScrollVelocity = 0;
+            edgeScrollVelocityY = 0;
             edgeScrollTimer.stop();
             return;
         }
 
         javafx.geometry.Point2D viewportPoint = tracksScrollPane.sceneToLocal(sceneX, sceneY);
         double vx = viewportPoint.getX();
+        double vy = viewportPoint.getY();
         double vw = tracksScrollPane.getViewportBounds().getWidth();
+        double vh = tracksScrollPane.getViewportBounds().getHeight();
 
         double threshold = 60.0;
         double maxSpeed = 12.0; // pixels per frame
@@ -419,15 +468,27 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (vx < threshold && vx > -threshold) { // Mouse is near left edge
             double intensity = (threshold - Math.max(0, vx)) / threshold;
             edgeScrollVelocity = -maxSpeed * intensity;
-            edgeScrollTimer.start();
         } else if (vx > vw - threshold && vx < vw + threshold) { // Mouse is near right edge
             double intensity = (threshold - Math.max(0, vw - vx)) / threshold;
             edgeScrollVelocity = maxSpeed * intensity;
-            edgeScrollTimer.start();
         } else {
             edgeScrollVelocity = 0;
-            edgeScrollTimer.stop();
         }
+
+        // Vertical: lets a group be dragged down to the blank rows below the last track
+        // (or back up) when the track list is taller than the viewport.
+        double thresholdY = 40.0;
+        double maxSpeedY = 10.0;
+        if (vy < thresholdY && vy > -thresholdY) {
+            edgeScrollVelocityY = -maxSpeedY * (thresholdY - Math.max(0, vy)) / thresholdY;
+        } else if (vy > vh - thresholdY && vy < vh + thresholdY) {
+            edgeScrollVelocityY = maxSpeedY * (thresholdY - Math.max(0, vh - vy)) / thresholdY;
+        } else {
+            edgeScrollVelocityY = 0;
+        }
+
+        if (edgeScrollVelocity != 0 || edgeScrollVelocityY != 0) edgeScrollTimer.start();
+        else edgeScrollTimer.stop();
     }
 
     private void triggerPlayAction()
@@ -566,6 +627,17 @@ public class EditorWindow extends Stage implements PropertyContext {
         int s = (int) (seconds % 60);
         int f = (int) ((seconds % 1) * 30); // 30fps assumption for display
         return String.format("%02d:%02d:%02d:%02d", h, m, s, f);
+    }
+
+    /** True when {@code event} is the shortcut stored in {@code binding} ("Shortcut+C", "DELETE", "Meta+Shift+Z" ...). */
+    private boolean matchesKeybind(String binding, javafx.scene.input.KeyEvent event) {
+        String b = sanitizeKeybind(binding);
+        if (b.isEmpty()) return false;
+        try {
+            return javafx.scene.input.KeyCombination.valueOf(b).match(event);
+        } catch (Exception e) {
+            return event.getCode().name().equalsIgnoreCase(b);
+        }
     }
 
     private String sanitizeKeybind(String keybind) {
@@ -2202,6 +2274,8 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         // Use a set to track nodes that should remain in the pane
         java.util.Set<javafx.scene.Node> activeNodes = new java.util.HashSet<>();
+        // Clips that exist after this refresh: used to drop deleted clips from the selection
+        java.util.Set<Clip> liveClips = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
         for (Track track : timeline.tracks) {
             // Add track band
@@ -2287,7 +2361,8 @@ public class EditorWindow extends Stage implements PropertyContext {
                 node.setMinHeight(clipH);
                 node.setMaxHeight(clipH);
 
-                node.setSelected(selectedClip == clip);
+                node.setSelected(selectedClips.contains(clip), clip == selectedClip);
+                liveClips.add(clip);
                 node.updateKeyframes(pixelsPerSecond);
                 node.setupTrimInteractions(pixelsPerSecond);
                 
@@ -2305,6 +2380,16 @@ public class EditorWindow extends Stage implements PropertyContext {
         // We exclude playhead overlay components if they are in the same pane
         // (But in this app, playhead is in a separate Pane, so we're safe)
         tracksPane.getChildren().removeIf(n -> !activeNodes.contains(n));
+
+        // A delete / undo can remove clips that were selected: forget them so nothing acts on a ghost.
+        boolean selectionChanged = selectedClips.removeIf(c -> !liveClips.contains(c));
+        if (selectedClip != null && !selectedClips.contains(selectedClip)) {
+            selectedClip = null;
+            for (Clip c : selectedClips) selectedClip = c;
+            selectionChanged = true;
+        }
+        if (selectionChanged) updatePropertiesPane();
+
         trackBands.values().removeIf(n -> !activeNodes.contains(n));
         transitionCubes.values().removeIf(n -> !activeNodes.contains(n));
 
@@ -2365,7 +2450,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             Clip finalClip = clip;
             cube.setOnMouseClicked(e -> {
                 selectedTransitionSourceClip = finalClip;
-                selectedClip = null;
+                clearClipSelection();
                 updatePropertiesPane();
                 e.consume();
             });
@@ -2516,16 +2601,42 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clip clip = node.getContainerClip();
 
         node.setOnMousePressed(e -> {
-            // Select on press (feels snappier than waiting for click)
-            selectClip(clip);
+            activeDrag.collapseOnRelease = false;
+            activeDrag.members.clear();
+            activeDrag.ghosts.clear();
+
+            if (e.isShortcutDown()) {
+                // Ctrl (Win/Linux) / Cmd (macOS) + click: add to / remove from the selection.
+                toggleClipSelection(clip);
+                if (!selectedClips.contains(clip)) {
+                    // It was just removed from the selection: nothing to drag.
+                    activeDrag.clip = null;
+                    activeDrag.dragging = false;
+                    activeDrag.ghost = null;
+                    e.consume();
+                    return;
+                }
+            } else if (!selectedClips.contains(clip)) {
+                // Plain click on an unselected clip: it becomes the only selection.
+                selectClip(clip);
+            } else {
+                // Plain press on a clip that is already selected: keep the whole selection so it can be dragged
+                // as a group. If it turns out to be a click, not a drag, it collapses to this clip on release.
+                makePrimary(clip);
+                activeDrag.collapseOnRelease = selectedClips.size() > 1;
+            }
 
             // Prepare drag context
             activeDrag.clip = clip;
             activeDrag.currentTrackIdx = clip.trackIndex;
+            activeDrag.anchorTrack = clip.trackIndex;
             activeDrag.dragOffsetX = e.getX(); // offset within the node
             activeDrag.dragging = false;
             activeDrag.ghost = null;
             activeDrag.isNewClip = false;
+            activeDrag.deltaPx = 0;
+            activeDrag.deltaTrack = 0;
+            activeDrag.members.addAll(selectedClips);
             e.consume();
         });
 
@@ -2535,24 +2646,46 @@ public class EditorWindow extends Stage implements PropertyContext {
             if (activeDrag.clip != clip || activeDrag.isNewClip)
                 return;
 
-            // Create ghost on first drag pixel (CapCut style — no threshold)
+            // Create the ghosts on first drag pixel (CapCut style — no threshold): one per selected clip.
             if (!activeDrag.dragging) {
                 activeDrag.dragging = true;
-                node.setVisible(false); // hide original
-                ClipNode ghost = new ClipNode(clip, this);
-                ghost.getStyleClass().add("clip-node-ghost");
-                ghost.setOpacity(0.55);
-                ghost.setPrefWidth(node.getPrefWidth());
-                ghost.setPrefHeight(node.getPrefHeight());
-                ghost.setMinWidth(node.getPrefWidth());
-                ghost.setMinHeight(node.getPrefHeight());
-                ghost.setMaxWidth(node.getPrefWidth());
-                ghost.setMaxHeight(node.getPrefHeight());
-                ghost.setLayoutX(node.getLayoutX());
-                ghost.setLayoutY(node.getLayoutY());
-                ghost.setMouseTransparent(true);
-                tracksPane.getChildren().add(ghost);
-                activeDrag.ghost = ghost;
+
+                int minTrack = Integer.MAX_VALUE, maxTrack = Integer.MIN_VALUE;
+                float minStart = Float.MAX_VALUE, maxEnd = 0f;
+                for (Clip m : activeDrag.members) {
+                    minTrack = Math.min(minTrack, m.trackIndex);
+                    maxTrack = Math.max(maxTrack, m.trackIndex);
+                    minStart = Math.min(minStart, m.startTime);
+                    maxEnd = Math.max(maxEnd, m.startTime + m.duration);
+                }
+                activeDrag.minMemberTrack = minTrack;
+                activeDrag.maxMemberTrack = maxTrack;
+                activeDrag.minMemberStart = minStart;
+                activeDrag.groupWidthPx = (maxEnd - minStart) * pixelsPerSecond;
+
+                for (Clip m : activeDrag.members) {
+                    if (!(m.viewRef instanceof ClipNode orig)) continue;
+                    ClipNode ghost = new ClipNode(m, this);
+                    ghost.getStyleClass().add("clip-node-ghost");
+                    ghost.setOpacity(0.55);
+                    ghost.setPrefWidth(orig.getPrefWidth());
+                    ghost.setPrefHeight(orig.getPrefHeight());
+                    ghost.setMinWidth(orig.getPrefWidth());
+                    ghost.setMinHeight(orig.getPrefHeight());
+                    ghost.setMaxWidth(orig.getPrefWidth());
+                    ghost.setMaxHeight(orig.getPrefHeight());
+                    ghost.setLayoutX(orig.getLayoutX());
+                    ghost.setLayoutY(orig.getLayoutY());
+                    ghost.setMouseTransparent(true);
+                    orig.setVisible(false); // hide original
+                    tracksPane.getChildren().add(ghost);
+                    activeDrag.ghosts.put(m, ghost);
+                }
+                activeDrag.ghost = activeDrag.ghosts.get(clip);
+                if (activeDrag.ghost == null) { // should not happen; fall back to "no drag"
+                    activeDrag.dragging = false;
+                    return;
+                }
             }
 
             updateActiveDragGhost(e.getSceneX(), e.getSceneY());
@@ -2563,41 +2696,54 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         node.setOnMouseReleased(e -> {
             edgeScrollTimer.stop();
+            edgeScrollVelocity = 0;
+            edgeScrollVelocityY = 0;
             if (activeDrag.clip != clip || activeDrag.isNewClip)
                 return;
 
+            List<MoveClipsCommand.Entry> moves = null;
             if (activeDrag.dragging && activeDrag.ghost != null) {
-                float oldStartTime = clip.startTime;
-                int oldTrackIndex = clip.trackIndex;
-                float newStartTime = (float) (activeDrag.ghost.getLayoutX() / pixelsPerSecond);
-                int newTrackIndex = activeDrag.currentTrackIdx;
+                float dt = (float) (activeDrag.deltaPx / pixelsPerSecond);
+                int dTrack = activeDrag.deltaTrack;
+                if (Math.abs(dt) > 1e-6f || dTrack != 0) {
+                    moves = new ArrayList<>();
+                    for (Clip m : activeDrag.members) {
+                        moves.add(new MoveClipsCommand.Entry(m,
+                                m.startTime, Math.max(0f, m.startTime + dt),
+                                m.trackIndex, m.trackIndex + dTrack));
+                    }
+                }
+            } else if (activeDrag.collapseOnRelease && !e.isShortcutDown()) {
+                // A plain click (no drag) on a member of a multi-selection: select just that clip.
+                selectClip(clip);
+            }
 
-                // Remove ghost
-                tracksPane.getChildren().remove(activeDrag.ghost);
+            // Tear the drag visuals down BEFORE committing so the refresh sees a clean pane.
+            for (ClipNode g : activeDrag.ghosts.values()) tracksPane.getChildren().remove(g);
+            clearPhantomTracks();
+            for (Clip m : activeDrag.members) {
+                if (m.viewRef instanceof ClipNode cn) cn.setVisible(true);
+            }
+            node.setVisible(true);
 
-                historyManager.execute(new MoveClipCommand(timeline, clip, oldStartTime, newStartTime, oldTrackIndex, newTrackIndex, () -> {
+            if (moves != null) {
+                historyManager.execute(new MoveClipsCommand(timeline, moves, () -> {
                     updateCurrentClipEnd();
+                    refreshTrackHeaders();   // the group may have created tracks
                     refreshTimelineUI();
                     saveProject();
                 }));
-
-
-
-                // After drag we select the clip only if the select clip is different or none of the clip is selected
-                if(selectedClip == null || selectedClip != clip)
-                {
-                    selectClip(clip);
-                }
-
             }
 
             // Reset drag state
             activeDrag.clip = null;
             activeDrag.ghost = null;
+            activeDrag.members.clear();
+            activeDrag.ghosts.clear();
+            activeDrag.collapseOnRelease = false;
             Platform.runLater(() -> activeDrag.dragging = false);
-            node.setVisible(true);
 
-            // Refresh so clip redraws at committed position
+            // Refresh so clips redraw at their committed position
             refreshTimelineUI();
             e.consume();
         });
@@ -2628,7 +2774,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             if (Math.abs(j - currentTrackIdx) > 1)
                 continue; // only neighbours
             for (Clip other : timeline.tracks.get(j).clips) {
-                if (other == activeDrag.clip)
+                if (other == activeDrag.clip || activeDrag.members.contains(other))
                     continue;
                 double otherStart = other.startTime * pixelsPerSecond;
                 double otherEnd = (other.startTime + other.duration) * pixelsPerSecond;
@@ -2642,34 +2788,107 @@ public class EditorWindow extends Stage implements PropertyContext {
         return ghostX;
     }
 
+    /** Select ONLY this clip. */
     private void selectClip(Clip clip) {
-        // Deselect previous
-        if (selectedClip != null && selectedClip.viewRef instanceof ClipNode prev) {
-            prev.setSelected(false);
-        }
-
         // Move playhead at the beginning of the clip
         if(currentTime < clip.startTime) {
             updateCurrentTime(clip.startTime);
         }
 
+        selectedClips.clear();
+        selectedClips.add(clip);
         selectedClip = clip;
         selectedTrack = timeline.tracks.get(clip.trackIndex);
 
-        if (clip.viewRef instanceof ClipNode cn) {
-            cn.setSelected(true);
-        }
-
+        refreshSelectionVisuals();
         updatePropertiesPane();
     }
 
-    private void deselectAll() {
-        if (selectedClip != null && selectedClip.viewRef instanceof ClipNode cn) {
-            cn.setSelected(false);
+    /** Ctrl/Cmd+click: add the clip to the selection, or take it out if it is already in. */
+    private void toggleClipSelection(Clip clip) {
+        if (selectedClips.contains(clip)) {
+            selectedClips.remove(clip);
+            if (selectedClip == clip) {
+                selectedClip = null;
+                for (Clip c : selectedClips) selectedClip = c; // last one left becomes the primary
+            }
+        } else {
+            selectedClips.add(clip);
+            selectedClip = clip;
         }
+        if (selectedClip != null) selectedTrack = timeline.tracks.get(selectedClip.trackIndex);
+
+        refreshSelectionVisuals();
+        updatePropertiesPane();
+    }
+
+    /** Make an already-selected clip the primary one (the properties panel follows it). */
+    private void makePrimary(Clip clip) {
+        if (selectedClip == clip) return;
+        selectedClip = clip;
+        selectedTrack = timeline.tracks.get(clip.trackIndex);
+        refreshSelectionVisuals();
+        updatePropertiesPane();
+    }
+
+    /** Select exactly these clips; the last one is the primary. */
+    private void selectClips(List<Clip> clips) {
+        selectedClips.clear();
+        selectedClips.addAll(clips);
+        selectedClip = null;
+        for (Clip c : clips) selectedClip = c;
+        if (selectedClip != null) selectedTrack = timeline.tracks.get(selectedClip.trackIndex);
+
+        refreshSelectionVisuals();
+        updatePropertiesPane();
+    }
+
+    private void selectAllClips() {
+        List<Clip> all = timeline.getAllClips();
+        if (all.isEmpty()) return;
+        Clip keepPrimary = selectedClip != null && all.contains(selectedClip) ? selectedClip : all.get(all.size() - 1);
+        selectedClips.clear();
+        selectedClips.addAll(all);
+        selectedClip = keepPrimary;
+        selectedTrack = timeline.tracks.get(keepPrimary.trackIndex);
+
+        refreshSelectionVisuals();
+        updatePropertiesPane();
+    }
+
+    /** Clears the clip selection (leaves track / transition selection alone). */
+    private void clearClipSelection() {
+        selectedClips.clear();
+        selectedClip = null;
+        refreshSelectionVisuals();
+    }
+
+    private void deselectAll() {
+        selectedClips.clear();
         selectedClip = null;
         selectedTrack = null;
+        refreshSelectionVisuals();
         updatePropertiesPane();
+    }
+
+    /** Push the selection state onto every clip node. Only the primary clip shows trim handles. */
+    private void refreshSelectionVisuals() {
+        for (Track t : timeline.tracks) {
+            for (Clip c : t.clips) {
+                if (c.viewRef instanceof ClipNode cn) {
+                    cn.setSelected(selectedClips.contains(c), c == selectedClip);
+                }
+            }
+        }
+    }
+
+    /** Selected clips in timeline order (track, then start time): the order they are copied in. */
+    private List<Clip> orderedSelection() {
+        List<Clip> list = new ArrayList<>(selectedClips);
+        list.sort((x, y) -> x.trackIndex != y.trackIndex
+                ? Integer.compare(x.trackIndex, y.trackIndex)
+                : Float.compare(x.startTime, y.startTime));
+        return list;
     }
 
     private void handleSplit() {
@@ -2768,13 +2987,13 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     private void handleDelete() {
-        if (selectedClip != null) {
-            Clip clipToDelete = selectedClip;
-            historyManager.execute(new DeleteClipCommand(timeline, clipToDelete, () -> {
+        if (!selectedClips.isEmpty()) {
+            // Everything selected goes in ONE undo step.
+            historyManager.execute(new DeleteClipsCommand(timeline, orderedSelection(), () -> {
                 refreshTimelineUI();
                 saveProject();
             }));
-            selectedClip = null;
+            // refreshTimelineUI() has already dropped the deleted clips from the selection.
         } else if (selectedTrack != null) {
             Track trackToDelete = selectedTrack;
             historyManager.execute(new PropertyChangeCommand("Delete Track",
@@ -2823,57 +3042,153 @@ public class EditorWindow extends Stage implements PropertyContext {
         }
     }
 
+    /** Same JSON layout as the project file (only @Expose fields), so what is copied is exactly what is saved. */
+    private final Gson clipboardGson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
+
+    /**
+     * Copies the selected clips to the system clipboard as a JSON ARRAY of clips (one element when a single
+     * clip is selected), in timeline order. With no clip selected, a selected track is copied instead.
+     */
     private void handleCopy() {
-        if (selectedClip != null) {
-            Clipboard clipboard = Clipboard.getSystemClipboard();
-            ClipboardContent content = new ClipboardContent();
-            content.putString(new Gson().toJson(selectedClip));
+        Clipboard clipboard = Clipboard.getSystemClipboard();
+        ClipboardContent content = new ClipboardContent();
+        if (!selectedClips.isEmpty()) {
+            content.putString(clipboardGson.toJson(orderedSelection().toArray(new Clip[0])));
             clipboard.setContent(content);
         } else if (selectedTrack != null) {
-            Clipboard clipboard = Clipboard.getSystemClipboard();
-            ClipboardContent content = new ClipboardContent();
             content.putString(new Gson().toJson(selectedTrack));
             clipboard.setContent(content);
         }
     }
 
+    /**
+     * Pastes from the clipboard. Understood formats: a JSON array of clips (what Copy writes), a single clip
+     * object (older copies) and a track object. Anything else (plain text ...) is ignored.
+     */
     private void handlePaste() {
-
         Clipboard clipboard = Clipboard.getSystemClipboard();
-        if (clipboard.hasString()) {
-            String pasteText = clipboard.getString();
-            try {
-                Clip pasteClip = new Gson().fromJson(pasteText, Clip.class);
+        if (!clipboard.hasString()) return;
+        String pasteText = clipboard.getString();
 
-                pasteClip.startTime = Math.max(0f,
-                        currentTime == selectedClip.getStartTime() ?
-                                selectedClip.getDuration() + selectedClip.getStartTime() :
-                                currentTime
-                );
-
-                historyManager.execute(new AddClipCommand(timeline, pasteClip, selectedClip.trackIndex, () -> {
-                    updateCurrentClipEnd();
-                    refreshTimelineUI();
-                    saveProject();
-                }));
-            } catch (JsonSyntaxException | NullPointerException e) {
-                Track pasteTrack = new Gson().fromJson(pasteText, Track.class);
-                executePropertyChange("Add Track", () -> {
-                    timeline.addTrack(pasteTrack);
-                    timeline.reloadTrackIndex();
-                    refreshTrackHeaders();
-                    refreshTimelineUI();
-                    saveProject();
-                }, () -> {
-                    timeline.removeTrack(pasteTrack);
-                    timeline.reloadTrackIndex();
-                    refreshTrackHeaders();
-                    refreshTimelineUI();
-                    saveProject();
-                });
-            }
-
+        JsonElement root;
+        try {
+            root = new JsonParser().parse(pasteText);
+        } catch (RuntimeException e) {
+            return; // not JSON
         }
+
+        if (root.isJsonObject() && root.getAsJsonObject().has("clips") && !root.getAsJsonObject().has("type")) {
+            pasteTrack(pasteText);
+            return;
+        }
+
+        List<Clip> pasted = new ArrayList<>();
+        try {
+            if (root.isJsonArray()) {
+                for (JsonElement el : root.getAsJsonArray()) {
+                    Clip c = parseClipFromJson(el);
+                    if (c != null) pasted.add(c);
+                }
+            } else {
+                Clip c = parseClipFromJson(root);
+                if (c != null) pasted.add(c);
+            }
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+            return;
+        }
+        if (!pasted.isEmpty()) pasteClips(pasted);
+    }
+
+    /** One clip from clipboard JSON, or null when the element does not look like a clip. */
+    private Clip parseClipFromJson(JsonElement el) {
+        if (el == null || !el.isJsonObject()) return null;
+        JsonObject obj = el.getAsJsonObject();
+        if (!obj.has("clipName") && !obj.has("type")) return null;
+        Clip c = clipboardGson.fromJson(obj, Clip.class);
+        if (c == null) return null;
+        c.filterNullAfterLoad();
+        return c;
+    }
+
+    /**
+     * Pastes a group so it keeps its internal layout (the same gaps in time, the same track spacing):
+     *  - time: the earliest pasted clip starts at the playhead; if the playhead sits exactly on the start of
+     *    the current selection, the group goes right after the selection instead so it doesn't land on top of it;
+     *  - tracks: the topmost pasted clip goes on the topmost selected track, or on its original track when
+     *    nothing is selected. Tracks that don't exist yet are created.
+     * The pasted clips become the selection. One undo step.
+     */
+    private void pasteClips(List<Clip> pasted) {
+        float groupMinStart = Float.MAX_VALUE;
+        int groupMinTrack = Integer.MAX_VALUE;
+        for (Clip c : pasted) {
+            groupMinStart = Math.min(groupMinStart, c.startTime);
+            groupMinTrack = Math.min(groupMinTrack, c.trackIndex);
+        }
+        groupMinTrack = Math.max(0, groupMinTrack);
+
+        float anchorStart = Math.max(0f, currentTime);
+        int baseTrack = groupMinTrack;
+        if (!selectedClips.isEmpty()) {
+            float selMinStart = Float.MAX_VALUE, selMaxEnd = 0f;
+            int selMinTrack = Integer.MAX_VALUE;
+            for (Clip c : selectedClips) {
+                selMinStart = Math.min(selMinStart, c.startTime);
+                selMaxEnd = Math.max(selMaxEnd, c.startTime + c.duration);
+                selMinTrack = Math.min(selMinTrack, c.trackIndex);
+            }
+            baseTrack = selMinTrack;
+            if (Math.abs(currentTime - selMinStart) < 0.001f) anchorStart = selMaxEnd;
+        }
+
+        ClipGroupMath.PastePlan plan = ClipGroupMath.planPaste(groupMinStart, groupMinTrack, anchorStart, baseTrack);
+
+        List<AddClipsCommand.Entry> entries = new ArrayList<>();
+        for (Clip c : pasted) {
+            int newTrack = Math.max(0, c.trackIndex + plan.trackShift);
+            float newStart = Math.max(0f, c.startTime + plan.timeShift);
+            float shift = newStart - c.startTime;
+            if (c.endTransition != null) { // keep its settings, move it along with the clip
+                c.endTransition.trackIndex = newTrack;
+                c.endTransition.startTime += shift;
+                if (c.endTransition.effect != null) c.endTransition.effect.startTime += shift;
+            }
+            c.startTime = newStart;
+            c.trackIndex = newTrack;
+            entries.add(new AddClipsCommand.Entry(c, newTrack));
+        }
+
+        historyManager.execute(new AddClipsCommand(timeline, entries, () -> {
+            updateCurrentClipEnd();
+            refreshTrackHeaders();   // the paste may have created tracks
+            refreshTimelineUI();
+            saveProject();
+        }));
+        selectClips(pasted);
+    }
+
+    private void pasteTrack(String json) {
+        Track pasteTrack;
+        try {
+            pasteTrack = new Gson().fromJson(json, Track.class);
+        } catch (JsonSyntaxException e) {
+            return;
+        }
+        if (pasteTrack == null) return;
+        executePropertyChange("Add Track", () -> {
+            timeline.addTrack(pasteTrack);
+            timeline.reloadTrackIndex();
+            refreshTrackHeaders();
+            refreshTimelineUI();
+            saveProject();
+        }, () -> {
+            timeline.removeTrack(pasteTrack);
+            timeline.reloadTrackIndex();
+            refreshTrackHeaders();
+            refreshTimelineUI();
+            saveProject();
+        });
     }
 
     private HBox buildTrackHeader(String name) {

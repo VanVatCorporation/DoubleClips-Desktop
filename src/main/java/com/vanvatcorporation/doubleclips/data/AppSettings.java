@@ -55,6 +55,12 @@ public class AppSettings {
         return instance;
     }
 
+    // Not persisted: true while the Settings screen is waiting for the user to press a new shortcut, so the
+    // editor's own key handling stays out of the way and the key press reaches the recorder instead.
+    private volatile boolean recordingKeybind = false;
+    public boolean isRecordingKeybind() { return recordingKeybind; }
+    public void setRecordingKeybind(boolean value) { recordingKeybind = value; }
+
     public String getThemeMode() { return themeMode.get(); }
     public void setThemeMode(String value) { themeMode.set(value); }
     public StringProperty themeModeProperty() { return themeMode; }
