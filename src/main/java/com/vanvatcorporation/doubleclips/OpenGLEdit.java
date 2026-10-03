@@ -1,13 +1,16 @@
 package com.vanvatcorporation.doubleclips;
 
+import com.vanvatcorporation.doubleclips.data.editing.AnimationClip;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.ClipType;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.Track;
+import com.vanvatcorporation.doubleclips.data.editing.TransitionClip;
 import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Desktop port of Android's OpenGLEdit, synced with the Android version that is
@@ -25,8 +28,10 @@ import java.util.List;
  * <p>
  * SCOPE (same as Android): position / scale / rotation / pivot / opacity /
  * colour grading (hue, saturation, brightness, temperature) / speed / reverse /
- * keyframes, for VIDEO and IMAGE clips composited across tracks. Text, effects,
- * 3D scenes and transitions are NOT rendered (see getUnsupportedFeatures()).
+ * keyframes / in- and out-animations (ClipAnimation) / transitions between
+ * adjacent clips (SUPPORTED_TRANSITION_STYLES, OVERLAP mode), for VIDEO and IMAGE
+ * clips composited across tracks. Text, effects and 3D scenes are NOT rendered
+ * (see getUnsupportedFeatures()).
  */
 public class OpenGLEdit {
 
@@ -36,8 +41,20 @@ public class OpenGLEdit {
     // feature is implemented, flip its flag to true and the warning (and the
     // "use OpenGL anyway" choice) stops applying to it automatically - no UI
     // change needed. Anything unsupported is currently skipped/ignored by the
-    // compositor rather than approximated. Values match Android's.
-    public static final boolean SUPPORTS_TRANSITIONS = false;
+    // compositor rather than approximated.
+    // Transitions supported so far - a real per-pixel crossfade/wipe/slide,
+    // matching FFmpeg's xfade of the same name, via a two-pass FBO pipeline
+    // (each clip rendered to its own full-canvas offscreen texture first, then
+    // blended - see OpenGLEditNative.exportTimeline). Only EFFECT_TEMPLATE
+    // styles in this set are honored; anything else (radial, circleopen,
+    // pixelize, slices, fadeblack/white, distance, diag*, reveal*, custom_*)
+    // and any transition using a mode other than OVERLAP are flagged as
+    // unsupported by getUnsupportedFeatures below rather than silently
+    // approximated or ignored. Keys must match FXCommandEmitter.FXRegistry.
+    public static final Set<String> SUPPORTED_TRANSITION_STYLES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "fade", "dissolve", "wipeleft", "wiperight", "slideleft", "slideright", "slideup", "slidedown"
+    ));
+    public static final boolean SUPPORTS_TRANSITIONS = true;
     public static final boolean SUPPORTS_REVERSE = true;
     public static final boolean SUPPORTS_KEYFRAMES = true;
     public static final boolean SUPPORTS_IMAGES = true;
@@ -75,7 +92,14 @@ public class OpenGLEdit {
                     default: // VIDEO, AUDIO
                         break;
                 }
-                if (!SUPPORTS_TRANSITIONS && clip.endTransitionEnabled) found.add("Transitions between clips");
+                if (clip.endTransitionEnabled && clip.endTransition != null
+                        && clip.endTransition.effect != null && !"none".equals(clip.endTransition.effect.style)) {
+                    if (clip.endTransition.mode != TransitionClip.TransitionMode.OVERLAP) {
+                        found.add("Transitions using End First/Begin Second timing (only Overlap is supported)");
+                    } else if (!SUPPORTED_TRANSITION_STYLES.contains(clip.endTransition.effect.style)) {
+                        found.add("Transitions using the '" + clip.endTransition.effect.style + "' effect");
+                    }
+                }
                 if (!SUPPORTS_REVERSE && clip.isReverse()) found.add("Reversed clips");
                 if (!SUPPORTS_KEYFRAMES && clip.hasAnimatedProperties()) found.add("Keyframe animations");
             }
@@ -92,17 +116,36 @@ public class OpenGLEdit {
         public final float[] mvpMatrix;
         public final float opacity;
         // Color grading, matching FFmpegEdit's hue=h=..:s=..:b=.. and
-        // colortemperature=temperature=.. filters. Units match FFmpeg's own:
-        // hueDegrees is degrees, saturation/brightness are the same
-        // multiplier/offset the hue filter takes, temperatureKelvin is Kelvin
-        // (6500 = neutral/no change).
+        // colortemperature=temperature=.. filters (FFmpegEdit.java:421-424).
+        // Units match FFmpeg's own: hueDegrees is degrees, saturation/brightness
+        // are the same multiplier/offset the hue filter takes, temperatureKelvin
+        // is Kelvin (6500 = neutral/no change).
         public final float hueDegrees;
         public final float saturation;
         public final float brightness;
         public final float temperatureKelvin;
+        /**
+         * Gaussian blur SIGMA in output pixels for this frame, from an active
+         * in-animation (see ClipAnimation / buildDrawCommand).
+         * 0 means no blur — the caller should skip the extra blur passes
+         * entirely rather than run a Gaussian blur shader with sigma 0.
+         */
+        public final float blurSigmaPixels;
+        /**
+         * "unfold" in-animation frame warp, relative to the clip's own box: top
+         * edge width, bottom edge width, and overall height (anchored at the top
+         * edge, widths about the vertical center line = top-center). All three 1 =
+         * no warp (every frame outside an active unfold). Applied in the fragment shader.
+         */
+        public final float unfoldTopWidth;
+        public final float unfoldBottomWidth;
+        public final float unfoldHeight;
+        /** Contrast multiplier about mid-grey from "unfold" (1 = none). Applied in the colour stage of the shader. */
+        public final float contrast;
 
         public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
-                           float hueDegrees, float saturation, float brightness, float temperatureKelvin) {
+                            float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
+                            float unfoldTopWidth, float unfoldBottomWidth, float unfoldHeight, float contrast) {
             this.clip = clip;
             this.localSourceTimeSeconds = localSourceTimeSeconds;
             this.mvpMatrix = mvpMatrix;
@@ -111,68 +154,233 @@ public class OpenGLEdit {
             this.saturation = saturation;
             this.brightness = brightness;
             this.temperatureKelvin = temperatureKelvin;
+            this.blurSigmaPixels = blurSigmaPixels;
+            this.unfoldTopWidth = unfoldTopWidth;
+            this.unfoldBottomWidth = unfoldBottomWidth;
+            this.unfoldHeight = unfoldHeight;
+            this.contrast = contrast;
         }
     }
 
     /**
-     * Computes what to draw for one output timestamp. Tracks are walked in
-     * ascending timelineIndex order and returned in that same order - this
-     * matches FFmpegEdit's overlay chain (tracks iterated in list order, each
-     * overlaid on top of the accumulated base), so track index 0 is
-     * bottom/first-drawn, higher indices composite on top.
-     * <p>
-     * Only one clip per track is normally active at a given timestamp (clips
-     * within a track don't overlap - transitions between adjacent clips are a
-     * separate future step). Tracks with no active clip at this timestamp are
-     * skipped.
+     * A transition window between two clips on the same track: clipA (ending)
+     * and clipB (starting) each get their OWN complete DrawCommand — own
+     * transform, own color grading, own local source time — because FFmpeg's
+     * xfade blends two INDEPENDENTLY fully-rendered full-canvas layers, not two
+     * raw textures at a shared position (see the Android port notes). style is
+     * guaranteed to be a key in SUPPORTED_TRANSITION_STYLES (callers filter
+     * unsupported ones out before this is created).
      */
-    public List<DrawCommand> computeFrameForTimestamp(Timeline timeline, float outputTimeSeconds,
-                                                      int canvasWidth, int canvasHeight, boolean stretchToFull) {
-        List<DrawCommand> commands = new ArrayList<>();
-        if (timeline == null || timeline.tracks == null) return commands;
+    public static class TransitionCommand {
+        public final DrawCommand clipACommand;
+        public final DrawCommand clipBCommand;
+        public final String style;
+        /** 0 at the start of the transition window, 1 at the end. */
+        public final float progress;
+
+        public TransitionCommand(DrawCommand clipACommand, DrawCommand clipBCommand, String style, float progress) {
+            this.clipACommand = clipACommand;
+            this.clipBCommand = clipBCommand;
+            this.style = style;
+            this.progress = progress;
+        }
+    }
+
+    /** One track's single frame layer: exactly one of simpleDraw/transition is non-null. Order in the list returned by computeFrameForTimestamp is the actual draw order. */
+    public static class FrameLayer {
+        public final DrawCommand simpleDraw;
+        public final TransitionCommand transition;
+        private FrameLayer(DrawCommand simpleDraw, TransitionCommand transition) {
+            this.simpleDraw = simpleDraw;
+            this.transition = transition;
+        }
+        static FrameLayer of(DrawCommand d) { return new FrameLayer(d, null); }
+        static FrameLayer of(TransitionCommand t) { return new FrameLayer(null, t); }
+    }
+
+    /**
+     * Computes what to draw for one output timestamp, one FrameLayer per track
+     * that has anything active, in the EXACT order tracks were walked. This
+     * matches FFmpegEdit's overlay chain (FFmpegEdit.java:107: tracks iterated
+     * in list order, each overlaid on top of the accumulated base) — so the
+     * caller (OpenGLEditNative) MUST draw this list front-to-back in order,
+     * not group simple draws and transitions into separate batches, or track
+     * stacking order breaks whenever a project mixes plain and transitioning
+     * tracks.
+     */
+    public List<FrameLayer> computeFrameForTimestamp(Timeline timeline, float outputTimeSeconds,
+                                                        int canvasWidth, int canvasHeight, boolean stretchToFull) {
+        List<FrameLayer> layers = new ArrayList<>();
+        if (timeline == null || timeline.tracks == null) return layers;
 
         float[] projection = new float[16];
         // left=0,right=W,bottom=H,top=0: deliberately flips Y so pixel-space
         // Y-down (top-left origin, matching FFmpeg's overlay=X:Y convention)
-        // lands correctly in NDC - top of canvas -> NDC +1, not -1.
+        // lands correctly in NDC — top of canvas -> NDC +1, not -1.
         orthoM(projection, 0, canvasWidth, canvasHeight, 0, -1, 1);
 
         for (Track track : timeline.tracks) {
             if (track == null || track.clips == null) continue;
 
-            Clip activeClip = findActiveClip(track, outputTimeSeconds);
-            if (activeClip == null) continue;
-            if (activeClip.type != ClipType.VIDEO && activeClip.type != ClipType.IMAGE) {
-                continue; // audio has no picture; text/effects/3D: see getUnsupportedFeatures
+            TransitionWindow window = findActiveTransition(track, outputTimeSeconds);
+            if (window != null) {
+                DrawCommand cmdA = buildDrawCommand(window.clipA, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
+                DrawCommand cmdB = buildDrawCommand(window.clipB, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
+                if (cmdA != null && cmdB != null) {
+                    layers.add(FrameLayer.of(new TransitionCommand(cmdA, cmdB, window.style, window.progress)));
+                    continue;
+                }
+                // One side has an unsupported clip type (e.g. text/3D) - fall
+                // through to normal single-clip handling below rather than
+                // dropping the track entirely.
             }
 
-            // Speed: FFmpeg remaps clip-local time via
-            // setpts='(PTS-STARTPTS)/Speed+...', i.e. the clip plays Speed times
-            // faster than the output timeline. Elapsed OUTPUT time must be scaled
-            // by Speed to get elapsed SOURCE time.
-            float speed = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Speed);
-            if (speed <= 0f) speed = 1f; // guard against a bad/zero value stalling the decoder forever
-            float elapsedOutput = outputTimeSeconds - activeClip.startTime;
-            // Reversed clips are decoded from a pre-rendered, already-reversed
-            // intermediate that OpenGLEditNative builds for just the used trim
-            // range - that file starts at local time 0 with the trim-in point, so
-            // no startClipTrim offset applies here, unlike the normal (forward,
-            // original-file) case.
-            float localSourceTime = activeClip.isReverse()
-                    ? elapsedOutput * speed
-                    : activeClip.startClipTrim + elapsedOutput * speed;
-
-            float[] mvp = buildClipMvp(activeClip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull);
-            float opacity = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Opacity);
-            float hue = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Hue);
-            float saturation = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Saturation);
-            float brightness = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Brightness);
-            float temperature = readAtTime(activeClip, outputTimeSeconds, VideoProperties.ValueType.Temperature);
-
-            commands.add(new DrawCommand(activeClip, localSourceTime, mvp, opacity, hue, saturation, brightness, temperature));
+            Clip activeClip = findActiveClip(track, outputTimeSeconds);
+            if (activeClip == null) continue;
+            DrawCommand cmd = buildDrawCommand(activeClip, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
+            if (cmd != null) layers.add(FrameLayer.of(cmd));
         }
 
-        return commands;
+        return layers;
+    }
+
+    /** Detects an active OVERLAP-mode, supported-style transition on this track at t, if any. */
+    private static class TransitionWindow {
+        final Clip clipA, clipB;
+        final String style;
+        final float progress;
+        TransitionWindow(Clip clipA, Clip clipB, String style, float progress) {
+            this.clipA = clipA; this.clipB = clipB; this.style = style; this.progress = progress;
+        }
+    }
+
+    /**
+     * Window = [clipA.startTime + clipA.duration - transitionDuration,
+     * clipA.startTime + clipA.duration) — derived from FXCommandEmitter's own
+     * OVERLAP-mode offset (clipA.duration - transitionDuration), NOT from
+     * TransitionClip.startTime (that field appears to be a UI knot-display
+     * position, not what the actual FFmpeg render uses).
+     * END_FIRST/BEGIN_SECOND have different offsets and are not handled
+     * here; they're reported by getUnsupportedFeatures instead.
+     */
+    private TransitionWindow findActiveTransition(Track track, float t) {
+        for (int i = 0; i < track.clips.size() - 1; i++) {
+            Clip clipA = track.clips.get(i);
+            if (clipA == null || !clipA.endTransitionEnabled || clipA.endTransition == null) continue;
+            TransitionClip transition = clipA.endTransition;
+            if (transition.mode != TransitionClip.TransitionMode.OVERLAP) continue;
+            if (transition.effect == null || "none".equals(transition.effect.style)) continue;
+            if (!SUPPORTED_TRANSITION_STYLES.contains(transition.effect.style)) continue;
+
+            float windowEnd = clipA.startTime + clipA.duration;
+            float windowStart = windowEnd - transition.duration;
+            if (t >= windowStart && t < windowEnd) {
+                Clip clipB = track.clips.get(i + 1);
+                float progress = transition.duration > 0f ? (t - windowStart) / transition.duration : 1f;
+                return new TransitionWindow(clipA, clipB, transition.effect.style, progress);
+            }
+        }
+        return null;
+    }
+
+    // ---- clip in / out animations ---------------------------------------------------
+    // Animations are data, not code: clip.inAnimation / clip.outAnimation .type is an id looked
+    // up in ClipAnimationLoader (bundled animations/in and animations/out, plus installed packs - see ClipAnimationAssets),
+    // which gives back a ClipAnimation whose evaluate(p) returns every channel for this
+    // frame. Plain Java, shared with the desktop port. This class only decides WHICH
+    // progress p applies and how each channel combines with the clip's own properties
+    // (see ClipAnimationFrame for the add / multiply / standalone rules).
+    // The top-centre squish is applied in the fragment shader (OpenGLEditNative.UNFOLD_WARP_*)
+    // as an inverse mapping with edge clamping, so the area the shrunken picture no
+    // longer covers is filled with edge pixels rather than showing a gap.
+    // An unknown type, or one of the wrong direction, animates nothing (the export reports
+    // those up front - see OpenGLEditNative.prepareClipAnimations).
+
+    /** The installed animation for one of a clip's two animation slots, or null (none / unknown / wrong direction). */
+    private static ClipAnimation animationFor(AnimationClip slot, ClipAnimation.Direction direction) {
+        if (slot == null) return null;
+        ClipAnimation def = ClipAnimationLoader.get(slot.type);
+        return (def != null && def.getDirection() == direction) ? def : null;
+    }
+
+    /**
+     * The clip's animation channel values at this output time (NEUTRAL when none is active).
+     * The in window starts at the clip's first frame, the out window ends at its last; if the two
+     * don't fit in the clip together both shrink proportionally, so they never overlap and at
+     * most one is active at any time. The out animation is held at its end state past the clip's
+     * nominal end (the outgoing clip of a transition keeps drawing there).
+     */
+    private ClipAnimationFrame animationFrame(Clip clip, float outputTimeSeconds) {
+        ClipAnimation inDef = animationFor(clip.inAnimation, ClipAnimation.Direction.IN);
+        ClipAnimation outDef = animationFor(clip.outAnimation, ClipAnimation.Direction.OUT);
+        if (inDef == null && outDef == null) return ClipAnimationFrame.NEUTRAL;
+
+        float inRaw = inDef != null ? clip.inAnimation.duration : 0f;
+        float outRaw = outDef != null ? clip.outAnimation.duration : 0f;
+        if (inDef != null) {
+            float inDur = ClipAnimation.fitDuration(inRaw, outRaw, clip.duration);
+            // 0 at clip start -> 1 at animation end, -1 outside the window
+            float p = ClipAnimation.progress(outputTimeSeconds - clip.startTime, inDur);
+            if (p >= 0f) return inDef.evaluate(p);
+        }
+        if (outDef != null) {
+            float outDur = ClipAnimation.fitDuration(outRaw, inRaw, clip.duration);
+            float p = ClipAnimation.progressOut(clip.startTime + clip.duration, outputTimeSeconds, outDur);
+            if (p >= 0f) return outDef.evaluate(p);
+        }
+        return ClipAnimationFrame.NEUTRAL;
+    }
+
+    /** Builds one clip's complete draw info at outputTimeSeconds, or null if its type isn't drawable (audio/text/effect/3D — see getUnsupportedFeatures). */
+    private DrawCommand buildDrawCommand(Clip clip, float outputTimeSeconds,
+                                          int canvasWidth, int canvasHeight, boolean stretchToFull, float[] projection) {
+        if (clip.type != ClipType.VIDEO && clip.type != ClipType.IMAGE) {
+            return null; // audio has no picture; text/effects/3D: see getUnsupportedFeatures
+        }
+
+        // Speed: FFmpeg remaps clip-local time via
+        // setpts='(PTS-STARTPTS)/Speed+...' (FFmpegEdit.java:426), i.e. the
+        // clip plays Speed times faster than the output timeline. Elapsed
+        // OUTPUT time must be scaled by Speed to get elapsed SOURCE time -
+        // this was missing before (localSourceTime just used elapsed output
+        // time directly), which made any clip with Speed != 1.0 drift out
+        // of sync with FFmpeg's export and eventually its own audio.
+        float speed = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Speed);
+        if (speed <= 0f) speed = 1f; // guard against a bad/zero value stalling the decoder forever
+        float elapsedOutput = outputTimeSeconds - clip.startTime;
+        // Reversed clips are decoded from a pre-rendered, already-reversed
+        // intermediate that OpenGLEditNative builds for just the used trim
+        // range (see the Android port notes) - that file starts at local time
+        // 0 with the trim-in point, so no startClipTrim offset applies here,
+        // unlike the normal (forward, original-file) case. Note: elapsedOutput
+        // is intentionally allowed to be negative (clipB pre-rolling into a
+        // transition, before its own nominal start) or exceed the clip's own
+        // duration (clipA continuing past its nominal end, during a
+        // transition) - both are correct here, matching what FFmpeg's own
+        // xfade does with the same underlying clip stream.
+        float localSourceTime = clip.isReverse()
+                ? elapsedOutput * speed
+                : clip.startClipTrim + elapsedOutput * speed;
+
+        // Every channel is neutral outside the animation window (the shared NEUTRAL frame, no
+        // allocation), so the overwhelming majority of frames pay nothing for this.
+        ClipAnimationFrame anim = animationFrame(clip, outputTimeSeconds);
+
+        float[] mvp = buildClipMvp(clip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull, anim);
+        float opacity = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Opacity)
+                * anim.opacity();
+        float hue = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Hue)
+                + anim.hueDegrees();
+        float saturation = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Saturation)
+                * anim.saturation();
+        float brightness = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Brightness)
+                + anim.brightness();
+        float temperature = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Temperature)
+                + anim.temperatureKelvin();
+        float blurSigmaPixels = anim.blurWidthFraction() * canvasWidth;
+
+        return new DrawCommand(clip, localSourceTime, mvp, opacity, hue, saturation, brightness, temperature, blurSigmaPixels,
+                anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast());
     }
 
     /**
@@ -211,19 +419,22 @@ public class OpenGLEdit {
      *   GL needs no expanded canvas; alpha blending handles the transparent margins.
      */
     private float[] buildClipMvp(Clip clip, float outputTimeSeconds, float[] projection,
-                                 int canvasWidth, int canvasHeight, boolean stretchToFull) {
-        float scaleX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.ScaleX);
-        float scaleY = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.ScaleY);
-        float posX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PosX);
-        float posY = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PosY);
+                                  int canvasWidth, int canvasHeight, boolean stretchToFull, ClipAnimationFrame anim) {
+        // The in-animation's scale multiplies the clip's own (about its pivot), its offset is a
+        // fraction of the canvas size added to PosX/PosY, its rotation is added to RotInRadians.
+        float scaleX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.ScaleX) * anim.scale();
+        float scaleY = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.ScaleY) * anim.scale();
+        float posX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PosX) + anim.offsetX() * canvasWidth;
+        float posY = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PosY) + anim.offsetY() * canvasHeight;
         float pivotX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PivotX);
         float pivotY = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.PivotY);
-        float rotRadians = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.RotInRadians);
+        float rotRadians = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.RotInRadians)
+                + (float) Math.toRadians(anim.rotationDegrees());
 
         // Stretch-to-fit: matches FFmpegEdit's scale=w=(stretchToFull ? renderWidth
-        // : iw)*ScaleX:h=(stretchToFull ? renderHeight : ih)*ScaleY - the OUTPUT
-        // canvas size replaces the clip's own intrinsic size as the base
-        // ScaleX/ScaleY multiplies against.
+        // : iw)*ScaleX:h=(stretchToFull ? renderHeight : ih)*ScaleY (FFmpegEdit.java,
+        // scaleXStretchExpr/scaleYStretchExpr) - the OUTPUT canvas size replaces the
+        // clip's own intrinsic size as the base ScaleX/ScaleY multiplies against.
         float baseW = stretchToFull ? canvasWidth : clip.width;
         float baseH = stretchToFull ? canvasHeight : clip.height;
         float scaledW = baseW * scaleX;
@@ -271,7 +482,7 @@ public class OpenGLEdit {
 
     // ---- Minimal platform-neutral 4x4 matrix math (column-major, OpenGL layout) -
     // Deliberately not android.opengl.Matrix: that class doesn't exist on desktop,
-    // and this class stays usable from both platforms' GL sides.
+    // and this class needs to stay usable from a future desktop OpenGLEditNative.
 
     public static void orthoM(float[] m, float left, float right, float bottom, float top, float near, float far) {
         float rWidth = 1.0f / (right - left);

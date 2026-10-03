@@ -1,0 +1,4 @@
+# One bundled animation per line, as <direction>/<file>.json. A jar cannot be listed, so new bundled
+# animations must be added here as well as dropped into the folder.
+in/unfold.json
+out/fold.json

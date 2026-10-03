@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.AnimationChoices;
+import com.vanvatcorporation.doubleclips.ClipAnimation;
 import com.vanvatcorporation.doubleclips.data.editing.*;
 import com.vanvatcorporation.doubleclips.history.PropertyChangeCommand;
 import javafx.geometry.Insets;
@@ -254,41 +256,14 @@ public class PropertyPanel extends VBox {
             }));
         }
 
-        getChildren().add(buildSectionDivider("Animation"));
-        fields.getChildren().add(buildPropertyField("In Animation Type", selectedClip.inAnimation != null ? selectedClip.inAnimation.type : "none", newValue -> {
-            String oldVal = selectedClip.inAnimation != null ? selectedClip.inAnimation.type : "none";
-            if (newValue.equals(oldVal)) return;
-            context.executePropertyChange("Change In Animation Type", () -> {
-                if (selectedClip.inAnimation == null) selectedClip.inAnimation = new AnimationClip(newValue, 0.5f);
-                else selectedClip.inAnimation.type = newValue;
-                context.refreshTimelineUI();
-                context.saveProject();
-            }, () -> {
-                if (selectedClip.inAnimation == null) selectedClip.inAnimation = new AnimationClip(oldVal, 0.5f);
-                else selectedClip.inAnimation.type = oldVal;
-                context.refreshTimelineUI();
-                context.saveProject();
-            });
-        }));
-
-        fields.getChildren().add(buildPropertyField("In Animation Duration (s)", String.valueOf(selectedClip.inAnimation != null ? selectedClip.inAnimation.duration : 0.5f), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.inAnimation != null ? selectedClip.inAnimation.duration : 0.5f;
-                if (val == oldVal) return;
-                context.executePropertyChange("Change In Animation Duration", () -> {
-                    if (selectedClip.inAnimation == null) selectedClip.inAnimation = new AnimationClip("none", val);
-                    else selectedClip.inAnimation.duration = val;
-                    context.refreshTimelineUI();
-                    context.saveProject();
-                }, () -> {
-                    if (selectedClip.inAnimation == null) selectedClip.inAnimation = new AnimationClip("none", oldVal);
-                    else selectedClip.inAnimation.duration = oldVal;
-                    context.refreshTimelineUI();
-                    context.saveProject();
-                });
-            } catch (Exception ignored) {}
-        }));
+        fields.getChildren().add(buildSectionDivider("Animation"));
+        addAnimationFields(fields, selectedClip, ClipAnimation.Direction.IN);
+        addAnimationFields(fields, selectedClip, ClipAnimation.Direction.OUT);
+        fields.getChildren().add(buildButton("Animation packs...", e -> {
+            javafx.stage.Window owner = getScene() != null ? getScene().getWindow() : null;
+            // the dropdowns re-read the registry once a pack was installed / updated / removed
+            AnimationPackDialog.show(owner, () -> javafx.application.Platform.runLater(context::updatePropertiesPane));
+        }, "import-media-button"));
 
         getChildren().addAll(sectionTitle, fields);
 
@@ -300,6 +275,96 @@ public class PropertyPanel extends VBox {
         if (transClip != null && transClip.endTransition != null) {
             getChildren().add(buildTransitionSection(transClip));
         }
+    }
+
+    // ---- in / out animation rows ------------------------------------------------------------
+
+    private static AnimationClip animationSlot(Clip clip, ClipAnimation.Direction dir) {
+        return dir == ClipAnimation.Direction.IN ? clip.inAnimation : clip.outAnimation;
+    }
+
+    /** Writes type + duration into the clip's in/out slot, creating the slot if the clip has none yet. */
+    private static void setAnimation(Clip clip, ClipAnimation.Direction dir, String type, float duration) {
+        AnimationClip slot = animationSlot(clip, dir);
+        if (slot == null) {
+            slot = new AnimationClip(type, duration);
+            if (dir == ClipAnimation.Direction.IN) clip.inAnimation = slot;
+            else clip.outAnimation = slot;
+        } else {
+            slot.type = type;
+            slot.duration = duration;
+        }
+    }
+
+    /**
+     * One animation's two rows: a dropdown of the installed animations of this direction (the
+     * registry's "none" + every built-in and pack animation, shown by display name) and a duration
+     * field. Picking an animation by hand also sets the duration to that animation's own default
+     * (e.g. 1.5 s for unfold); just showing a clip never changes its saved duration. Same behaviour
+     * as Android's AnimationPicker. A saved animation that isn't installed stays selectable as
+     * "<id> (not installed)", so opening and closing a project never drops it.
+     */
+    private void addAnimationFields(VBox fields, Clip clip, ClipAnimation.Direction dir) {
+        String title = dir == ClipAnimation.Direction.IN ? "In Animation" : "Out Animation";
+        AnimationClip slot = animationSlot(clip, dir);
+        String currentType = AnimationChoices.normalize(slot != null ? slot.type : null);
+
+        VBox typeBox = new VBox(4);
+        Label typeLabel = new Label(title);
+        typeLabel.getStyleClass().add("text-muted");
+        typeLabel.setStyle("-fx-font-size: 11px;");
+
+        ComboBox<AnimationChoices.Choice> combo = new ComboBox<>();
+        java.util.List<AnimationChoices.Choice> choices = AnimationChoices.choices(dir, currentType);
+        combo.getItems().addAll(choices);
+        combo.setValue(choices.get(AnimationChoices.indexOf(choices, currentType)));
+        combo.setMaxWidth(Double.MAX_VALUE);
+        // Set AFTER the initial value: ComboBox fires its action for programmatic changes too, and
+        // showing a clip must not count as the user picking something.
+        combo.setOnAction(e -> {
+            AnimationChoices.Choice chosen = combo.getValue();
+            if (chosen == null) return;
+            AnimationClip now = animationSlot(clip, dir);
+            String oldType = AnimationChoices.normalize(now != null ? now.type : null);
+            float oldDuration = now != null ? now.duration : 0.5f;
+            if (chosen.id.equals(oldType)) return;
+            float defaultDuration = AnimationChoices.defaultDurationOf(chosen.id);
+            String newType = chosen.id;
+            float newDuration = defaultDuration > 0f ? defaultDuration : oldDuration;
+            context.executePropertyChange("Change " + title + " Type", () -> {
+                setAnimation(clip, dir, newType, newDuration);
+                context.refreshTimelineUI();
+                context.saveProject();
+                javafx.application.Platform.runLater(context::updatePropertiesPane); // shows the new duration
+            }, () -> {
+                setAnimation(clip, dir, oldType, oldDuration);
+                context.refreshTimelineUI();
+                context.saveProject();
+                javafx.application.Platform.runLater(context::updatePropertiesPane);
+            });
+        });
+        typeBox.getChildren().addAll(typeLabel, combo);
+        fields.getChildren().add(typeBox);
+
+        fields.getChildren().add(buildPropertyField(title + " Duration (s)", String.valueOf(slot != null ? slot.duration : 0.5f), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue.trim());
+                if (!(val > 0f) || Float.isInfinite(val)) return; // keep the previous duration
+                AnimationClip now = animationSlot(clip, dir);
+                float oldVal = now != null ? now.duration : 0.5f;
+                String type = AnimationChoices.normalize(now != null ? now.type : null);
+                if (val == oldVal) return;
+                context.executePropertyChange("Change " + title + " Duration", () -> {
+                    setAnimation(clip, dir, type, val);
+                    context.refreshTimelineUI();
+                    context.saveProject();
+                }, () -> {
+                    setAnimation(clip, dir, type, oldVal);
+                    context.refreshTimelineUI();
+                    context.saveProject();
+                });
+            } catch (NumberFormatException ignored) {}
+        }));
     }
 
     private void addKeyframeableField(VBox parent, String label, float currentVal, VideoProperties.ValueType type, Clip clip) {
