@@ -161,6 +161,18 @@ public class EditorWindow extends Stage implements PropertyContext {
         boolean collapseOnRelease;
     }
 
+    // ── Marquee: click-drag on empty timeline area draws a rectangle that selects every clip it touches ──
+    private static final double MARQUEE_THRESHOLD = 4.0;  // px the pointer must travel before a press becomes a marquee
+    private Rectangle marqueeRect;                        // null when no marquee is being drawn
+    private boolean marqueeArmed;                         // pressed on empty space; may become a marquee
+    private boolean marqueeActive;                        // the rectangle is being drawn
+    private boolean marqueeAdditive;                      // Ctrl/Cmd held: add to the existing selection
+    private boolean marqueeJustFinished;                  // swallow the click that follows the release
+    private double marqueeStartX, marqueeStartY;          // press point, tracks-pane coordinates
+    private Clip marqueePrimaryBefore;                    // primary clip when the marquee started (additive mode keeps it)
+    private final java.util.Set<Clip> marqueeBaseline = new java.util.LinkedHashSet<>();
+    private List<Clip> marqueeLastHits = new ArrayList<>();
+
     /** Dashed "this track will be created" rows shown below the last track while a group is dragged past it. */
     private final java.util.Map<Integer, Rectangle> phantomBands = new java.util.HashMap<>();
 
@@ -320,7 +332,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         edgeScrollTimer = new AnimationTimer() {
             @Override
             public void handle(long now) {
-                if ((edgeScrollVelocity == 0 && edgeScrollVelocityY == 0) || activeDrag.ghost == null) {
+                if ((edgeScrollVelocity == 0 && edgeScrollVelocityY == 0) || (activeDrag.ghost == null && !marqueeActive)) {
                     stop();
                     return;
                 }
@@ -347,8 +359,9 @@ public class EditorWindow extends Stage implements PropertyContext {
                     }
                 }
 
-                // Keep ghost in sync with mouse scene position as we scroll
-                updateActiveDragGhost(lastDragSceneX, lastDragSceneY);
+                // Keep the ghost / marquee in sync with the mouse scene position as we scroll
+                if (marqueeActive) updateMarquee(lastDragSceneX, lastDragSceneY);
+                else updateActiveDragGhost(lastDragSceneX, lastDragSceneY);
             }
         };
     }
@@ -449,7 +462,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         lastDragSceneX = sceneX;
         lastDragSceneY = sceneY;
 
-        if (activeDrag.ghost == null) {
+        if (activeDrag.ghost == null && !marqueeActive) {
             edgeScrollVelocity = 0;
             edgeScrollVelocityY = 0;
             edgeScrollTimer.stop();
@@ -1635,8 +1648,36 @@ public class EditorWindow extends Stage implements PropertyContext {
         tracksPane.setPrefWidth(8000);
         tracksPane.setPrefHeight(0); // Will be updated by refreshTimelineUI
 
+        // Press + drag on EMPTY space (clips and transition cubes handle their own presses, track bands are
+        // mouse-transparent) draws a selection rectangle; a plain click on empty space deselects.
+        tracksPane.setOnMousePressed(e -> {
+            marqueeArmed = false;
+            if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY || e.getTarget() != tracksPane || activeDrag.clip != null)
+                return;
+            marqueeArmed = true;
+            marqueeActive = false;
+            marqueeStartX = e.getX();
+            marqueeStartY = e.getY();
+            marqueeAdditive = e.isShortcutDown();
+        });
+        tracksPane.setOnMouseDragged(e -> {
+            if (!marqueeArmed) return;
+            if (!marqueeActive) {
+                if (!MarqueeSelection.exceedsThreshold(marqueeStartX, marqueeStartY, e.getX(), e.getY(), MARQUEE_THRESHOLD))
+                    return;
+                beginMarquee();
+            }
+            updateMarquee(e.getSceneX(), e.getSceneY());
+            checkEdgeScroll(e.getSceneX(), e.getSceneY());
+            e.consume();
+        });
+        tracksPane.setOnMouseReleased(e -> {
+            if (marqueeActive) endMarquee();
+            marqueeArmed = false;
+        });
         tracksPane.setOnMouseClicked(e -> {
-            if (activeDrag.dragging) return;
+            if (activeDrag.dragging || marqueeJustFinished) return;
+            if (e.isShortcutDown()) return; // Ctrl/Cmd+click on empty space leaves the selection alone
             deselectAll();
         });
 
@@ -1715,6 +1756,11 @@ public class EditorWindow extends Stage implements PropertyContext {
         });
 
         tracksScrollPane.setContent(tracksPane);
+        // The pane is only as tall as its tracks; make it at least as tall as the viewport so a press on the blank
+        // area below the last track still reaches it (marquee start, click to deselect).
+        tracksScrollPane.viewportBoundsProperty().addListener((obs, oldB, newB) -> {
+            if (newB != null) tracksPane.setMinHeight(newB.getHeight());
+        });
 
         // Playhead overlay
         StackPane tracksWithPlayhead = new StackPane();
@@ -2379,6 +2425,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         // Cleanup: remove any nodes that are no longer active (deleted clips/tracks)
         // We exclude playhead overlay components if they are in the same pane
         // (But in this app, playhead is in a separate Pane, so we're safe)
+        if (marqueeRect != null) activeNodes.add(marqueeRect);
         tracksPane.getChildren().removeIf(n -> !activeNodes.contains(n));
 
         // A delete / undo can remove clips that were selected: forget them so nothing acts on a ghost.
@@ -2786,6 +2833,84 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
         }
         return ghostX;
+    }
+
+    private void beginMarquee() {
+        marqueeActive = true;
+        marqueeBaseline.clear();
+        marqueePrimaryBefore = marqueeAdditive ? selectedClip : null;
+        if (marqueeAdditive) marqueeBaseline.addAll(selectedClips);
+        marqueeLastHits = new ArrayList<>();
+
+        marqueeRect = new Rectangle();
+        marqueeRect.setFill(Color.web("#00D4FF", 0.15));
+        marqueeRect.setStroke(Color.web("#00D4FF"));
+        marqueeRect.setStrokeWidth(1);
+        marqueeRect.setMouseTransparent(true);
+        tracksPane.getChildren().add(marqueeRect);
+
+        if (!marqueeAdditive) {
+            // Starting a fresh marquee drops the old selection right away, like a file manager.
+            selectedClips.clear();
+            selectedClip = null;
+            refreshSelectionVisuals();
+        }
+    }
+
+    /** Resize the rectangle to the pointer and select exactly (baseline + clips it touches). */
+    private void updateMarquee(double sceneX, double sceneY) {
+        if (!marqueeActive || marqueeRect == null) return;
+
+        double rowH = TRACK_HEIGHT + TRACK_SPACING;
+        javafx.geometry.Point2D local = tracksPane.sceneToLocal(sceneX, sceneY);
+        double maxX = Math.max(tracksPane.getWidth(), tracksPane.getPrefWidth());
+        double maxY = Math.max(tracksPane.getHeight(), timeline.tracks.size() * rowH);
+        double x = Math.max(0, Math.min(maxX, local.getX()));
+        double y = Math.max(0, Math.min(maxY, local.getY()));
+
+        marqueeRect.setX(Math.min(marqueeStartX, x));
+        marqueeRect.setY(Math.min(marqueeStartY, y));
+        marqueeRect.setWidth(Math.abs(x - marqueeStartX));
+        marqueeRect.setHeight(Math.abs(y - marqueeStartY));
+        marqueeRect.toFront();
+
+        List<Clip> hits = MarqueeSelection.clipsInRect(timeline, marqueeStartX, marqueeStartY, x, y,
+                pixelsPerSecond, rowH, 3, TRACK_HEIGHT - 6);
+        if (hits.equals(marqueeLastHits)) return; // nothing changed: skip the repaint
+        marqueeLastHits = hits;
+
+        selectedClips.clear();
+        selectedClips.addAll(marqueeBaseline);
+        selectedClips.addAll(hits);
+
+        Clip primary = null;
+        for (Clip c : hits) primary = c;                       // the last clip the rectangle touched
+        if (primary == null) {
+            if (marqueePrimaryBefore != null && selectedClips.contains(marqueePrimaryBefore)) primary = marqueePrimaryBefore;
+            else for (Clip c : selectedClips) primary = c;
+        }
+        selectedClip = primary;
+        refreshSelectionVisuals();
+    }
+
+    private void endMarquee() {
+        marqueeActive = false;
+        if (marqueeRect != null) {
+            tracksPane.getChildren().remove(marqueeRect);
+            marqueeRect = null;
+        }
+        marqueeLastHits = new ArrayList<>();
+        marqueeBaseline.clear();
+        edgeScrollTimer.stop();
+        edgeScrollVelocity = 0;
+        edgeScrollVelocityY = 0;
+
+        // The click that follows the release must not deselect what the marquee just selected.
+        marqueeJustFinished = true;
+        Platform.runLater(() -> marqueeJustFinished = false);
+
+        selectedTrack = selectedClip != null ? timeline.tracks.get(selectedClip.trackIndex) : null;
+        updatePropertiesPane(); // once, at the end, not on every mouse move
     }
 
     /** Select ONLY this clip. */
