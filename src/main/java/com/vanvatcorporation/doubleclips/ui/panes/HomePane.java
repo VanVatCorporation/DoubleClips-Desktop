@@ -1,10 +1,18 @@
 package com.vanvatcorporation.doubleclips.ui.panes;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
+import com.vanvatcorporation.doubleclips.FFmpegEdit;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.ProjectRepository;
+import com.vanvatcorporation.doubleclips.data.editing.Timeline;
+import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
+import com.vanvatcorporation.doubleclips.helper.CompressionHelper;
 import com.vanvatcorporation.doubleclips.helper.DateHelper;
 import com.vanvatcorporation.doubleclips.helper.FileHelper;
+import com.vanvatcorporation.doubleclips.helper.ProjectShare;
+import com.vanvatcorporation.doubleclips.helper.TaskbarHelper;
+import javafx.application.Platform;
+import javafx.concurrent.Task;
 import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -14,6 +22,8 @@ import javafx.scene.image.ImageView;
 import java.io.File;
 import javafx.scene.layout.*;
 import javafx.scene.shape.Rectangle;
+import javafx.stage.FileChooser;
+import javafx.stage.Window;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignD;
@@ -213,7 +223,7 @@ public class HomePane extends VBox {
         editItem.setOnAction(e -> showRenameDialog(project));
         
         MenuItem shareItem = new MenuItem("Share", new FontIcon(MaterialDesignS.SHARE_VARIANT));
-        shareItem.setDisable(true); // Placeholder as requested
+        shareItem.setOnAction(e -> handleShare(project));
         
         MenuItem uploadItem = new MenuItem("Upload", new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
         uploadItem.setDisable(true); // Placeholder
@@ -230,6 +240,111 @@ public class HomePane extends VBox {
         
         menu.getItems().addAll(editItem, shareItem, uploadItem, new SeparatorMenuItem(), revealItem, new SeparatorMenuItem(), cloneItem, deleteItem);
         return menu;
+    }
+
+    /**
+     * Share = zip the project to a place the user picks (Android's share action). Next to the project's
+     * files the zip also carries ffmpegCmd.txt, a ready-to-run FFmpeg render command for rendering
+     * elsewhere. The zip is exactly what "Import Project" accepts. The work is in ProjectShare; this is
+     * the file picker, the progress window and the result message.
+     */
+    private void handleShare(ProjectData project) {
+        File projectDir = new File(project.getProjectPath());
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Share Project");
+        chooser.setInitialFileName(ProjectShare.suggestedFileName(project.getProjectTitle()));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Project ZIP", "*.zip"));
+        Window owner = getScene() != null ? getScene().getWindow() : null;
+        File dest = chooser.showSaveDialog(owner);
+        if (dest == null) return;
+        if (!dest.getName().toLowerCase().endsWith(".zip")) dest = new File(dest.getParentFile(), dest.getName() + ".zip");
+        final File destZip = dest;
+
+        String problem = ProjectShare.checkDestination(projectDir, destZip);
+        if (problem != null) {
+            Alert alert = new Alert(Alert.AlertType.ERROR, problem, ButtonType.OK);
+            alert.setTitle("Share Project");
+            alert.setHeaderText("Can't share here");
+            if (owner != null) alert.initOwner(owner);
+            alert.show();
+            return;
+        }
+
+        // A small non-closable progress window; it is closed from code when the work is done.
+        ProgressBar bar = new ProgressBar(0);
+        bar.setPrefWidth(360);
+        Label status = new Label("Preparing...");
+        VBox box = new VBox(10, status, bar);
+        box.setPadding(new Insets(16));
+        Dialog<Void> progress = new Dialog<>();
+        progress.setTitle("Compressing project");
+        if (owner != null) progress.initOwner(owner);
+        progress.getDialogPane().setContent(box);
+        progress.show();
+
+        Task<String> task = new Task<>() {
+            @Override
+            protected String call() {
+                return ProjectShare.share(projectDir, destZip, () -> {
+                    // Same fixed profile as Android: 1080p30, CRF 18. Software encoder on purpose - this command is meant to
+                    // be run on some other machine, so it must not name this machine's hardware encoder.
+                    VideoSettings settings = new VideoSettings(1920, 1080, 30, 18, Integer.MAX_VALUE,
+                            VideoSettings.FfmpegPreset.MEDIUM, VideoSettings.FfmpegTune.ZEROLATENCY);
+                    settings.useHardwareAccel = false;
+                    Timeline timeline = ProjectRepository.getInstance().loadTimeline(project);
+                    return FFmpegEdit.generateCmdFull(settings, timeline, project, false, false);
+                }, new CompressionHelper.ZipProgressListener() {
+                    @Override
+                    public void onProgress(long bytesWritten, long totalBytes, String name) {
+                        double fraction = (double) bytesWritten / Math.max(1L, totalBytes);
+                        Platform.runLater(() -> {
+                            bar.setProgress(fraction);
+                            status.setText(String.format("Compressing: %s (%.0f%%)", name, fraction * 100));
+                        });
+                        TaskbarHelper.updateProgress(fraction);
+                    }
+
+                    @Override public void onCompleted() {}
+                    @Override public void onError(Exception e) {}
+                });
+            }
+        };
+
+        task.setOnSucceeded(ev -> {
+            progress.close();
+            TaskbarHelper.stopProgress();
+            String error = task.getValue();
+            if (error != null) {
+                Alert alert = new Alert(Alert.AlertType.ERROR, error, ButtonType.OK);
+                alert.setTitle("Share Project");
+                alert.setHeaderText("Couldn't share the project");
+                if (owner != null) alert.initOwner(owner);
+                alert.show();
+                return;
+            }
+            ButtonType reveal = new ButtonType(getRevealLabel(), ButtonBar.ButtonData.LEFT);
+            Alert done = new Alert(Alert.AlertType.INFORMATION, "Saved to:\n" + destZip.getAbsolutePath(), ButtonType.OK, reveal);
+            done.setTitle("Share Project");
+            done.setHeaderText("Project shared");
+            if (owner != null) done.initOwner(owner);
+            done.showAndWait().filter(b -> b == reveal)
+                    .ifPresent(b -> FileHelper.revealInFileBrowser(destZip.toPath()));
+        });
+        task.setOnFailed(ev -> {
+            progress.close();
+            TaskbarHelper.stopProgress();
+            Throwable t = task.getException();
+            Alert alert = new Alert(Alert.AlertType.ERROR, t == null ? "Unknown error." : String.valueOf(t.getMessage()), ButtonType.OK);
+            alert.setTitle("Share Project");
+            alert.setHeaderText("Couldn't share the project");
+            if (owner != null) alert.initOwner(owner);
+            alert.show();
+        });
+
+        Thread worker = new Thread(task, "share-project");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void showRenameDialog(ProjectData project) {
