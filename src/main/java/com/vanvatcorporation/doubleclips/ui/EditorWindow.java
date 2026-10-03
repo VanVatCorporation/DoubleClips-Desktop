@@ -161,6 +161,13 @@ public class EditorWindow extends Stage implements PropertyContext {
         boolean collapseOnRelease;
     }
 
+    // ── Cut: Ctrl/Cmd+X copies the selection and marks it; the clips only MOVE when pasted (like a file manager) ──
+    private static final double CUT_OPACITY = 0.45;
+    /** Clips waiting to be moved by the next paste. Empty when no cut is pending. */
+    private final java.util.Set<Clip> pendingCut = new java.util.LinkedHashSet<>();
+    /** The exact clipboard text the cut wrote: if the clipboard no longer holds it, the cut is stale. */
+    private String pendingCutPayload;
+
     // ── Marquee: click-drag on empty timeline area draws a rectangle that selects every clip it touches ──
     private static final double MARQUEE_THRESHOLD = 4.0;  // px the pointer must travel before a press becomes a marquee
     private Rectangle marqueeRect;                        // null when no marquee is being drawn
@@ -269,6 +276,9 @@ public class EditorWindow extends Stage implements PropertyContext {
                 event.consume();
             } else if (matchesKeybind(settings.getCopyKeybind(), event)) {
                 handleCopy();
+                event.consume();
+            } else if (matchesKeybind(settings.getCutKeybind(), event)) {
+                handleCut();
                 event.consume();
             } else if (matchesKeybind(settings.getPasteKeybind(), event)) {
                 handlePaste();
@@ -2408,6 +2418,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                 node.setMaxHeight(clipH);
 
                 node.setSelected(selectedClips.contains(clip), clip == selectedClip);
+                node.setOpacity(pendingCut.contains(clip) ? CUT_OPACITY : 1.0);
                 liveClips.add(clip);
                 node.updateKeyframes(pixelsPerSecond);
                 node.setupTrimInteractions(pixelsPerSecond);
@@ -2436,6 +2447,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             selectionChanged = true;
         }
         if (selectionChanged) updatePropertiesPane();
+        if (pendingCut.removeIf(c -> !liveClips.contains(c)) && pendingCut.isEmpty()) pendingCutPayload = null;
 
         trackBands.values().removeIf(n -> !activeNodes.contains(n));
         transitionCubes.values().removeIf(n -> !activeNodes.contains(n));
@@ -3177,6 +3189,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     private void handleCopy() {
         Clipboard clipboard = Clipboard.getSystemClipboard();
         ClipboardContent content = new ClipboardContent();
+        if (!selectedClips.isEmpty() || selectedTrack != null) cancelPendingCut(); // a new copy replaces the cut
         if (!selectedClips.isEmpty()) {
             content.putString(clipboardGson.toJson(orderedSelection().toArray(new Clip[0])));
             clipboard.setContent(content);
@@ -3194,6 +3207,14 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clipboard clipboard = Clipboard.getSystemClipboard();
         if (!clipboard.hasString()) return;
         String pasteText = clipboard.getString();
+
+        if (!pendingCut.isEmpty()) {
+            if (pasteText.equals(pendingCutPayload) && cutSourcesStillInTimeline()) {
+                pasteCut();   // moves the cut clips: "paste into the track and delete the old one"
+                return;
+            }
+            cancelPendingCut(); // the clipboard moved on, or the cut clips are gone: treat this as a normal paste
+        }
 
         JsonElement root;
         try {
@@ -3245,29 +3266,7 @@ public class EditorWindow extends Stage implements PropertyContext {
      * The pasted clips become the selection. One undo step.
      */
     private void pasteClips(List<Clip> pasted) {
-        float groupMinStart = Float.MAX_VALUE;
-        int groupMinTrack = Integer.MAX_VALUE;
-        for (Clip c : pasted) {
-            groupMinStart = Math.min(groupMinStart, c.startTime);
-            groupMinTrack = Math.min(groupMinTrack, c.trackIndex);
-        }
-        groupMinTrack = Math.max(0, groupMinTrack);
-
-        float anchorStart = Math.max(0f, currentTime);
-        int baseTrack = groupMinTrack;
-        if (!selectedClips.isEmpty()) {
-            float selMinStart = Float.MAX_VALUE, selMaxEnd = 0f;
-            int selMinTrack = Integer.MAX_VALUE;
-            for (Clip c : selectedClips) {
-                selMinStart = Math.min(selMinStart, c.startTime);
-                selMaxEnd = Math.max(selMaxEnd, c.startTime + c.duration);
-                selMinTrack = Math.min(selMinTrack, c.trackIndex);
-            }
-            baseTrack = selMinTrack;
-            if (Math.abs(currentTime - selMinStart) < 0.001f) anchorStart = selMaxEnd;
-        }
-
-        ClipGroupMath.PastePlan plan = ClipGroupMath.planPaste(groupMinStart, groupMinTrack, anchorStart, baseTrack);
+        ClipGroupMath.PastePlan plan = computePastePlan(pasted, null);
 
         List<AddClipsCommand.Entry> entries = new ArrayList<>();
         for (Clip c : pasted) {
@@ -3291,6 +3290,114 @@ public class EditorWindow extends Stage implements PropertyContext {
             saveProject();
         }));
         selectClips(pasted);
+    }
+
+    /**
+     * Where a pasted (or cut-and-pasted) group lands: its earliest clip at the playhead, its topmost clip on the topmost
+     * selected track (or on its own track when nothing is selected). If the playhead sits exactly on the start of the
+     * selection, the group goes right after the selection instead of on top of it.
+     *
+     * @param ignoreInSelection clips that must not count as "the selection" (the cut clips themselves, which are about to move)
+     */
+    private ClipGroupMath.PastePlan computePastePlan(List<Clip> group, java.util.Set<Clip> ignoreInSelection) {
+        float groupMinStart = Float.MAX_VALUE;
+        int groupMinTrack = Integer.MAX_VALUE;
+        for (Clip c : group) {
+            groupMinStart = Math.min(groupMinStart, c.startTime);
+            groupMinTrack = Math.min(groupMinTrack, c.trackIndex);
+        }
+        groupMinTrack = Math.max(0, groupMinTrack);
+
+        float anchorStart = Math.max(0f, currentTime);
+        int baseTrack = groupMinTrack;
+
+        float selMinStart = Float.MAX_VALUE, selMaxEnd = 0f;
+        int selMinTrack = Integer.MAX_VALUE;
+        boolean haveSelection = false;
+        for (Clip c : selectedClips) {
+            if (ignoreInSelection != null && ignoreInSelection.contains(c)) continue;
+            haveSelection = true;
+            selMinStart = Math.min(selMinStart, c.startTime);
+            selMaxEnd = Math.max(selMaxEnd, c.startTime + c.duration);
+            selMinTrack = Math.min(selMinTrack, c.trackIndex);
+        }
+        if (haveSelection) {
+            baseTrack = selMinTrack;
+            if (Math.abs(currentTime - selMinStart) < 0.001f) anchorStart = selMaxEnd;
+        }
+        return ClipGroupMath.planPaste(groupMinStart, groupMinTrack, anchorStart, baseTrack);
+    }
+
+    /** Ctrl/Cmd+X: copy the selected clips to the clipboard and dim them; they are only moved when pasted. */
+    private void handleCut() {
+        if (selectedClips.isEmpty()) return;
+        List<Clip> ordered = orderedSelection();
+        String json = clipboardGson.toJson(ordered.toArray(new Clip[0]));
+
+        ClipboardContent content = new ClipboardContent();
+        content.putString(json);
+        Clipboard.getSystemClipboard().setContent(content);
+
+        pendingCut.clear();
+        pendingCut.addAll(ordered);
+        pendingCutPayload = json;
+        refreshCutVisuals();
+    }
+
+    private void cancelPendingCut() {
+        if (pendingCut.isEmpty() && pendingCutPayload == null) return;
+        pendingCut.clear();
+        pendingCutPayload = null;
+        refreshCutVisuals();
+    }
+
+    private void refreshCutVisuals() {
+        for (Track t : timeline.tracks) {
+            for (Clip c : t.clips) {
+                if (c.viewRef instanceof ClipNode cn) cn.setOpacity(pendingCut.contains(c) ? CUT_OPACITY : 1.0);
+            }
+        }
+    }
+
+    private boolean cutSourcesStillInTimeline() {
+        for (Clip c : pendingCut) {
+            if (c.trackIndex < 0 || c.trackIndex >= timeline.tracks.size()) return false;
+            if (!timeline.tracks.get(c.trackIndex).clips.contains(c)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Paste after a cut: the SAME clips are moved to the paste position (so they keep their identity, thumbnails
+     * and settings) instead of being copied and the old ones deleted. One undo step. The cut is then used up:
+     * pasting again inserts copies from the clipboard as usual.
+     */
+    private void pasteCut() {
+        List<Clip> group = new ArrayList<>(pendingCut);
+        ClipGroupMath.PastePlan plan = computePastePlan(group, pendingCut);
+
+        List<MoveClipsCommand.Entry> moves = new ArrayList<>();
+        for (Clip c : group) {
+            moves.add(new MoveClipsCommand.Entry(c,
+                    c.startTime, Math.max(0f, c.startTime + plan.timeShift),
+                    c.trackIndex, Math.max(0, c.trackIndex + plan.trackShift)));
+        }
+
+        boolean nothingChanges = true;
+        for (MoveClipsCommand.Entry m : moves) {
+            if (Math.abs(m.newStart - m.oldStart) > 1e-6f || m.newTrack != m.oldTrack) { nothingChanges = false; break; }
+        }
+
+        cancelPendingCut(); // before the refresh, so the clips come back at full opacity
+        if (nothingChanges) return;
+
+        historyManager.execute(new MoveClipsCommand(timeline, moves, () -> {
+            updateCurrentClipEnd();
+            refreshTrackHeaders();   // the move may have created tracks
+            refreshTimelineUI();
+            saveProject();
+        }));
+        selectClips(group);
     }
 
     private void pasteTrack(String json) {

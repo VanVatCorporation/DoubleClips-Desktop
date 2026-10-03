@@ -94,6 +94,7 @@ public class SettingsOverlay extends StackPane {
         HBox selectAllRow = createKeybindRow("Select All", "Shortcut to select all clips", settings.selectAllKeybindProperty());
         HBox togglePlayRow = createKeybindRow("Toggle Play/Pause", "Shortcut to play/pause preview", settings.togglePlayKeybindProperty());
         HBox copyRow = createKeybindRow("Copy", "Shortcut to copy elements", settings.toggleCopyProperty());
+        HBox cutRow = createKeybindRow("Cut", "Shortcut to cut elements (they move when you paste)", settings.toggleCutProperty());
         HBox pasteRow = createKeybindRow("Paste", "Shortcut to paste elements", settings.togglePasteProperty());
         shortcutsGroup.getChildren().addAll(
                 undoRow, new Separator(),
@@ -102,6 +103,7 @@ public class SettingsOverlay extends StackPane {
                 selectAllRow, new Separator(),
                 togglePlayRow, new Separator(),
                 copyRow, new Separator(),
+                cutRow, new Separator(),
                 pasteRow);
 
         content.getChildren().addAll(generalGroup, shortcutsGroup);

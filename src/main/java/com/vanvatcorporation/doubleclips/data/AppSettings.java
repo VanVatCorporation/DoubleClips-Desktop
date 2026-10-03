@@ -21,6 +21,7 @@ public class AppSettings {
     private final StringProperty redoKeybind = new SimpleStringProperty();
     private final StringProperty togglePlayKeybind = new SimpleStringProperty();
     private final StringProperty copyKeybind = new SimpleStringProperty();
+    private final StringProperty cutKeybind = new SimpleStringProperty();
     private final StringProperty pasteKeybind = new SimpleStringProperty();
 
     private AppSettings() {
@@ -36,6 +37,7 @@ public class AppSettings {
         redoKeybind.set(prefs.get("redo_keybind", "Shortcut+Shift+Z"));
         togglePlayKeybind.set(prefs.get("toggle_play_keybind", "SPACE"));
         copyKeybind.set(prefs.get("copy_keybind", "Shortcut+C"));
+        cutKeybind.set(prefs.get("cut_keybind", "Shortcut+X"));
         pasteKeybind.set(prefs.get("paste_keybind", "Shortcut+V"));
 
         // Save on change
@@ -48,6 +50,7 @@ public class AppSettings {
         redoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("redo_keybind", newVal));
         togglePlayKeybind.addListener((obs, oldVal, newVal) -> prefs.put("toggle_play_keybind", newVal));
         copyKeybind.addListener((obs, oldVal, newVal) -> prefs.put("copy_keybind", newVal));
+        cutKeybind.addListener((obs, oldVal, newVal) -> prefs.put("cut_keybind", newVal));
         pasteKeybind.addListener((obs, oldVal, newVal) -> prefs.put("paste_keybind", newVal));
     }
 
@@ -96,6 +99,10 @@ public class AppSettings {
     public String getCopyKeybind() { return copyKeybind.get(); }
     public void setCopyKeybind(String value) { copyKeybind.set(value); }
     public StringProperty toggleCopyProperty() { return copyKeybind; }
+
+    public String getCutKeybind() { return cutKeybind.get(); }
+    public void setCutKeybind(String value) { cutKeybind.set(value); }
+    public StringProperty toggleCutProperty() { return cutKeybind; }
 
     public String getPasteKeybind() { return pasteKeybind.get(); }
     public void setPasteKeybind(String value) { pasteKeybind.set(value); }
