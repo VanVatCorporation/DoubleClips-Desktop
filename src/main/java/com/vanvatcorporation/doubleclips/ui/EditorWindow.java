@@ -840,6 +840,21 @@ public class EditorWindow extends Stage implements PropertyContext {
         });
         proxyRow.getChildren().addAll(proxyLabel, proxyCheck);
 
+        HBox hwRow = new HBox(8);
+        hwRow.setAlignment(Pos.CENTER_LEFT);
+        Label hwLabel = new Label("Hardware decoding:");
+        hwLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        hwLabel.setPrefWidth(160);
+        CheckBox hwCheck = new CheckBox();
+        hwCheck.setSelected(appSettings.isPreviewHardwareDecode());
+        hwCheck.setTooltip(new Tooltip("Experimental. Only used when a clip starts from its beginning; seeks always decode in software, because hardware decoding after a seek can corrupt frames"));
+        hwCheck.disableProperty().bind(gpuCheck.selectedProperty().not());
+        hwCheck.selectedProperty().addListener((obs, o, n) -> {
+            appSettings.setPreviewHardwareDecode(n);
+            timelineRenderer.setHardwareDecode(n);
+        });
+        hwRow.getChildren().addAll(hwLabel, hwCheck);
+
         gpuCheck.selectedProperty().addListener((obs, o, n) -> {
             appSettings.setGpuPreview(n);
             if (n) {
@@ -854,6 +869,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             sep1,
             gpuRow,
             proxyRow,
+            hwRow,
             new javafx.scene.control.Separator(),
             fpsRow, fpsHint,
             speedRow,

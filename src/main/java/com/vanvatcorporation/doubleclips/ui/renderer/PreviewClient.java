@@ -47,7 +47,7 @@ public final class PreviewClient {
         /** FX thread. The worker is up; {@link #image()} is valid from now on. */
         void onReady();
 
-        /** FX thread. A new frame was written into {@link #image()}. */
+        /** FX thread. A new complete frame is in {@link #image()} (a different object each time - show it). */
         void onFrame();
 
         /** FX thread. The worker could not start or died; the client is dead, fall back to the old preview. */
@@ -71,7 +71,14 @@ public final class PreviewClient {
     private volatile boolean ready = false;
 
     private final AtomicInteger seq = new AtomicInteger();
-    private volatile WritableImage image;
+    /**
+     * Two images, written alternately. JavaFX renders on its own thread, and an image that is being
+     * rewritten while that thread uploads it to the GPU shows rows of two different frames (torn
+     * horizontal bands). Writing only the image that is NOT on screen, then swapping, avoids it.
+     */
+    private final WritableImage[] images = new WritableImage[2];
+    private int nextImage = 1;               // FX thread: the one to write next
+    private volatile WritableImage image;    // the one holding the newest complete frame
 
     // FX-thread state
     private String lastTimelineJson;
@@ -100,7 +107,7 @@ public final class PreviewClient {
     public int getPreviewWidth() { return previewWidth; }
     public int getPreviewHeight() { return previewHeight; }
 
-    /** The image the frames are written into; null until {@link Listener#onReady()}. */
+    /** The image holding the newest frame; null until {@link Listener#onReady()}. Changes on every frame. */
     public WritableImage image() { return image; }
 
     public boolean isUsable() { return !failed && !closing; }
@@ -182,6 +189,10 @@ public final class PreviewClient {
 
     public void setUseProxy(boolean useProxy) {
         send("{\"cmd\":\"proxy\",\"on\":" + useProxy + "}");
+    }
+
+    public void setHardwareDecode(boolean on) {
+        send("{\"cmd\":\"hwaccel\",\"on\":" + on + "}");
     }
 
     /**
@@ -289,7 +300,10 @@ public final class PreviewClient {
     private void onWorkerReady(int w, int h) {
         Platform.runLater(() -> {
             if (failed || closing) return;
-            image = new WritableImage(w, h);
+            images[0] = new WritableImage(w, h);
+            images[1] = new WritableImage(w, h);
+            image = images[0];
+            nextImage = 1;
             ready = true;
             listener.onReady();
         });
@@ -310,10 +324,12 @@ public final class PreviewClient {
                 deliverScheduled = false;
             }
             if (toShow == null) return;
-            WritableImage target = image;
+            WritableImage target = images[nextImage];
             if (target != null && !closing && (int) target.getWidth() == w && (int) target.getHeight() == h) {
                 target.getPixelWriter().setPixels(0, 0, w, h, PixelFormat.getByteBgraInstance(), toShow, 0, w * 4);
-                listener.onFrame();
+                image = target;
+                nextImage ^= 1;
+                listener.onFrame(); // the view switches to the image that was just completed
             }
             freeBuffers.offer(toShow);
         });

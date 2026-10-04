@@ -3,6 +3,8 @@ package com.vanvatcorporation.doubleclips;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.ClipType;
+import com.vanvatcorporation.doubleclips.data.editing.Timeline;
+import com.vanvatcorporation.doubleclips.data.editing.Track;
 
 import java.io.File;
 import java.io.IOException;
@@ -15,6 +17,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
 
 /**
@@ -41,13 +47,15 @@ final class PreviewFramePool {
     static final long FORWARD_WINDOW_FRAMES = 45;
     static final int MAX_VIDEO_STREAMS = 10;
     static final int MAX_IMAGES = 16;
+    /** Decoded-but-not-yet-uploaded images kept ready (about 3.7 MB each at the preview size). */
+    static final int MAX_PRELOADED_IMAGES = 24;
     /** A stream nobody asked for in this long is closed. */
     static final long IDLE_CLOSE_NANOS = 4_000_000_000L;
 
     private final OpenGLTimelineExporter.Compositor compositor;
     private final ProjectData project;
     private final String ffmpegPath;
-    private final boolean hwaccel;
+    private volatile boolean hwaccel;
     private final Consumer<String> log;
 
     private volatile boolean useProxy;
@@ -58,6 +66,16 @@ final class PreviewFramePool {
     private final Set<Object> reported = new HashSet<>();
     /** Bumped once per rendered frame; a stream stamped with the current value is in use right now. */
     private long frameCounter = 0;
+    /** True while the playhead is running: nothing may stall the render loop then. */
+    private boolean playing;
+
+    /** Images are decoded off the GL thread (a PNG is an ffmpeg process, 100+ ms), keyed like {@link #images}. */
+    private final Map<String, Future<ByteBuffer>> decodes = new LinkedHashMap<>();
+    private final ExecutorService imageLoader = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "PreviewImageLoader");
+        t.setDaemon(true);
+        return t;
+    });
 
     private static final class VideoStream {
         final String path;
@@ -68,6 +86,7 @@ final class PreviewFramePool {
         /** First frame index the current source was started at (it has not read a frame yet if currentFrameIndex() < 0). */
         long startFrame;
         long uploadedIndex = Long.MIN_VALUE;
+        String lastLoggedErrors = "";
         long lastUsedFrame = -1;
         long lastUsedNanos;
 
@@ -112,9 +131,15 @@ final class PreviewFramePool {
         closeAll();
     }
 
+    /** Streams opened from now on use (or don't use) hardware decoding; open ones are left alone. */
+    void setHardwareDecode(boolean on) {
+        this.hwaccel = on;
+    }
+
     /** Call once at the start of every rendered frame. */
-    void beginFrame() {
+    void beginFrame(boolean playing) {
         frameCounter++;
+        this.playing = playing;
     }
 
     /** Draws one clip into whatever the compositor is pointed at. True if something was drawn. */
@@ -157,6 +182,14 @@ final class PreviewFramePool {
         streams.clear();
         for (ImageEntry e : images.values()) compositor.destroyLayer(e.layer);
         images.clear();
+        for (Future<ByteBuffer> f : decodes.values()) f.cancel(true);
+        decodes.clear();
+    }
+
+    /** The worker is exiting. */
+    void shutdown() {
+        closeAll();
+        imageLoader.shutdownNow();
     }
 
     // ── video ────────────────────────────────────────────────────────────
@@ -182,6 +215,8 @@ final class PreviewFramePool {
             }
             return false;
         }
+
+        if ((frameCounter & 15) == 0) logDecodeErrors(stream, clip);
 
         long index = stream.source.currentFrameIndex();
         ByteBuffer upload = index != stream.uploadedIndex ? stream.source.frame() : null;
@@ -290,30 +325,106 @@ final class PreviewFramePool {
     }
 
     private OpenGLFrameIO.ClipFrameSource open(String path, int[] size, double targetSec, double fps) throws IOException {
-        return new OpenGLFrameIO.ClipFrameSource(ffmpegPath, path, size[0], size[1], targetSec, fps, true, hwaccel);
+        // Hardware decoding only for a stream that starts at the very beginning of the file, i.e. one
+        // opened WITHOUT a seek. Seeking into the middle of a clip makes ffmpeg decode and discard the
+        // frames before the target, and a hardware decoder (VideoToolbox) fed a stream that starts
+        // mid-GOP can leave corrupted reference state - noisy, torn, triangular frames until the next
+        // keyframe. Software decoding handles that correctly, so every seeked stream uses it.
+        boolean hardware = hwaccel && Math.floor(Math.max(0.0, targetSec) * fps + 1e-4) <= 0;
+        return new OpenGLFrameIO.ClipFrameSource(ffmpegPath, path, size[0], size[1], targetSec, fps, true, hardware);
+    }
+
+    /**
+     * ffmpeg runs with -loglevel error, so anything on its stderr is a real decode problem (corrupt or
+     * missing reference frames, bad slices...). Those are exactly what smeared / displaced bands in
+     * the picture look like, so they are written to the log once per distinct message.
+     */
+    private void logDecodeErrors(VideoStream stream, Clip clip) {
+        String tail = stream.source.errorTail();
+        if (tail.isEmpty() || tail.equals(stream.lastLoggedErrors)) return;
+        stream.lastLoggedErrors = tail;
+        String shown = tail.length() > 700 ? tail.substring(tail.length() - 700) : tail;
+        log.accept("Decoder reported problems for '" + new File(stream.path).getName() + "': " + shown.replace('\n', '|'));
     }
 
     private void destroy(VideoStream s) {
+        String tail = s.source.errorTail();
+        if (!tail.isEmpty() && !tail.equals(s.lastLoggedErrors)) {
+            String shown = tail.length() > 700 ? tail.substring(tail.length() - 700) : tail;
+            log.accept("Decoder reported problems for '" + new File(s.path).getName() + "': " + shown.replace('\n', '|'));
+        }
         s.source.close();
         compositor.destroyLayer(s.layer);
     }
 
     // ── images ───────────────────────────────────────────────────────────
 
+    private static String imageKey(String path, int[] size) {
+        return path + "@" + size[0] + "x" + size[1];
+    }
+
+    /** Starts (once) the background decode of an image; returns its future. */
+    private Future<ByteBuffer> startImageDecode(String path, int[] size, String key) {
+        Future<ByteBuffer> existing = decodes.get(key);
+        if (existing != null) return existing;
+        // Make room by forgetting finished decodes nobody has used (oldest first).
+        Iterator<Map.Entry<String, Future<ByteBuffer>>> it = decodes.entrySet().iterator();
+        while (decodes.size() >= MAX_PRELOADED_IMAGES && it.hasNext()) {
+            Map.Entry<String, Future<ByteBuffer>> eldest = it.next();
+            if (!eldest.getValue().isDone()) break;
+            it.remove();
+        }
+        final int w = size[0], h = size[1];
+        Future<ByteBuffer> future = imageLoader.submit(() -> OpenGLFrameIO.decodeImageRgba(ffmpegPath, path, w, h));
+        decodes.put(key, future);
+        return future;
+    }
+
+    /**
+     * Starts decoding every image clip that becomes visible within {@code horizonSeconds}, so a clip that
+     * lasts only a few frames is ready when the playhead reaches it instead of being decoded (and
+     * missed) at the moment it appears.
+     */
+    void prefetchImages(Timeline timeline, float fromSeconds, float horizonSeconds) {
+        if (timeline == null || timeline.tracks == null) return;
+        float to = fromSeconds + horizonSeconds;
+        for (Track track : timeline.tracks) {
+            if (track == null || track.clips == null) continue;
+            for (Clip clip : track.clips) {
+                if (clip == null || clip.type != ClipType.IMAGE) continue;
+                if (clip.startTime >= to || clip.startTime + clip.duration <= fromSeconds) continue;
+                int[] size = decodeSize(clip);
+                String path = clip.getAbsolutePath(project);
+                String key = imageKey(path, size);
+                if (!images.containsKey(key)) startImageDecode(path, size, key);
+            }
+        }
+    }
+
     private boolean drawImage(Clip clip, OpenGLEdit.DrawCommand cmd) {
         int[] size = decodeSize(clip);
         String path = clip.getAbsolutePath(project);
-        String key = path + "@" + size[0] + "x" + size[1];
+        String key = imageKey(path, size);
         ImageEntry image = images.get(key);
         if (image == null) {
+            Future<ByteBuffer> future = startImageDecode(path, size, key);
+            // While playing, never wait for a decode: skip the clip this frame and let a later frame
+            // have it. When paused or scrubbing, wait: that frame is the one being looked at.
+            if (playing && !future.isDone()) return false;
+            ByteBuffer pixels;
             try {
-                ByteBuffer pixels = OpenGLFrameIO.decodeImageRgba(ffmpegPath, path, size[0], size[1]);
-                image = new ImageEntry(compositor.createLayer(size[0], size[1]), pixels);
-                images.put(key, image);
-            } catch (IOException | RuntimeException e) {
-                if (reported.add(clip)) log.accept("Could not open an image for preview: " + e.getMessage());
+                pixels = future.get();
+            } catch (ExecutionException | java.util.concurrent.CancellationException e) {
+                if (reported.add(clip)) log.accept("Could not open an image for preview: "
+                        + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
+                return false;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 return false;
             }
+            decodes.remove(key);
+            image = new ImageEntry(compositor.createLayer(size[0], size[1]), pixels);
+            images.put(key, image);
             while (images.size() > MAX_IMAGES) {
                 Iterator<Map.Entry<String, ImageEntry>> it = images.entrySet().iterator();
                 Map.Entry<String, ImageEntry> eldest = it.next();

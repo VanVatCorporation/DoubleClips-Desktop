@@ -84,13 +84,23 @@ public class ClipRenderer {
      * TEXT clips are still drawn here.
      */
     private final boolean gpuPreview;
+    private final boolean ownAudio;
 
     public ClipRenderer(Clip clip, ProjectData data, VideoSettings settings, Pane renderPane) {
         this(clip, data, settings, renderPane, false);
     }
 
     public ClipRenderer(Clip clip, ProjectData data, VideoSettings settings, Pane renderPane, boolean gpuPreview) {
+        this(clip, data, settings, renderPane, gpuPreview, true);
+    }
+
+    /**
+     * @param ownAudio false when the preview's single AudioEngine plays the sound: this renderer then
+     *                 opens no audio line of its own (no per-clip line/thread).
+     */
+    public ClipRenderer(Clip clip, ProjectData data, VideoSettings settings, Pane renderPane, boolean gpuPreview, boolean ownAudio) {
         this.gpuPreview = gpuPreview;
+        this.ownAudio = ownAudio;
         this.clip = clip;
         this.data = data;
         this.settings = settings;
@@ -118,7 +128,7 @@ public class ClipRenderer {
                         writableImage = new WritableImage(w, h);
                         viewNode = new ImageView(writableImage);
                     }
-                    if (clip.isClipHasAudio() && !clip.isMute()) {
+                    if (ownAudio && clip.isClipHasAudio() && !clip.isMute()) {
                         openAudioLine(clip.getAbsolutePreviewPath(data, ".wav"));
                     }
                     break;
@@ -135,7 +145,7 @@ public class ClipRenderer {
                     break;
 
                 case AUDIO:
-                    openAudioLine(clip.getAbsolutePreviewPath(data, ".wav"));
+                    if (ownAudio) openAudioLine(clip.getAbsolutePreviewPath(data, ".wav"));
                     break;
                 
                 case TEXT:

@@ -46,6 +46,7 @@ import static org.lwjgl.system.MemoryUtil.NULL;
  *                                                                         when k >= 0, in the worker's copy only)
  *   {"cmd":"render","seq":n,"t":seconds,"playing":bool}                (only the newest is ever rendered)
  *   {"cmd":"proxy","on":bool}
+ *   {"cmd":"hwaccel","on":bool}                                        (hardware decoding for streams opened from now on)
  *   {"cmd":"quit"}
  * </pre>
  * stdout: ONLY binary packets - int magic, int seq, int width, int height (big-endian), then for
@@ -75,6 +76,7 @@ public final class PreviewWorker {
     private static boolean quit;                    // guarded by LOCK
     private static volatile Timeline timeline;      // replaced wholesale, never mutated
     private static final AtomicReference<Boolean> proxyChange = new AtomicReference<>();
+    private static final AtomicReference<Boolean> hwChange = new AtomicReference<>();
 
     public static void main(String[] args) {
         OutputStream frames = new BufferedOutputStream(new FileOutputStream(FileDescriptor.out), 1 << 16);
@@ -139,7 +141,7 @@ public final class PreviewWorker {
                     writePacket(frames, -1, previewW, previewH, null);
                     renderLoop(frames, compositor, pool, canvasW, canvasH, previewW, previewH, stretch);
                 } finally {
-                    pool.closeAll();
+                    pool.shutdown();
                     compositor.close();
                 }
             } finally {
@@ -172,6 +174,8 @@ public final class PreviewWorker {
 
             Boolean proxy = proxyChange.getAndSet(null);
             if (proxy != null) pool.setUseProxy(proxy);
+            Boolean hw = hwChange.getAndSet(null);
+            if (hw != null) pool.setHardwareDecode(hw);
 
             Timeline tl = timeline;
             List<OpenGLEdit.FrameLayer> layers = Collections.emptyList();
@@ -184,7 +188,7 @@ public final class PreviewWorker {
                 }
             }
 
-            pool.beginFrame();
+            pool.beginFrame(request.playing);
             OpenGLTimelineExporter.drawFrameLayers(compositor, layers, request.t, blurScale, pool::draw);
             compositor.readFrame(pixels);
             toBgraTopFirst(pixels, out, row, previewW, previewH);
@@ -193,6 +197,7 @@ public final class PreviewWorker {
             // After the frame is on its way: warm the streams the playhead is about to need, and
             // drop the ones it left behind.
             if (request.playing && tl != null) {
+                pool.prefetchImages(tl, request.t, 3f);
                 try {
                     for (OpenGLEdit.FrameLayer layer : edit.computeFrameForTimestamp(tl, request.t + 0.75f, canvasW, canvasH, stretch)) {
                         if (layer.simpleDraw != null) {
@@ -269,6 +274,9 @@ public final class PreviewWorker {
                         break;
                     case "proxy":
                         proxyChange.set(cmd.get("on").getAsBoolean());
+                        break;
+                    case "hwaccel":
+                        hwChange.set(cmd.get("on").getAsBoolean());
                         break;
                     case "quit":
                         requestQuit();

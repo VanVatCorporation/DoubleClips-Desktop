@@ -31,6 +31,10 @@ public class TimelineRenderer {
     private final ProjectData data;
     private final VideoSettings settings;
 
+    // One mixer for all the preview audio (the ClipRenderers no longer open audio lines)
+    private final AudioEngine audio = new AudioEngine(
+            msg -> com.vanvatcorporation.doubleclips.manager.LoggingManager.LogToPersistentDataPath(msg));
+
     // GPU preview
     private PreviewClient client;
     private ImageView gpuView;
@@ -75,10 +79,16 @@ public class TimelineRenderer {
         if (client != null) return;
         client = new PreviewClient(new PreviewClient.Listener() {
             @Override public void onReady() { showGpuView(); }
-            @Override public void onFrame() { /* the WritableImage notifies its ImageView by itself */ }
+            @Override public void onFrame() {
+                // The client alternates between two images (see PreviewClient); show the finished one.
+                if (gpuView != null && client != null && client.image() != null) gpuView.setImage(client.image());
+            }
             @Override public void onFailed(String reason) { fallBackToLegacy(); }
         }, settings.videoWidth, settings.videoHeight, settings.frameRate);
-        client.start(data.getProjectPath(), settings.isStretchToFull(), settings.isUseHardwareAccel(), useProxy,
+        // Hardware decoding is its own preview setting (off by default), NOT the export's useHardwareAccel:
+        // seeking into the middle of a clip with a hardware decoder is what produced noisy / corrupt frames.
+        client.start(data.getProjectPath(), settings.isStretchToFull(),
+                com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().isPreviewHardwareDecode(), useProxy,
                 settings.videoWidth, settings.videoHeight);
         if (timeline != null) buildTimeline(timeline);
     }
@@ -100,6 +110,13 @@ public class TimelineRenderer {
     public void setUseProxy(boolean useProxy) {
         if (client == null || !client.isUsable()) return;
         client.setUseProxy(useProxy);
+        client.requestFrame(timeline, lastTime, false);
+    }
+
+    /** Hardware decoding on/off for the GPU preview (takes effect on the next stream that is opened). */
+    public void setHardwareDecode(boolean on) {
+        if (client == null || !client.isUsable()) return;
+        client.setHardwareDecode(on);
         client.requestFrame(timeline, lastTime, false);
     }
 
@@ -194,6 +211,7 @@ public class TimelineRenderer {
     public void buildTimeline(Timeline timeline) {
         this.timeline = timeline;
         release();
+        audio.setTimeline(timeline, data);
 
         // Clear everything except the black box (and the GPU picture, which sits right above it)
         if (gpuView != null) {
@@ -215,7 +233,7 @@ public class TimelineRenderer {
                     case IMAGE:
                     case TEXT:
                     case EFFECT:
-                        ClipRenderer clipRenderer = new ClipRenderer(clip, data, settings, renderPane, gpu);
+                        ClipRenderer clipRenderer = new ClipRenderer(clip, data, settings, renderPane, gpu, false);
                         renderers.add(clipRenderer);
                         break;
                     default:
@@ -228,6 +246,7 @@ public class TimelineRenderer {
 
     public void updateTime(float time, boolean isSeekingOnly) {
         lastTime = time;
+        audio.update(time, !isSeekingOnly);
         if (isGpuPreviewActive()) {
             client.requestFrame(timeline, time, !isSeekingOnly);
         }
@@ -251,6 +270,7 @@ public class TimelineRenderer {
 
     /** Editor is closing: stop the clips and the preview worker process. */
     public void shutdown() {
+        audio.shutdown();
         release();
         if (client != null) {
             client.close();

@@ -18,6 +18,8 @@ public class AppSettings {
     // gpuPreview: composite the preview with the OpenGL worker (the same engine as the OpenGL export).
     private final BooleanProperty previewUseProxy = new SimpleBooleanProperty();
     private final BooleanProperty gpuPreview = new SimpleBooleanProperty();
+    // Hardware (e.g. VideoToolbox) decoding for the GPU preview. Off by default: it can corrupt frames after a seek.
+    private final BooleanProperty previewHardwareDecode = new SimpleBooleanProperty();
     
     private final StringProperty deleteKeybind = new SimpleStringProperty();
     private final StringProperty selectAllKeybind = new SimpleStringProperty();
@@ -37,6 +39,7 @@ public class AppSettings {
         earlyAccessNotifications.set(prefs.getBoolean("early_access_notifications", true));
         previewUseProxy.set(prefs.getBoolean("preview_use_proxy", false));
         gpuPreview.set(prefs.getBoolean("gpu_preview", true));
+        previewHardwareDecode.set(prefs.getBoolean("preview_hw_decode", false));
         deleteKeybind.set(prefs.get("delete_keybind", "DELETE"));
         selectAllKeybind.set(prefs.get("select_all_keybind", "Shortcut+A"));
         undoKeybind.set(prefs.get("undo_keybind", "Shortcut+Z"));
@@ -52,6 +55,7 @@ public class AppSettings {
         earlyAccessNotifications.addListener((obs, oldVal, newVal) -> prefs.putBoolean("early_access_notifications", newVal));
         previewUseProxy.addListener((obs, oldVal, newVal) -> prefs.putBoolean("preview_use_proxy", newVal));
         gpuPreview.addListener((obs, oldVal, newVal) -> prefs.putBoolean("gpu_preview", newVal));
+        previewHardwareDecode.addListener((obs, oldVal, newVal) -> prefs.putBoolean("preview_hw_decode", newVal));
         deleteKeybind.addListener((obs, oldVal, newVal) -> prefs.put("delete_keybind", newVal));
         selectAllKeybind.addListener((obs, oldVal, newVal) -> prefs.put("select_all_keybind", newVal));
         undoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("undo_keybind", newVal));
@@ -87,6 +91,10 @@ public class AppSettings {
     public boolean isPreviewUseProxy() { return previewUseProxy.get(); }
     public void setPreviewUseProxy(boolean value) { previewUseProxy.set(value); }
     public BooleanProperty previewUseProxyProperty() { return previewUseProxy; }
+
+    public boolean isPreviewHardwareDecode() { return previewHardwareDecode.get(); }
+    public void setPreviewHardwareDecode(boolean value) { previewHardwareDecode.set(value); }
+    public BooleanProperty previewHardwareDecodeProperty() { return previewHardwareDecode; }
 
     public boolean isGpuPreview() { return gpuPreview.get(); }
     public void setGpuPreview(boolean value) { gpuPreview.set(value); }
