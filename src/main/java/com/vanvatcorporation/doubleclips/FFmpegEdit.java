@@ -511,12 +511,14 @@ public class FFmpegEdit {
                         // And then add to filterComplex no matter
                         // the clip has merge or there are no keyframe to combine
 
-                        String scaleXCmd = templateSettings.settings.isStretchToFull() ?
+                        // Scale applies in stretch-to-full mode too (as in the keyframed branch above): the base size is
+                        // the canvas instead of the clip, ScaleX/ScaleY multiplies it either way.
+                        String scaleXCmd = (templateSettings.settings.isStretchToFull() ?
                                 String.valueOf(templateSettings.settings.getRenderVideoWidth(templateSettings.isTemplateCommand)) :
-                                "iw*" + clip.videoProperties.getValue(VideoProperties.ValueType.ScaleX);
-                        String scaleYCmd = templateSettings.settings.isStretchToFull() ?
+                                "iw") + "*" + clip.videoProperties.getValue(VideoProperties.ValueType.ScaleX);
+                        String scaleYCmd = (templateSettings.settings.isStretchToFull() ?
                                 String.valueOf(templateSettings.settings.getRenderVideoHeight(templateSettings.isTemplateCommand)) :
-                                "ih*" + clip.videoProperties.getValue(VideoProperties.ValueType.ScaleY);
+                                "ih") + "*" + clip.videoProperties.getValue(VideoProperties.ValueType.ScaleY);
                         filterComplex.append("scale=").append(scaleXCmd).append(":").append(scaleYCmd).append(",")                                //.append("scale=").append(clip.width).append(":").append(clip.height).append(",")
                                 .append("rotate=").append(radiansRotation).append(":ow=rotw(").append(radiansRotation).append("):oh=roth(").append(radiansRotation).append(")")
                                 .append(":fillcolor=0x00000000").append(",")
@@ -537,97 +539,25 @@ public class FFmpegEdit {
                     //  Deliver with .zip pack, upload transition API, contains .gif for display.
                     //  which FFmpeg does support.
                     //  For now it's hardcoded.
-                    // 🎬 Handle "In" Animations
-                    if (clip.inAnimation != null && !"none".equals(clip.inAnimation.type)) {
-                        if ("unfold".equals(clip.inAnimation.type)) {
-                            float dur = clip.inAnimation.duration;
-                            float fps = templateSettings.settings.getFrameRate();
-                            float durFrames = dur * fps;
-                            String durFramesStr = String.valueOf(durFrames);
-                            String cond = getConditionTwo("in", "<=", durFramesStr);
-
-                            // progress p = in / durFrames
-                            String p = "(in/" + durFramesStr + ")";
-
-                            // Center expansion logic:
-                            // x0: W/2*(1-p) -> 0
-                            // y0: H/2*(1-p) -> 0
-                            // x1: W/2 + W/2*p -> W
-                            // y1: H/2*(1-p) -> 0
-                            // x2: W/2*(1-p) -> 0
-                            // y2: H/2 + H/2*p -> H
-                            // x3: W/2 + W/2*p -> W
-                            // y3: H/2 + H/2*p -> H
-//
-//                            String x0Expr = getIfExpr(cond, "W/2*(1-" + p + ")", "0");
-//                            String y0Expr = getIfExpr(cond, "H/2*(1-" + p + ")", "0");
-//                            String x1Expr = getIfExpr(cond, "W/2+W/2*" + p, "W");
-//                            String y1Expr = getIfExpr(cond, "H/2*(1-" + p + ")", "0");
-//                            String x2Expr = getIfExpr(cond, "W/2*(1-" + p + ")", "0");
-//                            String y2Expr = getIfExpr(cond, "H/2+H/2*" + p, "H");
-//                            String x3Expr = getIfExpr(cond, "W/2+W/2*" + p, "W");
-//                            String y3Expr = getIfExpr(cond, "H/2+H/2*" + p, "H");
-
-
-//                            String x0Expr = getIfExpr(cond, "W/8-W/8*(1-" + p + ")", "0");
-//                            String y0Expr = getIfExpr(cond, "H/2*(1-" + p + ")", "0");
-//                            String x1Expr = getIfExpr(cond, "W/2+W/2*" + p, "W");
-//                            String y1Expr = getIfExpr(cond, "H/2*(1-" + p + ")", "0");
-//                            String x2Expr = getIfExpr(cond, "W/2*(1-" + p + ")", "0");
-//                            String y2Expr = getIfExpr(cond, "H/2+H/2*" + p, "H");
-//                            String x3Expr = getIfExpr(cond, "W/2+W/2*" + p, "W");
-//                            String y3Expr = getIfExpr(cond, "H/2+H/2*" + p, "H");
-
-
-//                            String x0Expr = getIfExpr(cond, "W/8 - W/8*" + p, "0");
-//                            String y0Expr = getIfExpr(cond, "(H/8)*(1 - 4*" + p + " + 3*" + p + "*" + p + ")", "0");
-//                            String x1Expr = getIfExpr(cond, "W/2 + W/2*" + p, "W");
-//                            String y1Expr = getIfExpr(cond, "(H/8)*(1 - 4*" + p + " + 3*" + p + "*" + p + ")", "0");
-//                            String x2Expr = getIfExpr(cond, "(W/2)*(1 - 2*" + p + " + " + p + "*" + p + ")", "0");
-//                            String y2Expr = getIfExpr(cond, "H/2 + H/2*" + p, "H");
-//                            String x3Expr = getIfExpr(cond, "W/2 + W/2*" + p, "W");
-//                            String y3Expr = getIfExpr(cond, "H/2 + H/2*" + p, "H");
-
-
-
-                            String dx = "W/12";   // corner offset W/8
-                            String dy = "H/12";   // corner offset H/8
-//                            String hx = "W/2";    // softened half width
-//                            String hy = "H/2";    // softened half height
-                            String leftRatio = "W/6";   // tweakable
-                            String rightRatio = "5*W/6"; // tweakable
-                            String topRatio = "H/6";    // tweakable
-                            String bottomRatio = "5*H/6"; // tweakable
-
-
-                            String x0Expr = getIfExpr(cond, dx + " - " + dx + "*" + p, "0");
-                            String y0Expr = getIfExpr(cond, "(" + dy + ")*(1 - 4*" + p + " + 3*" + p + "*" + p + ")", "0");
-
-                            String x1Expr = getIfExpr(cond, rightRatio + " + " + leftRatio + "*" + p, "W");
-                            String y1Expr = getIfExpr(cond, "(" + dy + ")*(1 - 4*" + p + " + 3*" + p + "*" + p + ")", "0");
-
-                            String x2Expr = getIfExpr(cond, "(" + leftRatio + ")*(1 - 2*" + p + " + " + p + "*" + p + ")", "0");
-                            String y2Expr = getIfExpr(cond, bottomRatio + " + " + topRatio + "*" + p, "H");
-
-                            String x3Expr = getIfExpr(cond, rightRatio + " + " + topRatio + "*" + p, "W");
-                            String y3Expr = getIfExpr(cond, bottomRatio + " + " + leftRatio + "*" + p, "H");
-
-
-
-                            filterComplex.append(",perspective=eval=frame:")
-                                    .append("x0='").append(x0Expr).append("':")
-                                    .append("y0='").append(y0Expr).append("':")
-                                    .append("x1='").append(x1Expr).append("':")
-                                    .append("y1='").append(y1Expr).append("':")
-                                    .append("x2='").append(x2Expr).append("':")
-                                    .append("y2='").append(y2Expr).append("':")
-                                    .append("x3='").append(x3Expr).append("':")
-                                    .append("y3='").append(y3Expr).append("'");
-
-                            // Fade from white
-                            filterComplex.append(",fade=in:st=").append(clip.startTime).append(":d=").append(dur).append(":color=white");
-                        }
-                    }
+                    // 🎬 In / Out animations. Data-driven: the ids in clip.inAnimation / clip.outAnimation are
+                    // looked up in ClipAnimationLoader and ClipAnimationFFmpeg turns them into filters (eq / hue /
+                    // opacity + blur slices / perspective) plus overlay offset terms. Channels FFmpeg can't do
+                    // (scale, rotation, temperature) are left out - see getUnsupportedAnimationFeatures.
+                    ClipAnimationAssets.loadAll(); // no-op after the first call
+                    ClipAnimation inAnim = ClipAnimationLoader.get(clip.inAnimation == null ? null : clip.inAnimation.type, ClipAnimation.Direction.IN);
+                    ClipAnimation outAnim = ClipAnimationLoader.get(clip.outAnimation == null ? null : clip.outAnimation.type, ClipAnimation.Direction.OUT);
+                    // Blur sigma is a fraction of the width of the picture being blurred (same as the OpenGL
+                    // path, which blurs a canvas-sized layer): the clip's own width here.
+                    int animBlurWidth = templateSettings.settings.isStretchToFull()
+                            ? templateSettings.settings.videoWidth
+                            : Math.max(1, Math.round(clip.width
+                            * clip.videoProperties.getValue(VideoProperties.ValueType.ScaleX)));
+                    ClipAnimationFFmpeg.Plan animPlan = ClipAnimationFFmpeg.plan(
+                            inAnim, clip.inAnimation == null ? 0f : clip.inAnimation.duration,
+                            outAnim, clip.outAnimation == null ? 0f : clip.outAnimation.duration,
+                            clip.startTime, clip.duration, templateSettings.settings.getFrameRate(), animBlurWidth,
+                            templateSettings.settings.videoWidth, templateSettings.settings.videoHeight);
+                    filterComplex.append(animPlan.filters);
 
                     filterComplex.append(clipLabel).append(";\n");
                     // TODO: For robust speed control
@@ -644,21 +574,49 @@ public class FFmpegEdit {
                     // Transition extension: because overlay are just like transparent layer so we add the raw fillingTransitionDuration
                     filterComplex.append(transparentLabel).append(clipLabel);
 
-                    // In this second if expr: We process posX, posY
-                    if (clip.hasAnimatedProperties()) {
-
-                        String posXExpr = getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosX);
-                        String posYExpr = getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosY);
-
-                        filterComplex.append("overlay='").append(posXExpr).append("':'").append(posYExpr).append("'");
-                    } else {
-                        // Because we already merged from the first if expr, we don't have to do it here
-                        //clip.mergingVideoPropertiesFromSingleKeyframe();
-
-
-                        filterComplex.append("overlay=").append(clip.videoProperties.getValue(VideoProperties.ValueType.PosX)).append(":").append(clip.videoProperties.getValue(VideoProperties.ValueType.PosY));
-
+                    // In this second if expr: We process posX, posY (+ pivot compensation)
+                    // PosX/PosY is the clip's UNSCALED, unrotated top-left corner. Scale and rotation
+                    // happen around the pivot (same math as OpenGLEdit.buildClipMvp), so we place the
+                    // rotated bounding box by its center: center - overlay_w/2, center - overlay_h/2.
+                    boolean animated = clip.hasAnimatedProperties();
+                    VideoProperties.ValueType[] pivotTypes = {
+                            VideoProperties.ValueType.PosX,
+                            VideoProperties.ValueType.PosY,
+                            VideoProperties.ValueType.PivotX,
+                            VideoProperties.ValueType.PivotY,
+                            VideoProperties.ValueType.ScaleX,
+                            VideoProperties.ValueType.ScaleY,
+                            VideoProperties.ValueType.RotInRadians
+                    };
+                    String[] v = new String[pivotTypes.length];
+                    for (int i = 0; i < pivotTypes.length; i++) {
+                        // Wrapped in parentheses: keyframe exprs are sums/ifs, not atoms.
+                        v[i] = "(" + (animated ?
+                                getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, pivotTypes[i]) :
+                                String.valueOf(clip.videoProperties.getValue(pivotTypes[i]))) + ")";
                     }
+                    String posXExpr = v[0], posYExpr = v[1], pivotXExpr = v[2], pivotYExpr = v[3];
+                    String scaleXOverlayExpr = v[4], scaleYOverlayExpr = v[5], rotOverlayExpr = v[6];
+
+                    // Base size that ScaleX/ScaleY multiplies against (same as the scale filter above).
+                    String baseWExpr = templateSettings.settings.isStretchToFull() ?
+                            String.valueOf(templateSettings.settings.getRenderVideoWidth(templateSettings.isTemplateCommand)) :
+                            String.valueOf(clip.width);
+                    String baseHExpr = templateSettings.settings.isStretchToFull() ?
+                            String.valueOf(templateSettings.settings.getRenderVideoHeight(templateSettings.isTemplateCommand)) :
+                            String.valueOf(clip.height);
+
+                    // Vector from the pivot to the center of the scaled clip, rotated about the pivot.
+                    String toCenterX = "((0.5-" + pivotXExpr + ")*" + baseWExpr + "*" + scaleXOverlayExpr + ")";
+                    String toCenterY = "((0.5-" + pivotYExpr + ")*" + baseHExpr + "*" + scaleYOverlayExpr + ")";
+                    String centerXExpr = "(" + posXExpr + "+" + pivotXExpr + "*" + baseWExpr
+                            + "+" + toCenterX + "*cos" + rotOverlayExpr + "-" + toCenterY + "*sin" + rotOverlayExpr + ")";
+                    String centerYExpr = "(" + posYExpr + "+" + pivotYExpr + "*" + baseHExpr
+                            + "+" + toCenterX + "*sin" + rotOverlayExpr + "+" + toCenterY + "*cos" + rotOverlayExpr + ")";
+
+                    // animPlan.offset*Pixels are "" or "+<expr of t>": the in/out animations' offsetX / offsetY.
+                    filterComplex.append("overlay='").append(centerXExpr).append(animPlan.offsetXPixels).append("-overlay_w/2'")
+                            .append(":'").append(centerYExpr).append(animPlan.offsetYPixels).append("-overlay_h/2'");
 
 
 
@@ -930,6 +888,42 @@ public class FFmpegEdit {
 
         return cmd.toString();
     }
+    /**
+     * Human-readable list of clip animations (or parts of them) the FFmpeg export will NOT reproduce:
+     * an animation id that isn't installed, or channels FFmpeg can't express (see
+     * ClipAnimationFFmpeg.SUPPORTED). Empty = the FFmpeg export plays every animation in full.
+     * The OpenGL export supports every channel (see OpenGLEdit.animationFrame).
+     */
+    public static List<String> getUnsupportedAnimationFeatures(Timeline timeline) {
+        java.util.LinkedHashSet<String> found = new java.util.LinkedHashSet<>();
+        if (timeline == null || timeline.tracks == null) return new ArrayList<>(found);
+        ClipAnimationAssets.loadAll();
+        for (Track track : timeline.tracks) {
+            if (track == null || track.clips == null) continue;
+            for (Clip clip : track.clips) {
+                if (clip == null) continue;
+                collectUnsupportedAnimation(clip.inAnimation, ClipAnimation.Direction.IN, found);
+                collectUnsupportedAnimation(clip.outAnimation, ClipAnimation.Direction.OUT, found);
+            }
+        }
+        return new ArrayList<>(found);
+    }
+
+    private static void collectUnsupportedAnimation(AnimationClip slot, ClipAnimation.Direction wanted,
+                                                    java.util.Set<String> found) {
+        if (slot == null || slot.type == null || slot.type.isEmpty() || "none".equals(slot.type)) return;
+        ClipAnimation def = ClipAnimationLoader.get(slot.type);
+        if (def == null) {
+            found.add("The " + wanted.json + " animation '" + slot.type + "' is not installed");
+        } else if (def.getDirection() != wanted) {
+            found.add("'" + slot.type + "' is an " + def.getDirection().json + " animation and can't be used as an " + wanted.json + " animation");
+        } else {
+            for (ClipAnimation.Channel ch : ClipAnimationFFmpeg.unsupportedChannels(def)) {
+                found.add("'" + def.getName() + "' animates " + ch.json + ", which FFmpeg can't do");
+            }
+        }
+    }
+
     public static String generateCmdFull(VideoSettings settings, Timeline timeline, ProjectData data, boolean isTemplateCommand, boolean isTrimAllowed) {
 
         RenderSettings renderSettings = new RenderSettings(settings, timeline, new Clip[0], data, 0, false, isTemplateCommand, isTrimAllowed);
