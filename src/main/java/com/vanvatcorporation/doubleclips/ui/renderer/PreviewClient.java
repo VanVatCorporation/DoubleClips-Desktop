@@ -210,6 +210,31 @@ public final class PreviewClient {
                 + ",\"playing\":" + playing + "}");
     }
 
+    /**
+     * The worker's copy of the timeline no longer matches the editor's (a gesture patched it, then
+     * was cancelled or committed): the next requestFrame re-sends the whole timeline.
+     */
+    public void invalidateTimeline() {
+        lastTimelineJson = null;
+        timelineDirty = true;
+    }
+
+    /**
+     * Gesture in flight: streams one clip's in-progress properties (see PreviewWorker "live") and asks
+     * for a frame, without serialising the whole timeline. {@code keyIndex} >= 0 patches that
+     * keyframe's value instead of the clip's static properties.
+     */
+    public void requestLiveFrame(int trackIndex, int clipIndex, int keyIndex,
+                                 com.vanvatcorporation.doubleclips.data.editing.VideoProperties props, float timeSeconds) {
+        if (failed || closing) return;
+        lastTimelineJson = null; // the worker's copy is about to differ from the editor's
+        send("{\"cmd\":\"live\",\"track\":" + trackIndex + ",\"clip\":" + clipIndex
+                + ",\"key\":" + keyIndex + ",\"props\":" + GSON.toJson(props) + "}");
+        lastRenderNanos = System.nanoTime();
+        send("{\"cmd\":\"render\",\"seq\":" + seq.incrementAndGet() + ",\"t\":" + timeSeconds
+                + ",\"playing\":false}");
+    }
+
     // ── plumbing ─────────────────────────────────────────────────────────
 
     /** Lines go out in order on one thread, so a big timeline never blocks the FX thread on the pipe. */

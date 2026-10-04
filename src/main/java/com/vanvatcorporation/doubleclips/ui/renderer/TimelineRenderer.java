@@ -4,6 +4,7 @@ import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.Track;
+import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
 import java.util.ArrayList;
 import java.util.List;
@@ -130,6 +131,62 @@ public class TimelineRenderer {
             buildTimeline(timeline);
             updateTime(lastTime, true);
         }
+    }
+
+    // ── gesture support (used by PreviewGizmo) ───────────────────────────
+
+    /** The clip's own picture bounds in canvas pixels (TEXT only, see ClipRenderer), or null. */
+    public javafx.geometry.Bounds getClipViewBounds(Clip clip) {
+        for (List<ClipRenderer> track : trackLayers) {
+            for (ClipRenderer cr : track) {
+                if (cr.clip == clip) return cr.getViewBoundsInPane();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Shows in-progress values for a clip WITHOUT committing them: {@code keyIndex} >= 0 means they
+     * belong to that keyframe, otherwise to the clip's static properties. VIDEO/IMAGE clips under
+     * the GPU preview get them streamed to the worker (the real clip is untouched until the gesture
+     * ends); everything else (TEXT, or the legacy preview) has no other way to show them, so the
+     * values are written into the clip right away and the gizmo restores them if the gesture is
+     * cancelled.
+     */
+    public void showLiveProperties(Clip clip, VideoProperties props, int keyIndex, float time) {
+        lastTime = time;
+        if (streamsLiveToWorker(clip)) {
+            int clipIndex = timeline.tracks.get(clip.trackIndex).clips.indexOf(clip);
+            client.requestLiveFrame(clip.trackIndex, clipIndex, keyIndex, props, time);
+        } else {
+            writeProperties(clip, props, keyIndex);
+            updateTime(time, true);
+        }
+    }
+
+    /** Puts values straight into the clip (the gizmo's commit, undo/redo and cancel use this). */
+    public static void writeProperties(Clip clip, VideoProperties props, int keyIndex) {
+        VideoProperties copy = new VideoProperties(props);
+        if (keyIndex >= 0 && keyIndex < clip.keyframes.keyframes.size()) {
+            clip.keyframes.keyframes.get(keyIndex).value = copy;
+        } else {
+            clip.videoProperties = copy;
+        }
+    }
+
+    /**
+     * The clip data changed under the worker's feet (a gesture committed, was cancelled, or inserted
+     * a keyframe): re-sends the real timeline and redraws.
+     */
+    public void syncWorker(float time) {
+        if (client != null) client.invalidateTimeline();
+        updateTime(time, true);
+    }
+
+    private boolean streamsLiveToWorker(Clip clip) {
+        return isGpuPreviewActive() && client.image() != null
+                && (clip.type == com.vanvatcorporation.doubleclips.data.editing.ClipType.VIDEO
+                || clip.type == com.vanvatcorporation.doubleclips.data.editing.ClipType.IMAGE);
     }
 
     // ── timeline ─────────────────────────────────────────────────────────

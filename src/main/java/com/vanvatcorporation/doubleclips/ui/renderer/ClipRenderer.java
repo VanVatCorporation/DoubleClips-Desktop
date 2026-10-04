@@ -412,6 +412,15 @@ public class ClipRenderer {
         Platform.runLater(this::applyTransformation);
     }
 
+    /**
+     * Where this clip's own picture node sits, in the render pane's (unscaled canvas pixel)
+     * coordinates, or null when it has none (video/image clips under the GPU preview, audio).
+     * The selection gizmo uses it for TEXT, whose size only JavaFX knows.
+     */
+    public javafx.geometry.Bounds getViewBoundsInPane() {
+        return viewNode == null ? null : viewNode.getBoundsInParent();
+    }
+
     private void applyTransformation() {
         if (viewNode == null) return;
 

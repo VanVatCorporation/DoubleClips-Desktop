@@ -6,7 +6,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
+import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
+import com.vanvatcorporation.doubleclips.data.editing.Track;
+import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
 
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
@@ -38,6 +41,9 @@ import static org.lwjgl.system.MemoryUtil.NULL;
  *   {"cmd":"init","project":..,"ffmpeg":..,"canvasW":..,"canvasH":..,"previewW":..,"previewH":..,
  *    "stretch":bool,"hwaccel":bool,"proxy":bool}                       (always the first line)
  *   {"cmd":"timeline","timeline":{...}}                                (replaces the whole timeline)
+ *   {"cmd":"live","track":i,"clip":j,"key":k,"props":{VideoProperties}}  (gesture in flight: patches ONE clip's
+ *                                                                         static properties, or keyframe k's value
+ *                                                                         when k >= 0, in the worker's copy only)
  *   {"cmd":"render","seq":n,"t":seconds,"playing":bool}                (only the newest is ever rendered)
  *   {"cmd":"proxy","on":bool}
  *   {"cmd":"quit"}
@@ -254,6 +260,13 @@ public final class PreviewWorker {
                             log("Ignoring an unreadable timeline: " + e);
                         }
                         break;
+                    case "live":
+                        try {
+                            applyLive(cmd);
+                        } catch (RuntimeException e) {
+                            log("Ignoring an unusable live edit: " + e);
+                        }
+                        break;
                     case "proxy":
                         proxyChange.set(cmd.get("on").getAsBoolean());
                         break;
@@ -268,6 +281,31 @@ public final class PreviewWorker {
             log("stdin closed: " + e);
         }
         requestQuit(); // the editor went away
+    }
+
+    /**
+     * A drag/scale/rotate gesture in the editor: the editor keeps the real clip untouched until the
+     * gesture ends, and streams the in-flight values here instead of re-sending the whole timeline.
+     * Only this worker's copy is patched; the next "timeline" command replaces it with the truth.
+     * Runs on the reader thread while the render thread may be drawing, so it patches the clip's
+     * fields in place - a frame that sees the new PosX with the old PosY for one draw is harmless.
+     */
+    private static void applyLive(JsonObject cmd) {
+        Timeline tl = timeline;
+        if (tl == null) return;
+        int trackIndex = cmd.get("track").getAsInt();
+        int clipIndex = cmd.get("clip").getAsInt();
+        int keyIndex = cmd.has("key") ? cmd.get("key").getAsInt() : -1;
+        VideoProperties props = GSON.fromJson(cmd.get("props"), VideoProperties.class);
+        if (props == null || trackIndex < 0 || trackIndex >= tl.tracks.size()) return;
+        Track track = tl.tracks.get(trackIndex);
+        if (clipIndex < 0 || clipIndex >= track.clips.size()) return;
+        Clip clip = track.clips.get(clipIndex);
+        if (keyIndex >= 0 && clip.keyframes != null && keyIndex < clip.keyframes.keyframes.size()) {
+            clip.keyframes.keyframes.get(keyIndex).value = props;
+        } else {
+            clip.videoProperties = props;
+        }
     }
 
     private static void requestQuit() {

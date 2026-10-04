@@ -60,6 +60,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     private VideoSettings videoSettings;
 
     private TimelineRenderer timelineRenderer;
+    private com.vanvatcorporation.doubleclips.ui.renderer.PreviewGizmo previewGizmo;
     private final HistoryManager historyManager = new HistoryManager();
 
     // Editor State
@@ -575,6 +576,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             // previewSpeed != normal speed, indeed => seeking
             timelineRenderer.updateTime(currentTime, (isPlayingInReverse || !isPlaying || previewSpeed != 1.0f));
         }
+        if (previewGizmo != null) previewGizmo.refresh();
 
 //        // Dynamically update property panel fields
 //        propertyUpdaters.forEach(Runnable::run);
@@ -1421,6 +1423,26 @@ public class EditorWindow extends Stage implements PropertyContext {
         renderGroup.setManaged(false); // crucial for allowing canvas to shrink smaller than the video settings
         canvas.getChildren().add(renderGroup);
 
+        // On-canvas selection box + move / scale / rotate, above the picture and outside its scaling.
+        previewGizmo = new com.vanvatcorporation.doubleclips.ui.renderer.PreviewGizmo(new com.vanvatcorporation.doubleclips.ui.renderer.PreviewGizmo.Host() {
+            @Override public Timeline timeline() { return timeline; }
+            @Override public float currentTime() { return currentTime; }
+            @Override public boolean isPlaying() { return isPlaying; }
+            @Override public Clip primarySelectedClip() { return selectedClip; }
+            @Override public void selectClip(Clip clip) { EditorWindow.this.selectClip(clip); }
+            @Override public void commit(String name, Runnable redo, Runnable undo) { executePropertyChange(name, redo, undo); }
+            @Override public void clipChanged(Clip clip) {
+                if (clip.viewRef instanceof ClipNode cn) {
+                    cn.updateKeyframes(pixelsPerSecond);
+                }
+                saveProject();
+                updatePropertiesPane();
+                timelineRenderer.syncWorker(currentTime);
+                if (previewGizmo != null) previewGizmo.refresh();
+            }
+        }, timelineRenderer, videoSettings);
+        canvas.getChildren().add(previewGizmo.getNode());
+
         canvas.layoutBoundsProperty().addListener((obs, oldBounds, newBounds) -> {
             double w = newBounds.getWidth() - 32;
             double h = newBounds.getHeight() - 32;
@@ -1435,6 +1457,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             // Center the group in the canvas based on the unscaled dimensions
             renderGroup.setLayoutX(newBounds.getWidth() / 2.0 - videoSettings.videoWidth / 2.0);
             renderGroup.setLayoutY(newBounds.getHeight() / 2.0 - videoSettings.videoHeight / 2.0);
+            Platform.runLater(() -> { if (previewGizmo != null) previewGizmo.refresh(); });
         });
 
         // Playback Controls Row
@@ -1569,6 +1592,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             propertyUpdaters.clear();
             propertyPanel.update();
         }
+        if (previewGizmo != null) previewGizmo.refresh();
     }
 
     // ====================================================================
@@ -3061,6 +3085,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                 }
             }
         }
+        if (previewGizmo != null) previewGizmo.refresh();
     }
 
     /** Selected clips in timeline order (track, then start time): the order they are copied in. */
