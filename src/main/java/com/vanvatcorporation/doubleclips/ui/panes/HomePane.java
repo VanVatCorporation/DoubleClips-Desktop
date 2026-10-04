@@ -22,7 +22,10 @@ import javafx.scene.image.ImageView;
 import java.io.File;
 import javafx.scene.layout.*;
 import javafx.scene.shape.Rectangle;
+import javafx.scene.Scene;
 import javafx.stage.FileChooser;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
@@ -271,16 +274,22 @@ public class HomePane extends VBox {
             return;
         }
 
-        // A small non-closable progress window; it is closed from code when the work is done.
+        // A small progress window that the user can't dismiss mid-zip; it is closed from code when the work is
+        // done. (Deliberately a plain Stage: a JavaFX Dialog with no buttons refuses close(), so it can never be dismissed.)
         ProgressBar bar = new ProgressBar(0);
         bar.setPrefWidth(360);
         Label status = new Label("Preparing...");
         VBox box = new VBox(10, status, bar);
         box.setPadding(new Insets(16));
-        Dialog<Void> progress = new Dialog<>();
+        Stage progress = new Stage();
         progress.setTitle("Compressing project");
-        if (owner != null) progress.initOwner(owner);
-        progress.getDialogPane().setContent(box);
+        if (owner != null) {
+            progress.initOwner(owner);
+            progress.initModality(Modality.WINDOW_MODAL);
+        }
+        progress.setResizable(false);
+        progress.setOnCloseRequest(ev -> ev.consume()); // only the user's close attempts; progress.close() below is unaffected
+        progress.setScene(new Scene(box));
         progress.show();
 
         Task<String> task = new Task<>() {
