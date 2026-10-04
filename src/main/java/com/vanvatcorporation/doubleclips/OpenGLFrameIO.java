@@ -175,12 +175,25 @@ public final class OpenGLFrameIO {
          */
         public ClipFrameSource(String ffmpegPath, String inputPath, int width, int height,
                                double firstTargetSec, double fallbackFps) throws IOException {
+            this(ffmpegPath, inputPath, width, height, firstTargetSec, fallbackFps, false, false);
+        }
+
+        /**
+         * Preview variant. {@code knownFps} true means {@code fallbackFps} is the source's real,
+         * already-probed rate, so the ffmpeg probe (a whole extra process per open) is skipped;
+         * {@code hwaccel} adds {@code -hwaccel auto} (ffmpeg falls back to software by itself).
+         */
+        public ClipFrameSource(String ffmpegPath, String inputPath, int width, int height,
+                               double firstTargetSec, double fallbackFps,
+                               boolean knownFps, boolean hwaccel) throws IOException {
             if (!new File(inputPath).isFile()) {
                 throw new IOException("Input file not found: " + inputPath);
             }
             this.width = Math.max(1, width);
             this.height = Math.max(1, height);
-            this.sourceFps = probeFrameRate(ffmpegPath, inputPath, fallbackFps > 0 ? fallbackFps : 30.0);
+            this.sourceFps = knownFps && fallbackFps > 0
+                    ? fallbackFps
+                    : probeFrameRate(ffmpegPath, inputPath, fallbackFps > 0 ? fallbackFps : 30.0);
             // Start the stream on the source frame that is on screen at firstTargetSec
             // (the greatest frame with pts <= target, Android's rule), not on the first
             // frame after it: a plain "-ss target" drops that frame whenever the target
@@ -198,6 +211,10 @@ public final class OpenGLFrameIO {
             command.add("-loglevel");
             command.add("error");
             command.add("-nostdin");
+            if (hwaccel) {
+                command.add("-hwaccel");
+                command.add("auto");
+            }
             if (this.baseFrame > 0) {
                 command.add("-ss");
                 command.add(String.format(Locale.US, "%.6f", (this.baseFrame - 0.5) / sourceFps));
@@ -274,6 +291,14 @@ public final class OpenGLFrameIO {
         public int getWidth() { return width; }
         public int getHeight() { return height; }
         public double getSourceFps() { return sourceFps; }
+
+        /** Absolute source frame index of the frame {@link #frame()} holds, or -1 before the first frame. */
+        public long currentFrameIndex() {
+            return hasFrame ? baseFrame + framesRead - 1 : -1L;
+        }
+
+        /** True once the decode stream hit EOF (or died); no further frames will arrive. */
+        public boolean hasEnded() { return ended; }
 
         /** ffmpeg's recent error output for this decode (empty when healthy). */
         public String errorTail() {

@@ -671,6 +671,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     private void closeWindow() {
         stopPlayback();
         saveProject();
+        if (timelineRenderer != null) timelineRenderer.shutdown();
         DoubleClipsDesktop.getInstance().closeEditor(this);
     }
 
@@ -809,9 +810,49 @@ public class EditorWindow extends Stage implements PropertyContext {
         audioGapSpinner.valueProperty().addListener((obs, o, n) -> thumbnailAudioBarGap = n);
         audioGapRow.getChildren().addAll(audioGapLabel, audioGapSpinner);
 
+        // ── GPU preview + proxy clips ─────────────────────────────────────
+        AppSettings appSettings = AppSettings.getInstance();
+
+        HBox gpuRow = new HBox(8);
+        gpuRow.setAlignment(Pos.CENTER_LEFT);
+        Label gpuLabel = new Label("GPU preview:");
+        gpuLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        gpuLabel.setPrefWidth(160);
+        CheckBox gpuCheck = new CheckBox();
+        gpuCheck.setSelected(appSettings.isGpuPreview() && timelineRenderer.isGpuPreviewActive());
+        gpuCheck.setTooltip(new Tooltip("Composite the preview with the same OpenGL engine as the OpenGL export"));
+        gpuRow.getChildren().addAll(gpuLabel, gpuCheck);
+
+        HBox proxyRow = new HBox(8);
+        proxyRow.setAlignment(Pos.CENTER_LEFT);
+        Label proxyLabel = new Label("Use proxy clips:");
+        proxyLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
+        proxyLabel.setPrefWidth(160);
+        CheckBox proxyCheck = new CheckBox();
+        proxyCheck.setSelected(appSettings.isPreviewUseProxy());
+        proxyCheck.setTooltip(new Tooltip("Off: preview plays the original clips. On: the lighter proxy copies made at import (GPU preview only)"));
+        proxyCheck.disableProperty().bind(gpuCheck.selectedProperty().not());
+        proxyCheck.selectedProperty().addListener((obs, o, n) -> {
+            appSettings.setPreviewUseProxy(n);
+            timelineRenderer.setUseProxy(n);
+        });
+        proxyRow.getChildren().addAll(proxyLabel, proxyCheck);
+
+        gpuCheck.selectedProperty().addListener((obs, o, n) -> {
+            appSettings.setGpuPreview(n);
+            if (n) {
+                timelineRenderer.enableGpuPreview(appSettings.isPreviewUseProxy());
+            } else {
+                timelineRenderer.disableGpuPreview();
+            }
+        });
+
         panel.getChildren().addAll(
             title,
             sep1,
+            gpuRow,
+            proxyRow,
+            new javafx.scene.control.Separator(),
             fpsRow, fpsHint,
             speedRow,
             sep2,
@@ -1370,6 +1411,9 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         // Initialize TimelineRenderer
         timelineRenderer = new TimelineRenderer(project, videoSettings);
+        if (AppSettings.getInstance().isGpuPreview()) {
+            timelineRenderer.enableGpuPreview(AppSettings.getInstance().isPreviewUseProxy());
+        }
         Pane renderPane = timelineRenderer.getRenderPane();
 
         // Wrap in a Group to detach bounds from StackPane's layout system

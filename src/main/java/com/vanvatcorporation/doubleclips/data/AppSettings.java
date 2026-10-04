@@ -14,6 +14,10 @@ public class AppSettings {
     private final StringProperty themeMode = new SimpleStringProperty();
     private final BooleanProperty adsPopup = new SimpleBooleanProperty();
     private final BooleanProperty earlyAccessNotifications = new SimpleBooleanProperty();
+    // Editor preview. proxy: play the low-res proxy clips instead of the originals (off = originals, like iOS).
+    // gpuPreview: composite the preview with the OpenGL worker (the same engine as the OpenGL export).
+    private final BooleanProperty previewUseProxy = new SimpleBooleanProperty();
+    private final BooleanProperty gpuPreview = new SimpleBooleanProperty();
     
     private final StringProperty deleteKeybind = new SimpleStringProperty();
     private final StringProperty selectAllKeybind = new SimpleStringProperty();
@@ -31,6 +35,8 @@ public class AppSettings {
         themeMode.set(prefs.get("theme_mode", "dark")); // "dark", "light", "system"
         adsPopup.set(prefs.getBoolean("ads_popup", true));
         earlyAccessNotifications.set(prefs.getBoolean("early_access_notifications", true));
+        previewUseProxy.set(prefs.getBoolean("preview_use_proxy", false));
+        gpuPreview.set(prefs.getBoolean("gpu_preview", true));
         deleteKeybind.set(prefs.get("delete_keybind", "DELETE"));
         selectAllKeybind.set(prefs.get("select_all_keybind", "Shortcut+A"));
         undoKeybind.set(prefs.get("undo_keybind", "Shortcut+Z"));
@@ -44,6 +50,8 @@ public class AppSettings {
         themeMode.addListener((obs, oldVal, newVal) -> prefs.put("theme_mode", newVal));
         adsPopup.addListener((obs, oldVal, newVal) -> prefs.putBoolean("ads_popup", newVal));
         earlyAccessNotifications.addListener((obs, oldVal, newVal) -> prefs.putBoolean("early_access_notifications", newVal));
+        previewUseProxy.addListener((obs, oldVal, newVal) -> prefs.putBoolean("preview_use_proxy", newVal));
+        gpuPreview.addListener((obs, oldVal, newVal) -> prefs.putBoolean("gpu_preview", newVal));
         deleteKeybind.addListener((obs, oldVal, newVal) -> prefs.put("delete_keybind", newVal));
         selectAllKeybind.addListener((obs, oldVal, newVal) -> prefs.put("select_all_keybind", newVal));
         undoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("undo_keybind", newVal));
@@ -76,6 +84,14 @@ public class AppSettings {
     public void setEarlyAccessNotifications(boolean value) { earlyAccessNotifications.set(value); }
     public BooleanProperty earlyAccessNotificationsProperty() { return earlyAccessNotifications; }
     
+    public boolean isPreviewUseProxy() { return previewUseProxy.get(); }
+    public void setPreviewUseProxy(boolean value) { previewUseProxy.set(value); }
+    public BooleanProperty previewUseProxyProperty() { return previewUseProxy; }
+
+    public boolean isGpuPreview() { return gpuPreview.get(); }
+    public void setGpuPreview(boolean value) { gpuPreview.set(value); }
+    public BooleanProperty gpuPreviewProperty() { return gpuPreview; }
+
     public String getDeleteKeybind() { return deleteKeybind.get(); }
     public void setDeleteKeybind(String value) { deleteKeybind.set(value); }
     public StringProperty deleteKeybindProperty() { return deleteKeybind; }

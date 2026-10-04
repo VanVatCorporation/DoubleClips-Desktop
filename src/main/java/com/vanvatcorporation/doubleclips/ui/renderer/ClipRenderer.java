@@ -78,7 +78,19 @@ public class ClipRenderer {
 
     public boolean isPlaying = false;
 
+    /**
+     * True when the GPU preview (PreviewClient) draws VIDEO and IMAGE clips: this renderer then
+     * creates no picture node for them and decodes no frames, and only looks after their audio.
+     * TEXT clips are still drawn here.
+     */
+    private final boolean gpuPreview;
+
     public ClipRenderer(Clip clip, ProjectData data, VideoSettings settings, Pane renderPane) {
+        this(clip, data, settings, renderPane, false);
+    }
+
+    public ClipRenderer(Clip clip, ProjectData data, VideoSettings settings, Pane renderPane, boolean gpuPreview) {
+        this.gpuPreview = gpuPreview;
         this.clip = clip;
         this.data = data;
         this.settings = settings;
@@ -102,14 +114,17 @@ public class ClipRenderer {
 
             switch (clip.type) {
                 case VIDEO:
-                    writableImage = new WritableImage(w, h);
-                    viewNode = new ImageView(writableImage);
+                    if (!gpuPreview) {
+                        writableImage = new WritableImage(w, h);
+                        viewNode = new ImageView(writableImage);
+                    }
                     if (clip.isClipHasAudio() && !clip.isMute()) {
                         openAudioLine(clip.getAbsolutePreviewPath(data, ".wav"));
                     }
                     break;
 
                 case IMAGE:
+                    if (gpuPreview) break;
                     File imgFile = new File(clip.getAbsolutePath(data));
                     if (imgFile.exists()) {
                         staticImage = new Image(imgFile.toURI().toString(), w, h, true, true);
@@ -174,7 +189,9 @@ public class ClipRenderer {
             return;
         }
 
-        updateTransforms(playheadTime);
+        if (!(gpuPreview && (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE))) {
+            updateTransforms(playheadTime);
+        }
         
         if (clip.type == ClipType.TEXT && viewNode instanceof Label label) {
             String currentText = clip.textContent != null ? clip.textContent : "";

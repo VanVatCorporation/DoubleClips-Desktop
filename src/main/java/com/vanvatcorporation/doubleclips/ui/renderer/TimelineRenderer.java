@@ -7,10 +7,21 @@ import com.vanvatcorporation.doubleclips.data.editing.Track;
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
 import java.util.ArrayList;
 import java.util.List;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 
+/**
+ * The editor's preview. Two engines:
+ * <ul>
+ *   <li><b>GPU preview</b> (default): a {@link PreviewClient} asks the preview worker process for a
+ *       composited frame, drawn by the same OpenGL code as the export. VIDEO and IMAGE clips are
+ *       shown through one ImageView; the ClipRenderers then only play audio (and draw TEXT).</li>
+ *   <li><b>Legacy</b>: every clip has its own JavaFX node (ClipRenderer). Used when the GPU preview
+ *       is switched off, and as the automatic fallback if the worker can't run.</li>
+ * </ul>
+ */
 public class TimelineRenderer {
 
     private final Pane renderPane;
@@ -18,6 +29,12 @@ public class TimelineRenderer {
     
     private final ProjectData data;
     private final VideoSettings settings;
+
+    // GPU preview
+    private PreviewClient client;
+    private ImageView gpuView;
+    private Timeline timeline;
+    private float lastTime = 0f;
 
     public TimelineRenderer(ProjectData data, VideoSettings settings) {
         this.data = data;
@@ -42,12 +59,95 @@ public class TimelineRenderer {
         return renderPane;
     }
 
+    // ── GPU preview ──────────────────────────────────────────────────────
+
+    /** True while the GPU preview is the active engine (starting up counts: the picture appears when it is ready). */
+    public boolean isGpuPreviewActive() {
+        return client != null && client.isUsable();
+    }
+
+    /**
+     * Starts the GPU preview. Call before the first buildTimeline, or call buildTimeline again
+     * afterwards (this does, if a timeline is already built) so the clips drop their own pictures.
+     */
+    public void enableGpuPreview(boolean useProxy) {
+        if (client != null) return;
+        client = new PreviewClient(new PreviewClient.Listener() {
+            @Override public void onReady() { showGpuView(); }
+            @Override public void onFrame() { /* the WritableImage notifies its ImageView by itself */ }
+            @Override public void onFailed(String reason) { fallBackToLegacy(); }
+        }, settings.videoWidth, settings.videoHeight, settings.frameRate);
+        client.start(data.getProjectPath(), settings.isStretchToFull(), settings.isUseHardwareAccel(), useProxy,
+                settings.videoWidth, settings.videoHeight);
+        if (timeline != null) buildTimeline(timeline);
+    }
+
+    /** Switches back to the per-clip JavaFX preview (user turned the GPU preview off). */
+    public void disableGpuPreview() {
+        if (client == null) return;
+        PreviewClient old = client;
+        client = null;
+        old.close();
+        removeGpuView();
+        if (timeline != null) {
+            buildTimeline(timeline);
+            updateTime(lastTime, true);
+        }
+    }
+
+    /** Proxy clips on/off for the GPU preview (the legacy preview is unaffected). */
+    public void setUseProxy(boolean useProxy) {
+        if (client == null || !client.isUsable()) return;
+        client.setUseProxy(useProxy);
+        client.requestFrame(timeline, lastTime, false);
+    }
+
+    private void showGpuView() {
+        if (client == null || client.image() == null) return;
+        removeGpuView();
+        gpuView = new ImageView(client.image());
+        gpuView.setFitWidth(settings.videoWidth);
+        gpuView.setFitHeight(settings.videoHeight);
+        gpuView.setPreserveRatio(false);
+        gpuView.setSmooth(true);
+        gpuView.setMouseTransparent(true);
+        renderPane.getChildren().add(1, gpuView); // above the black box, below the clips' own nodes (text)
+        client.requestFrame(timeline, lastTime, false);
+    }
+
+    private void removeGpuView() {
+        if (gpuView != null) {
+            renderPane.getChildren().remove(gpuView);
+            gpuView = null;
+        }
+    }
+
+    private void fallBackToLegacy() {
+        if (client == null) return;
+        client = null; // the failed client has already torn itself down
+        removeGpuView();
+        if (timeline != null) {
+            buildTimeline(timeline);
+            updateTime(lastTime, true);
+        }
+    }
+
+    // ── timeline ─────────────────────────────────────────────────────────
+
     public void buildTimeline(Timeline timeline) {
+        this.timeline = timeline;
         release();
 
-        // Clear everything except the black box
-        renderPane.getChildren().retainAll(renderPane.getChildren().get(0));
+        // Clear everything except the black box (and the GPU picture, which sits right above it)
+        if (gpuView != null) {
+            renderPane.getChildren().retainAll(renderPane.getChildren().get(0), gpuView);
+        } else {
+            renderPane.getChildren().retainAll(renderPane.getChildren().get(0));
+        }
         trackLayers.clear();
+
+        boolean gpu = isGpuPreviewActive();
+        if (gpu) client.markTimelineDirty();
 
         for (Track track : timeline.tracks) {
             List<ClipRenderer> renderers = new ArrayList<>();
@@ -58,7 +158,7 @@ public class TimelineRenderer {
                     case IMAGE:
                     case TEXT:
                     case EFFECT:
-                        ClipRenderer clipRenderer = new ClipRenderer(clip, data, settings, renderPane);
+                        ClipRenderer clipRenderer = new ClipRenderer(clip, data, settings, renderPane, gpu);
                         renderers.add(clipRenderer);
                         break;
                     default:
@@ -70,6 +170,10 @@ public class TimelineRenderer {
     }
 
     public void updateTime(float time, boolean isSeekingOnly) {
+        lastTime = time;
+        if (isGpuPreviewActive()) {
+            client.requestFrame(timeline, time, !isSeekingOnly);
+        }
         for (List<ClipRenderer> trackRenderer : trackLayers) {
             for (ClipRenderer clipRenderer : trackRenderer) {
                 if (clipRenderer != null) {
@@ -86,5 +190,14 @@ public class TimelineRenderer {
             }
         }
         trackLayers.clear();
+    }
+
+    /** Editor is closing: stop the clips and the preview worker process. */
+    public void shutdown() {
+        release();
+        if (client != null) {
+            client.close();
+            client = null;
+        }
     }
 }

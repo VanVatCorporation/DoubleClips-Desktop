@@ -97,6 +97,55 @@ public final class OpenGLTimelineExporter {
         void readFrame(ByteBuffer out);
     }
 
+    /** Draws one clip's DrawCommand into whatever the compositor is pointed at; true if something was drawn. */
+    public interface ClipDrawer {
+        boolean draw(OpenGLEdit.DrawCommand command, float outputTimeSeconds);
+    }
+
+    /**
+     * Composites one output frame: clears the canvas, then draws every FrameLayer in EXACT order.
+     * Shared by the export and the live preview worker, so both use the same layering, transition
+     * and blur rules and can't drift apart. {@code blurScale} converts the blur sigma, which
+     * OpenGLEdit computes in full-canvas pixels, to the target's pixels (1 for export; preview
+     * renders into a smaller target than the project canvas).
+     */
+    public static void drawFrameLayers(Compositor compositor, List<OpenGLEdit.FrameLayer> layers,
+                                       float outputTimeSeconds, float blurScale, ClipDrawer drawer) {
+        compositor.beginFrame();
+
+        // Draw in EXACT layer order: it is the track stacking order, and plain,
+        // blurred and transitioning layers must interleave correctly rather than
+        // be grouped into separate passes (see OpenGLEdit.computeFrameForTimestamp).
+        for (OpenGLEdit.FrameLayer layer : layers) {
+            if (layer.simpleDraw != null) {
+                OpenGLEdit.DrawCommand cmd = layer.simpleDraw;
+                if (cmd.blurSigmaPixels > 0f) {
+                    // In-animation blur: the clip goes into a scratch canvas, which is
+                    // blurred horizontally then vertically; the vertical pass composites
+                    // straight onto the main canvas.
+                    compositor.beginOffscreen(0);
+                    boolean drew = drawer.draw(cmd, outputTimeSeconds);
+                    compositor.endOffscreen();
+                    if (drew) compositor.blurOntoMain(0, 1, cmd.blurSigmaPixels * blurScale);
+                } else {
+                    drawer.draw(cmd, outputTimeSeconds);
+                }
+                continue;
+            }
+            // Transition: each side is rendered to its own full-canvas transparent
+            // layer, then those two layers - NOT the raw clip textures - are blended.
+            // That is what makes it match FFmpeg's xfade. A side that fails to open
+            // is simply left transparent (reported once by the drawer).
+            OpenGLEdit.TransitionCommand transition = layer.transition;
+            compositor.beginOffscreen(0);
+            drawer.draw(transition.clipACommand, outputTimeSeconds);
+            compositor.beginOffscreen(1);
+            drawer.draw(transition.clipBCommand, outputTimeSeconds);
+            compositor.endOffscreen();
+            compositor.blendTransition(0, 1, transition.progress, transition.style);
+        }
+    }
+
     public interface Listener {
         void onLog(String message);
 
@@ -194,39 +243,7 @@ public final class OpenGLTimelineExporter {
                 releaseInactive(videoLayers, stillActive, compositor);
                 releaseInactiveImages(imageLayers, stillActive, compositor);
 
-                compositor.beginFrame();
-
-                // Draw in EXACT layer order: it is the track stacking order, and plain,
-                // blurred and transitioning layers must interleave correctly rather than
-                // be grouped into separate passes (see OpenGLEdit.computeFrameForTimestamp).
-                for (OpenGLEdit.FrameLayer layer : layers) {
-                    if (layer.simpleDraw != null) {
-                        OpenGLEdit.DrawCommand cmd = layer.simpleDraw;
-                        if (cmd.blurSigmaPixels > 0f) {
-                            // In-animation blur: the clip goes into a scratch canvas, which is
-                            // blurred horizontally then vertically; the vertical pass composites
-                            // straight onto the main canvas.
-                            compositor.beginOffscreen(0);
-                            boolean drew = renderer.render(cmd, outputTimeSeconds);
-                            compositor.endOffscreen();
-                            if (drew) compositor.blurOntoMain(0, 1, cmd.blurSigmaPixels);
-                        } else {
-                            renderer.render(cmd, outputTimeSeconds);
-                        }
-                        continue;
-                    }
-                    // Transition: each side is rendered to its own full-canvas transparent
-                    // layer, then those two layers - NOT the raw clip textures - are blended.
-                    // That is what makes it match FFmpeg's xfade. A side that fails to open
-                    // is simply left transparent (reported once by the renderer).
-                    OpenGLEdit.TransitionCommand transition = layer.transition;
-                    compositor.beginOffscreen(0);
-                    renderer.render(transition.clipACommand, outputTimeSeconds);
-                    compositor.beginOffscreen(1);
-                    renderer.render(transition.clipBCommand, outputTimeSeconds);
-                    compositor.endOffscreen();
-                    compositor.blendTransition(0, 1, transition.progress, transition.style);
-                }
+                drawFrameLayers(compositor, layers, outputTimeSeconds, 1f, renderer::render);
 
                 compositor.readFrame(pixelBuffer);
                 try {
