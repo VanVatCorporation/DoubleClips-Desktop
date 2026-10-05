@@ -221,7 +221,7 @@ public final class PreviewGizmo {
         }
         outline.getPoints().setAll(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]);
 
-        boolean transformable = clip.type != ClipType.TEXT; // text is move-only, like iOS
+        boolean transformable = clip.type != ClipType.TEXT || gpuText(clip); // legacy text is move-only
         for (int i = 0; i < 4; i++) {
             corners[i].setCenterX(s[i * 2]);
             corners[i].setCenterY(s[i * 2 + 1]);
@@ -341,7 +341,7 @@ public final class PreviewGizmo {
         int handleHit = -1;
         Clip chosen = null;
 
-        if (sel != null && isVisual(sel) && isActive(sel, time) && sel.type != ClipType.TEXT) {
+        if (sel != null && isVisual(sel) && isActive(sel, time) && (sel.type != ClipType.TEXT || gpuText(sel))) {
             int handle = handleAt(sel, e.getX(), e.getY());
             if (handle == HANDLE_ROTATE) {
                 startMode = Mode.ROTATE;
@@ -409,7 +409,7 @@ public final class PreviewGizmo {
     private void onZoomStarted(ZoomEvent e) {
         if (host.isPlaying() || mode != Mode.NONE) return;
         Clip sel = host.primarySelectedClip();
-        if (sel == null || sel.type == ClipType.TEXT || !isVisual(sel) || !isActive(sel, host.currentTime())) return;
+        if (sel == null || (sel.type == ClipType.TEXT && !gpuText(sel)) || !isVisual(sel) || !isActive(sel, host.currentTime())) return;
         beginGesture(sel, Mode.SCALE, new Point2D(0, 0), -1);
         pinching = true;
         e.consume();
@@ -630,6 +630,11 @@ public final class PreviewGizmo {
 
     // ── geometry (same maths as OpenGLEdit.buildClipMvp / iOS ClipGeometry) ─
 
+    /** A TEXT clip the preview worker draws (so its box can be computed and it can be scaled and rotated). */
+    private boolean gpuText(Clip c) {
+        return c.type == ClipType.TEXT && renderer.isGpuPreviewActive();
+    }
+
     private static boolean isVisual(Clip c) {
         return c.type == ClipType.VIDEO || c.type == ClipType.IMAGE || c.type == ClipType.TEXT;
     }
@@ -656,20 +661,33 @@ public final class PreviewGizmo {
 
     /** Canvas-pixel corners TL, TR, BR, BL as x0,y0,x1,y1,..., or null when the clip has no box. */
     private double[] quadFor(Clip clip, VideoProperties p) {
+        double baseW, baseH, posX = p.valuePosX, posY = p.valuePosY;
         if (clip.type == ClipType.TEXT) {
-            // Only JavaFX knows how big the label is; its own bounds already include the preview's transform.
-            Bounds b = renderer.getClipViewBounds(clip);
-            if (b == null || b.getWidth() <= 0) return null;
-            return new double[]{b.getMinX(), b.getMinY(), b.getMaxX(), b.getMinY(),
-                    b.getMaxX(), b.getMaxY(), b.getMinX(), b.getMaxY()};
+            if (gpuText(clip)) {
+                // Same box the preview worker draws (TextLayoutEngine), centred on the canvas, then offset by
+                // PosX/PosY - exactly OpenGLEdit.buildClipMvp's text rule.
+                float[] box = com.vanvatcorporation.doubleclips.TextLayoutEngine.measure(
+                        com.vanvatcorporation.doubleclips.TextStyle.of(clip, settings.videoWidth));
+                baseW = box[0];
+                baseH = box[1];
+                posX += (settings.videoWidth - baseW) / 2.0;
+                posY += (settings.videoHeight - baseH) / 2.0;
+            } else {
+                // Legacy preview: only JavaFX knows how big the label is; its own bounds already include its transform.
+                Bounds b = renderer.getClipViewBounds(clip);
+                if (b == null || b.getWidth() <= 0) return null;
+                return new double[]{b.getMinX(), b.getMinY(), b.getMaxX(), b.getMinY(),
+                        b.getMaxX(), b.getMaxY(), b.getMinX(), b.getMaxY()};
+            }
+        } else {
+            baseW = settings.isStretchToFull() ? settings.videoWidth : (clip.width > 0 ? clip.width : settings.videoWidth);
+            baseH = settings.isStretchToFull() ? settings.videoHeight : (clip.height > 0 ? clip.height : settings.videoHeight);
         }
-        double baseW = settings.isStretchToFull() ? settings.videoWidth : (clip.width > 0 ? clip.width : settings.videoWidth);
-        double baseH = settings.isStretchToFull() ? settings.videoHeight : (clip.height > 0 ? clip.height : settings.videoHeight);
         double scaledW = baseW * p.valueScaleX;
         double scaledH = baseH * p.valueScaleY;
         double px = p.valuePivotX, py = p.valuePivotY;
-        double pivotX = p.valuePosX + px * baseW;
-        double pivotY = p.valuePosY + py * baseH;
+        double pivotX = posX + px * baseW;
+        double pivotY = posY + py * baseH;
         double theta = Math.toRadians(p.valueRot);
         double c = Math.cos(theta), s = Math.sin(theta);
         double[] out = new double[8];
@@ -834,9 +852,9 @@ public final class PreviewGizmo {
      */
     private void snapMove(VideoProperties v, boolean allowX, boolean allowY) {
         double[] q = quadFor(target, v);
-        if (target.type == ClipType.TEXT && startQuad != null) {
-            // A text clip's box is the label's own bounds, which lag the live values by a frame:
-            // use the start box shifted by how far the position has moved.
+        if (target.type == ClipType.TEXT && !gpuText(target) && startQuad != null) {
+            // Legacy preview only: a text clip's box is the label's own bounds, which lag the live values
+            // by a frame, so use the start box shifted by how far the position has moved.
             double dx = v.valuePosX - basis.valuePosX, dy = v.valuePosY - basis.valuePosY;
             q = new double[8];
             for (int i = 0; i < 4; i++) {

@@ -56,6 +56,8 @@ public class OpenGLExportWorker {
     private static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
 
     public static void main(String[] args) {
+        // Text is rasterised with Java2D; headless keeps AWT off the main thread GLFW needs on macOS.
+        System.setProperty("java.awt.headless", "true");
         try {
             run(args); // a cancelled export is reported by its CANCELLED line, not by the exit code
             System.exit(0);
@@ -112,7 +114,9 @@ public class OpenGLExportWorker {
 
                 GlCompositor compositor = new GlCompositor(width, height);
                 try {
-                    boolean completed = OpenGLTimelineExporter.export(timeline, new OpenGLEdit(), projectData, compositor,
+                    OpenGLEdit edit = new OpenGLEdit();
+                    edit.setTextMetrics((clip, canvasW, canvasH) -> TextLayoutEngine.measure(TextStyle.of(clip, canvasW)));
+                    boolean completed = OpenGLTimelineExporter.export(timeline, edit, projectData, compositor,
                             width, height, frameRate, stretchToFull, reversedClipPaths,
                             ffmpegPath, encoderArgs, outputPath,
                             OpenGLTimelineExporter.CancelSignal.fileExists(cancelFlagPath),

@@ -206,7 +206,7 @@ public final class OpenGLTimelineExporter {
         Map<Clip, VideoLayer> videoLayers = new IdentityHashMap<>();
         Map<Clip, ImageLayer> imageLayers = new IdentityHashMap<>();
         Set<Clip> reported = Collections.newSetFromMap(new IdentityHashMap<>());
-        ClipRenderer renderer = new ClipRenderer(compositor, projectData, ffmpegPath, frameRate,
+        ClipRenderer renderer = new ClipRenderer(compositor, projectData, ffmpegPath, frameRate, width,
                 reversedClipPaths, videoLayers, imageLayers, reported, listener);
 
         prepareClipAnimations(timeline, listener);
@@ -296,19 +296,21 @@ public final class OpenGLTimelineExporter {
         private final ProjectData projectData;
         private final String ffmpegPath;
         private final int frameRate;
+        private final int canvasWidth;
         private final Map<Clip, String> reversedClipPaths;
         private final Map<Clip, VideoLayer> videoLayers;
         private final Map<Clip, ImageLayer> imageLayers;
         private final Set<Clip> reported;
         private final Listener listener;
 
-        ClipRenderer(Compositor compositor, ProjectData projectData, String ffmpegPath, int frameRate,
+        ClipRenderer(Compositor compositor, ProjectData projectData, String ffmpegPath, int frameRate, int canvasWidth,
                      Map<Clip, String> reversedClipPaths, Map<Clip, VideoLayer> videoLayers,
                      Map<Clip, ImageLayer> imageLayers, Set<Clip> reported, Listener listener) {
             this.compositor = compositor;
             this.projectData = projectData;
             this.ffmpegPath = ffmpegPath;
             this.frameRate = frameRate;
+            this.canvasWidth = canvasWidth;
             this.reversedClipPaths = reversedClipPaths;
             this.videoLayers = videoLayers;
             this.imageLayers = imageLayers;
@@ -338,6 +340,27 @@ public final class OpenGLTimelineExporter {
                 ByteBuffer upload = image.pixelsUntilUploaded;
                 image.pixelsUntilUploaded = null;
                 compositor.draw(image.layer, upload, cmd);
+                return true;
+            }
+
+            if (clip.type == ClipType.TEXT) {
+                // Rasterised once at full canvas resolution (the text doesn't change during an export).
+                ImageLayer text = imageLayers.get(clip);
+                if (text == null) {
+                    try {
+                        TextLayoutEngine.Bitmap bitmap = TextLayoutEngine.render(TextStyle.of(clip, canvasWidth), 1f);
+                        text = new ImageLayer(compositor.createLayer(bitmap.width, bitmap.height), bitmap.rgba);
+                        imageLayers.put(clip, text);
+                    } catch (RuntimeException e) {
+                        if (reported.add(clip)) {
+                            log(listener, "Could not draw a text clip, it will be missing from this export: " + e);
+                        }
+                        return false;
+                    }
+                }
+                ByteBuffer upload = text.pixelsUntilUploaded;
+                text.pixelsUntilUploaded = null;
+                compositor.draw(text.layer, upload, cmd);
                 return true;
             }
 

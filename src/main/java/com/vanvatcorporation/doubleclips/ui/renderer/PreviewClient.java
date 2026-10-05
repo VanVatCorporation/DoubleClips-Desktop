@@ -124,6 +124,7 @@ public final class PreviewClient {
             if (System.getProperty("os.name").toLowerCase().contains("mac")) {
                 command.add("-XstartOnFirstThread"); // GLFW needs the process's first thread on macOS
             }
+            command.add("-Djava.awt.headless=true"); // text is drawn with Java2D in the worker, never with a window
             command.add("-cp");
             command.add(System.getProperty("java.class.path"));
             command.add("com.vanvatcorporation.doubleclips.PreviewWorker");

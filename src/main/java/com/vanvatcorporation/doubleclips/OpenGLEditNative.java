@@ -134,6 +134,7 @@ public class OpenGLEditNative {
                 // which is why it's added conditionally rather than always.
                 command.add("-XstartOnFirstThread");
             }
+            command.add("-Djava.awt.headless=true"); // text is drawn with Java2D in the worker, never with a window
             command.add("-cp");
             command.add(System.getProperty("java.class.path"));
             command.add("com.vanvatcorporation.doubleclips.OpenGLExportWorker");

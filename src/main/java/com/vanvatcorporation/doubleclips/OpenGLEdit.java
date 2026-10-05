@@ -30,8 +30,9 @@ import java.util.Set;
  * colour grading (hue, saturation, brightness, temperature) / speed / reverse /
  * keyframes / in- and out-animations (ClipAnimation) / transitions between
  * adjacent clips (SUPPORTED_TRANSITION_STYLES, OVERLAP mode), for VIDEO and IMAGE
- * clips composited across tracks. Text, effects and 3D scenes are NOT rendered
- * (see getUnsupportedFeatures()).
+ * clips composited across tracks. Effects and 3D scenes are NOT rendered (see
+ * getUnsupportedFeatures()). Text is rendered only when the platform supplies a
+ * {@link TextMetrics} (desktop does: TextLayoutEngine); without one TEXT clips are skipped.
  */
 public class OpenGLEdit {
 
@@ -60,6 +61,30 @@ public class OpenGLEdit {
     public static final boolean SUPPORTS_IMAGES = true;
 
     /**
+     * Whether the platform that will RUN this renderer can draw TEXT clips (it has a text rasteriser and
+     * supplies a {@link TextMetrics}). A platform flag, not a constant, because this class is shared:
+     * desktop's export screen sets it before asking getUnsupportedFeatures(); Android leaves it false
+     * until it has a text path of its own, and keeps warning.
+     */
+    public static volatile boolean textRenderingAvailable = false;
+
+    /**
+     * Measures a TEXT clip: the size {width, height} of its rendered text box in CANVAS pixels, or null if
+     * there is nothing to draw. The platform's rasteriser draws a bitmap of exactly this box; this class
+     * only needs the size to place it (see buildClipMvp), so it stays free of any font or graphics API.
+     */
+    public interface TextMetrics {
+        float[] measure(Clip clip, int canvasWidth, int canvasHeight);
+    }
+
+    private TextMetrics textMetrics;
+
+    /** Required to produce DrawCommands for TEXT clips; without it they are skipped. */
+    public void setTextMetrics(TextMetrics textMetrics) {
+        this.textMetrics = textMetrics;
+    }
+
+    /**
      * Human-readable list of timeline features this renderer will NOT reproduce
      * yet (empty = the OpenGL export will match the FFmpeg one for this project,
      * as far as this class covers). AUDIO clips are fine: audio is always mixed
@@ -78,7 +103,7 @@ public class OpenGLEdit {
                         if (!SUPPORTS_IMAGES) found.add("Image clips");
                         break;
                     case TEXT:
-                        found.add("Text clips");
+                        if (!textRenderingAvailable) found.add("Text clips");
                         break;
                     case EFFECT:
                         found.add("Effect clips");
@@ -334,8 +359,17 @@ public class OpenGLEdit {
     /** Builds one clip's complete draw info at outputTimeSeconds, or null if its type isn't drawable (audio/text/effect/3D — see getUnsupportedFeatures). */
     private DrawCommand buildDrawCommand(Clip clip, float outputTimeSeconds,
                                           int canvasWidth, int canvasHeight, boolean stretchToFull, float[] projection) {
-        if (clip.type != ClipType.VIDEO && clip.type != ClipType.IMAGE) {
-            return null; // audio has no picture; text/effects/3D: see getUnsupportedFeatures
+        boolean isText = clip.type == ClipType.TEXT;
+        if (clip.type != ClipType.VIDEO && clip.type != ClipType.IMAGE && !isText) {
+            return null; // audio has no picture; effects/3D: see getUnsupportedFeatures
+        }
+        // A text clip is a bitmap of its own text box, centred on the canvas (drawtext's x=(w-text_w)/2),
+        // then moved by PosX/PosY. Its size comes from the platform's text measurer.
+        float[] textBox = null;
+        if (isText) {
+            if (textMetrics == null) return null;
+            textBox = textMetrics.measure(clip, canvasWidth, canvasHeight);
+            if (textBox == null || textBox[0] <= 0f || textBox[1] <= 0f) return null;
         }
 
         // Speed: FFmpeg remaps clip-local time via
@@ -345,7 +379,7 @@ public class OpenGLEdit {
         // this was missing before (localSourceTime just used elapsed output
         // time directly), which made any clip with Speed != 1.0 drift out
         // of sync with FFmpeg's export and eventually its own audio.
-        float speed = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Speed);
+        float speed = isText ? 1f : readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Speed);
         if (speed <= 0f) speed = 1f; // guard against a bad/zero value stalling the decoder forever
         float elapsedOutput = outputTimeSeconds - clip.startTime;
         // Reversed clips are decoded from a pre-rendered, already-reversed
@@ -358,7 +392,8 @@ public class OpenGLEdit {
         // duration (clipA continuing past its nominal end, during a
         // transition) - both are correct here, matching what FFmpeg's own
         // xfade does with the same underlying clip stream.
-        float localSourceTime = clip.isReverse()
+        float localSourceTime = isText ? 0f // text has no source stream
+                : clip.isReverse()
                 ? elapsedOutput * speed
                 : clip.startClipTrim + elapsedOutput * speed;
 
@@ -366,7 +401,7 @@ public class OpenGLEdit {
         // allocation), so the overwhelming majority of frames pay nothing for this.
         ClipAnimationFrame anim = animationFrame(clip, outputTimeSeconds);
 
-        float[] mvp = buildClipMvp(clip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull, anim);
+        float[] mvp = buildClipMvp(clip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull, anim, textBox);
         float opacity = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Opacity)
                 * anim.opacity();
         float hue = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Hue)
@@ -419,7 +454,8 @@ public class OpenGLEdit {
      *   GL needs no expanded canvas; alpha blending handles the transparent margins.
      */
     private float[] buildClipMvp(Clip clip, float outputTimeSeconds, float[] projection,
-                                  int canvasWidth, int canvasHeight, boolean stretchToFull, ClipAnimationFrame anim) {
+                                  int canvasWidth, int canvasHeight, boolean stretchToFull, ClipAnimationFrame anim,
+                                  float[] textBox) {
         // The in-animation's scale multiplies the clip's own (about its pivot), its offset is a
         // fraction of the canvas size added to PosX/PosY, its rotation is added to RotInRadians.
         float scaleX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.ScaleX) * anim.scale();
@@ -437,6 +473,14 @@ public class OpenGLEdit {
         // clip's own intrinsic size as the base ScaleX/ScaleY multiplies against.
         float baseW = stretchToFull ? canvasWidth : clip.width;
         float baseH = stretchToFull ? canvasHeight : clip.height;
+        if (textBox != null) {
+            // TEXT: the base is the text's own box (stretch-to-full never applies), and PosX/PosY are
+            // relative to the box centred on the canvas, exactly like drawtext's x=(w-text_w)/2 + PosX.
+            baseW = textBox[0];
+            baseH = textBox[1];
+            posX += (canvasWidth - baseW) / 2f;
+            posY += (canvasHeight - baseH) / 2f;
+        }
         float scaledW = baseW * scaleX;
         float scaledH = baseH * scaleY;
 

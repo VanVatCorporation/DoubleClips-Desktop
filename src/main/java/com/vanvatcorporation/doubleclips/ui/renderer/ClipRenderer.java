@@ -79,9 +79,8 @@ public class ClipRenderer {
     public boolean isPlaying = false;
 
     /**
-     * True when the GPU preview (PreviewClient) draws VIDEO and IMAGE clips: this renderer then
-     * creates no picture node for them and decodes no frames, and only looks after their audio.
-     * TEXT clips are still drawn here.
+     * True when the GPU preview (PreviewClient) draws the picture: this renderer then creates no
+     * node for VIDEO, IMAGE or TEXT clips and decodes no frames, and only looks after audio.
      */
     private final boolean gpuPreview;
     private final boolean ownAudio;
@@ -149,6 +148,7 @@ public class ClipRenderer {
                     break;
                 
                 case TEXT:
+                    if (gpuPreview) break; // the preview worker draws text (TextLayoutEngine), through the same layers as video
                     Label label = new Label(clip.textContent != null ? clip.textContent : "");
                     label.setTextFill(Color.BLACK);
                     float fSize = clip.fontSize > 0 ? clip.fontSize : 48;
@@ -199,7 +199,7 @@ public class ClipRenderer {
             return;
         }
 
-        if (!(gpuPreview && (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE))) {
+        if (!(gpuPreview && (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE || clip.type == ClipType.TEXT))) {
             updateTransforms(playheadTime);
         }
         

@@ -164,11 +164,10 @@ public class TimelineRenderer {
 
     /**
      * Shows in-progress values for a clip WITHOUT committing them: {@code keyIndex} >= 0 means they
-     * belong to that keyframe, otherwise to the clip's static properties. VIDEO/IMAGE clips under
-     * the GPU preview get them streamed to the worker (the real clip is untouched until the gesture
-     * ends); everything else (TEXT, or the legacy preview) has no other way to show them, so the
-     * values are written into the clip right away and the gizmo restores them if the gesture is
-     * cancelled.
+     * belong to that keyframe, otherwise to the clip's static properties. Under the GPU preview they
+     * are streamed to the worker (the real clip is untouched until the gesture ends); the legacy
+     * preview has no other way to show them, so the values are written into the clip right away and
+     * the gizmo restores them if the gesture is cancelled.
      */
     public void showLiveProperties(Clip clip, VideoProperties props, int keyIndex, float time) {
         lastTime = time;
@@ -203,7 +202,8 @@ public class TimelineRenderer {
     private boolean streamsLiveToWorker(Clip clip) {
         return isGpuPreviewActive() && client.image() != null
                 && (clip.type == com.vanvatcorporation.doubleclips.data.editing.ClipType.VIDEO
-                || clip.type == com.vanvatcorporation.doubleclips.data.editing.ClipType.IMAGE);
+                || clip.type == com.vanvatcorporation.doubleclips.data.editing.ClipType.IMAGE
+                || clip.type == com.vanvatcorporation.doubleclips.data.editing.ClipType.TEXT);
     }
 
     // ── timeline ─────────────────────────────────────────────────────────

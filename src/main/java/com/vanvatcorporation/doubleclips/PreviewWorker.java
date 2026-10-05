@@ -79,6 +79,8 @@ public final class PreviewWorker {
     private static final AtomicReference<Boolean> hwChange = new AtomicReference<>();
 
     public static void main(String[] args) {
+        // Text is rasterised with Java2D; headless keeps AWT off the main thread GLFW needs on macOS.
+        System.setProperty("java.awt.headless", "true");
         OutputStream frames = new BufferedOutputStream(new FileOutputStream(FileDescriptor.out), 1 << 16);
         System.setOut(System.err);
         try {
@@ -137,6 +139,7 @@ public final class PreviewWorker {
                 GlCompositor compositor = new GlCompositor(previewW, previewH);
                 PreviewFramePool pool = new PreviewFramePool(compositor, projectData, ffmpegPath, hwaccel, proxy,
                         PreviewWorker::log);
+                pool.setCanvas(canvasW, previewW / (float) canvasW);
                 try {
                     writePacket(frames, -1, previewW, previewH, null);
                     renderLoop(frames, compositor, pool, canvasW, canvasH, previewW, previewH, stretch);
@@ -157,6 +160,7 @@ public final class PreviewWorker {
     private static void renderLoop(OutputStream frames, GlCompositor compositor, PreviewFramePool pool,
                                    int canvasW, int canvasH, int previewW, int previewH, boolean stretch) throws Exception {
         OpenGLEdit edit = new OpenGLEdit();
+        edit.setTextMetrics((clip, cw, ch) -> TextLayoutEngine.measure(TextStyle.of(clip, cw)));
         ByteBuffer pixels = ByteBuffer.allocateDirect(previewW * previewH * 4).order(ByteOrder.nativeOrder());
         byte[] out = new byte[previewW * previewH * 4];
         byte[] row = new byte[previewW * 4];

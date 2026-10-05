@@ -258,6 +258,8 @@ public class ExportWindow extends Stage {
             return;
         }
 
+        // Desktop's OpenGL workers draw text (TextLayoutEngine), so text clips are not a gap here.
+        OpenGLEdit.textRenderingAvailable = true;
         List<String> unsupported = OpenGLEdit.getUnsupportedFeatures(timeline);
         if (unsupported.isEmpty()) {
             exportClipViaOpenGl(exportAsTemplate);

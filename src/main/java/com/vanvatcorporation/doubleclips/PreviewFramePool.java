@@ -47,6 +47,7 @@ final class PreviewFramePool {
     static final long FORWARD_WINDOW_FRAMES = 45;
     static final int MAX_VIDEO_STREAMS = 10;
     static final int MAX_IMAGES = 16;
+    static final int MAX_TEXTS = 32;
     /** Decoded-but-not-yet-uploaded images kept ready (about 3.7 MB each at the preview size). */
     static final int MAX_PRELOADED_IMAGES = 24;
     /** A stream nobody asked for in this long is closed. */
@@ -71,6 +72,12 @@ final class PreviewFramePool {
 
     /** Images are decoded off the GL thread (a PNG is an ffmpeg process, 100+ ms), keyed like {@link #images}. */
     private final Map<String, Future<ByteBuffer>> decodes = new LinkedHashMap<>();
+
+    /** Rendered text, one GL texture per distinct style (and render scale). */
+    private final Map<String, TextEntry> texts = new LinkedHashMap<>(16, 0.75f, true);
+    private int canvasWidth = 1920;
+    /** Bitmap pixels per canvas unit: text is rasterised at the preview's own size so it lands pixel-for-pixel. */
+    private float renderScale = 1f;
     private final ExecutorService imageLoader = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "PreviewImageLoader");
         t.setDaemon(true);
@@ -104,6 +111,16 @@ final class PreviewFramePool {
         }
     }
 
+    private static final class TextEntry {
+        final OpenGLTimelineExporter.Layer layer;
+        ByteBuffer pixelsUntilUploaded;
+
+        TextEntry(OpenGLTimelineExporter.Layer layer, ByteBuffer pixels) {
+            this.layer = layer;
+            this.pixelsUntilUploaded = pixels;
+        }
+    }
+
     private static final class ImageEntry {
         final OpenGLTimelineExporter.Layer layer;
         ByteBuffer pixelsUntilUploaded;
@@ -122,6 +139,12 @@ final class PreviewFramePool {
         this.hwaccel = hwaccel;
         this.useProxy = useProxy;
         this.log = log;
+    }
+
+    /** The project canvas width (text wraps against it) and the preview's pixels per canvas unit. */
+    void setCanvas(int canvasWidth, float renderScale) {
+        this.canvasWidth = canvasWidth;
+        this.renderScale = renderScale > 0f ? renderScale : 1f;
     }
 
     /** Switching between the proxy and the original files invalidates every open stream. */
@@ -146,6 +169,7 @@ final class PreviewFramePool {
     boolean draw(OpenGLEdit.DrawCommand cmd, float outputTimeSeconds) {
         Clip clip = cmd.clip;
         if (clip.type == ClipType.IMAGE) return drawImage(clip, cmd);
+        if (clip.type == ClipType.TEXT) return drawText(clip, cmd);
         if (clip.type != ClipType.VIDEO) return false;
         return drawVideo(clip, cmd, outputTimeSeconds);
     }
@@ -182,6 +206,8 @@ final class PreviewFramePool {
         streams.clear();
         for (ImageEntry e : images.values()) compositor.destroyLayer(e.layer);
         images.clear();
+        for (TextEntry e : texts.values()) compositor.destroyLayer(e.layer);
+        texts.clear();
         for (Future<ByteBuffer> f : decodes.values()) f.cancel(true);
         decodes.clear();
     }
@@ -355,6 +381,36 @@ final class PreviewFramePool {
         }
         s.source.close();
         compositor.destroyLayer(s.layer);
+    }
+
+    // ── text ─────────────────────────────────────────────────────────────
+
+    private boolean drawText(Clip clip, OpenGLEdit.DrawCommand cmd) {
+        TextStyle style = TextStyle.of(clip, canvasWidth);
+        String key = style.key() + '\u0002' + renderScale;
+        TextEntry entry = texts.get(key);
+        if (entry == null) {
+            try {
+                TextLayoutEngine.Bitmap bitmap = TextLayoutEngine.render(style, renderScale);
+                entry = new TextEntry(compositor.createLayer(bitmap.width, bitmap.height), bitmap.rgba);
+            } catch (RuntimeException e) {
+                if (reported.add(clip)) log.accept("Could not draw a text clip in preview: " + e);
+                return false;
+            }
+            texts.put(key, entry);
+            // Typing in the text box makes one new style per keystroke: keep only the recent ones.
+            while (texts.size() > MAX_TEXTS) {
+                Iterator<Map.Entry<String, TextEntry>> it = texts.entrySet().iterator();
+                Map.Entry<String, TextEntry> eldest = it.next();
+                if (eldest.getValue() == entry) break;
+                compositor.destroyLayer(eldest.getValue().layer);
+                it.remove();
+            }
+        }
+        ByteBuffer upload = entry.pixelsUntilUploaded;
+        entry.pixelsUntilUploaded = null;
+        compositor.draw(entry.layer, upload, cmd);
+        return true;
     }
 
     // ── images ───────────────────────────────────────────────────────────
