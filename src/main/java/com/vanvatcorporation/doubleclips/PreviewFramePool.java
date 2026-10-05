@@ -55,6 +55,7 @@ final class PreviewFramePool {
 
     private final OpenGLTimelineExporter.Compositor compositor;
     private final ProjectData project;
+    private final String fontsDir;
     private final String ffmpegPath;
     private volatile boolean hwaccel;
     private final Consumer<String> log;
@@ -139,6 +140,7 @@ final class PreviewFramePool {
         this.hwaccel = hwaccel;
         this.useProxy = useProxy;
         this.log = log;
+        this.fontsDir = TextStyle.fontsDirOf(project);
     }
 
     /** The project canvas width (text wraps against it) and the preview's pixels per canvas unit. */
@@ -386,7 +388,7 @@ final class PreviewFramePool {
     // ── text ─────────────────────────────────────────────────────────────
 
     private boolean drawText(Clip clip, OpenGLEdit.DrawCommand cmd) {
-        TextStyle style = TextStyle.of(clip, canvasWidth);
+        TextStyle style = TextStyle.of(clip, canvasWidth, fontsDir);
         String key = style.key() + '\u0002' + renderScale;
         TextEntry entry = texts.get(key);
         if (entry == null) {

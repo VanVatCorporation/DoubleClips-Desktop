@@ -142,7 +142,8 @@ public final class PreviewWorker {
                 pool.setCanvas(canvasW, previewW / (float) canvasW);
                 try {
                     writePacket(frames, -1, previewW, previewH, null);
-                    renderLoop(frames, compositor, pool, canvasW, canvasH, previewW, previewH, stretch);
+                    renderLoop(frames, compositor, pool, canvasW, canvasH, previewW, previewH, stretch,
+                            TextStyle.fontsDirOf(projectData));
                 } finally {
                     pool.shutdown();
                     compositor.close();
@@ -158,9 +159,10 @@ public final class PreviewWorker {
     // ── render loop (runs on the main thread, which owns the GL context) ─────────────────
 
     private static void renderLoop(OutputStream frames, GlCompositor compositor, PreviewFramePool pool,
-                                   int canvasW, int canvasH, int previewW, int previewH, boolean stretch) throws Exception {
+                                   int canvasW, int canvasH, int previewW, int previewH, boolean stretch,
+                                   String fontsDir) throws Exception {
         OpenGLEdit edit = new OpenGLEdit();
-        edit.setTextMetrics((clip, cw, ch) -> TextLayoutEngine.measure(TextStyle.of(clip, cw)));
+        edit.setTextMetrics((clip, cw, ch) -> TextLayoutEngine.measure(TextStyle.of(clip, cw, fontsDir)));
         ByteBuffer pixels = ByteBuffer.allocateDirect(previewW * previewH * 4).order(ByteOrder.nativeOrder());
         byte[] out = new byte[previewW * previewH * 4];
         byte[] row = new byte[previewW * 4];

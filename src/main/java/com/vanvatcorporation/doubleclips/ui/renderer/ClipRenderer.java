@@ -150,9 +150,7 @@ public class ClipRenderer {
                 case TEXT:
                     if (gpuPreview) break; // the preview worker draws text (TextLayoutEngine), through the same layers as video
                     Label label = new Label(clip.textContent != null ? clip.textContent : "");
-                    label.setTextFill(Color.BLACK);
-                    float fSize = clip.fontSize > 0 ? clip.fontSize : 48;
-                    label.setFont(new Font(fSize));
+                    styleLabel(label);
                     label.setWrapText(true);
                     // Set a default width if none provided
                     label.setMaxWidth(clip.width > 0 ? clip.width : settings.videoWidth);
@@ -208,10 +206,8 @@ public class ClipRenderer {
             if (!label.getText().equals(currentText)) {
                 label.setText(currentText);
             }
-            float currentSize = clip.fontSize > 0 ? clip.fontSize : 48;
-            if (label.getFont().getSize() != currentSize) {
-                label.setFont(new Font(currentSize));
-            }
+            String signature = labelStyleSignature();
+            if (!signature.equals(lastLabelStyle)) styleLabel(label);
         }
 
         float clipTime = Math.max(0, playheadTime - clip.startTime + clip.startClipTrim);
@@ -420,6 +416,31 @@ public class ClipRenderer {
         temperature = clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Temperature);
 
         Platform.runLater(this::applyTransformation);
+    }
+
+    // ── legacy text label (the GPU preview draws text itself; outline and imported fonts are GPU-only) ──
+
+    private String lastLabelStyle = "";
+
+    private String labelStyleSignature() {
+        return clip.fontSize + "|" + clip.textFontFamily + "|" + clip.textBold + "|" + clip.textItalic + "|"
+                + clip.textColor + "|" + clip.textAlign;
+    }
+
+    private void styleLabel(Label label) {
+        lastLabelStyle = labelStyleSignature();
+        Color fill = Color.BLACK;
+        try {
+            if (clip.textColor != null) fill = Color.web(clip.textColor);
+        } catch (IllegalArgumentException ignored) {
+        }
+        label.setTextFill(fill);
+        float size = clip.fontSize > 0 ? clip.fontSize : 48;
+        String family = clip.textFontFamily != null && !clip.textFontFamily.isEmpty() ? clip.textFontFamily : "System";
+        label.setFont(Font.font(family, clip.textBold ? javafx.scene.text.FontWeight.BOLD : javafx.scene.text.FontWeight.NORMAL,
+                clip.textItalic ? javafx.scene.text.FontPosture.ITALIC : javafx.scene.text.FontPosture.REGULAR, size));
+        label.setTextAlignment(clip.textAlign == 2 ? javafx.scene.text.TextAlignment.RIGHT
+                : clip.textAlign == 1 ? javafx.scene.text.TextAlignment.CENTER : javafx.scene.text.TextAlignment.LEFT);
     }
 
     /**

@@ -2,10 +2,14 @@ package com.vanvatcorporation.doubleclips;
 
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.Shape;
+import java.awt.geom.AffineTransform;
+import java.io.File;
 import java.awt.font.FontRenderContext;
 import java.awt.font.LineBreakMeasurer;
 import java.awt.font.TextAttribute;
@@ -47,12 +51,21 @@ public final class TextLayoutEngine {
         public final float height;
         final List<Line> lines;
         final int fillArgb;
+        final float outlineWidth;
+        final int outlineArgb;
 
-        Layout(float width, float height, List<Line> lines, int fillArgb) {
+        Layout(float width, float height, List<Line> lines, int fillArgb, float outlineWidth, int outlineArgb) {
             this.width = width;
             this.height = height;
             this.lines = lines;
             this.fillArgb = fillArgb;
+            this.outlineWidth = outlineWidth;
+            this.outlineArgb = outlineArgb;
+        }
+
+        /** The colour of the outermost thing drawn: what the empty margin's texels should carry (see toStraightRgba). */
+        int edgeArgb() {
+            return outlineWidth > 0f ? outlineArgb : fillArgb;
         }
     }
 
@@ -128,6 +141,17 @@ public final class TextLayoutEngine {
             g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
             // The box is ceil()ed to whole pixels; scale by the real ratio so the text isn't stretched.
             g.scale(w / (double) layout.width, h / (double) layout.height);
+            if (layout.outlineWidth > 0f) {
+                // Stroke the glyph outlines first, then fill the letters on top: the stroke is centred on the
+                // edge, so half of it (the inside) is covered, and a stroke of 2w leaves w visible outside.
+                g.setStroke(new BasicStroke(layout.outlineWidth * 2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.setColor(new Color(layout.outlineArgb, true));
+                for (Line line : layout.lines) {
+                    if (line.layout == null) continue;
+                    Shape outline = line.layout.getOutline(AffineTransform.getTranslateInstance(line.x, line.baselineY));
+                    g.draw(outline);
+                }
+            }
             g.setColor(new Color(layout.fillArgb, true));
             for (Line line : layout.lines) {
                 if (line.layout != null) line.layout.draw(g, line.x, line.baselineY);
@@ -135,17 +159,18 @@ public final class TextLayoutEngine {
         } finally {
             g.dispose();
         }
-        return new Bitmap(w, h, toStraightRgba(image, layout.fillArgb));
+        return new Bitmap(w, h, toStraightRgba(image, layout.edgeArgb()));
     }
 
     // ── layout ───────────────────────────────────────────────────────────
 
     private static Layout build(TextStyle style) {
-        int fontStyle = (style.bold ? Font.BOLD : 0) | (style.italic ? Font.ITALIC : 0);
-        Font font = new Font(style.fontFamily, fontStyle, 12).deriveFont(Math.max(1f, style.fontSize));
+        Font font = fontFor(style);
 
         String text = style.text == null ? "" : style.text.replace("\r\n", "\n").replace('\r', '\n');
-        float wrap = style.maxWidth > 0 ? Math.max(1f, style.maxWidth - 2 * PAD) : Float.MAX_VALUE;
+        // The outline sits outside the letters, so the margin grows with it (and wrapping leaves room for it).
+        float pad = PAD + style.outlineWidth;
+        float wrap = style.maxWidth > 0 ? Math.max(1f, style.maxWidth - 2 * pad) : Float.MAX_VALUE;
 
         List<TextLayout> layouts = new ArrayList<>();
         for (String paragraph : text.split("\n", -1)) {
@@ -168,18 +193,50 @@ public final class TextLayoutEngine {
             if (l != null) maxAdvance = Math.max(maxAdvance, l.getVisibleAdvance());
         }
 
+        float shift = style.align == TextStyle.ALIGN_CENTER ? 0.5f : style.align == TextStyle.ALIGN_RIGHT ? 1f : 0f;
         List<Line> lines = new ArrayList<>();
-        float y = PAD;
+        float y = pad;
         for (TextLayout l : layouts) {
             if (l == null) {
                 y += emptyHeight;
                 continue;
             }
             float baseline = y + l.getAscent();
-            lines.add(new Line(l, PAD, baseline));
+            lines.add(new Line(l, pad + (maxAdvance - l.getVisibleAdvance()) * shift, baseline));
             y += l.getAscent() + l.getDescent() + l.getLeading();
         }
-        return new Layout(Math.max(1f, maxAdvance) + 2 * PAD, Math.max(1f, y - PAD) + 2 * PAD, lines, style.colorArgb);
+        return new Layout(Math.max(1f, maxAdvance) + 2 * pad, Math.max(1f, y - pad) + 2 * pad, lines,
+                style.colorArgb, style.outlineWidth, style.outlineColorArgb);
+    }
+
+    // ── fonts ────────────────────────────────────────────────────────────
+
+    /** Imported font files, loaded once. A file that fails to load is remembered as null so it isn't retried every frame. */
+    private static final Map<String, Font> FILE_FONTS = new java.util.HashMap<>();
+
+    /** The font for a style: an imported file if one is set and loads, otherwise the named family (Java falls back to a default if it is unknown). */
+    private static Font fontFor(TextStyle style) {
+        int flags = (style.bold ? Font.BOLD : 0) | (style.italic ? Font.ITALIC : 0);
+        Font base = style.fontFile != null ? fileFont(style.fontFile) : null;
+        if (base != null) return base.deriveFont(flags, Math.max(1f, style.fontSize));
+        return new Font(style.fontFamily, flags, 12).deriveFont(Math.max(1f, style.fontSize));
+    }
+
+    private static Font fileFont(String path) {
+        synchronized (FILE_FONTS) {
+            if (FILE_FONTS.containsKey(path)) return FILE_FONTS.get(path);
+        }
+        Font loaded = null;
+        try {
+            File file = new File(path);
+            if (file.isFile()) loaded = Font.createFont(Font.TRUETYPE_FONT, file);
+        } catch (Exception | Error e) {
+            loaded = null; // corrupt or unsupported: the style falls back to its family
+        }
+        synchronized (FILE_FONTS) {
+            FILE_FONTS.put(path, loaded);
+        }
+        return loaded;
     }
 
     // ── pixels ───────────────────────────────────────────────────────────
@@ -215,5 +272,24 @@ public final class TextLayoutEngine {
     /** What the clip looks like in this engine's terms. Everything the text bitmap depends on is in here. */
     public static TextStyle styleOf(Clip clip, int canvasWidth) {
         return TextStyle.of(clip, canvasWidth);
+    }
+
+    /** True if the file is a font Java can load (used when importing, to refuse a bad file up front). */
+    public static boolean isLoadableFont(File file) {
+        try {
+            Font.createFont(Font.TRUETYPE_FONT, file);
+            return true;
+        } catch (Exception | Error e) {
+            return false;
+        }
+    }
+
+    /** The family name a font file declares (e.g. "Arsenal SC"), or null if it can't be read. */
+    public static String familyOfFile(File file) {
+        try {
+            return Font.createFont(Font.TRUETYPE_FONT, file).getFamily();
+        } catch (Exception | Error e) {
+            return null;
+        }
     }
 }

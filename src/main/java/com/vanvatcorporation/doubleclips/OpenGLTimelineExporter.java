@@ -348,7 +348,7 @@ public final class OpenGLTimelineExporter {
                 ImageLayer text = imageLayers.get(clip);
                 if (text == null) {
                     try {
-                        TextLayoutEngine.Bitmap bitmap = TextLayoutEngine.render(TextStyle.of(clip, canvasWidth), 1f);
+                        TextLayoutEngine.Bitmap bitmap = TextLayoutEngine.render(TextStyle.of(clip, canvasWidth, TextStyle.fontsDirOf(projectData)), 1f);
                         text = new ImageLayer(compositor.createLayer(bitmap.width, bitmap.height), bitmap.rgba);
                         imageLayers.put(clip, text);
                     } catch (RuntimeException e) {

@@ -315,6 +315,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     @Override public void addPropertyUpdater(Runnable updater) { propertyUpdaters.add(updater); }
     @Override public Timeline getTimeline() { return timeline; }
     @Override public VideoSettings getVideoSettings() { return videoSettings; }
+    @Override public ProjectData getProject() { return project; }
 
     @Override
     public void saveProject() {
@@ -1447,6 +1448,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             @Override public Clip primarySelectedClip() { return selectedClip; }
             @Override public void selectClip(Clip clip) { EditorWindow.this.selectClip(clip); }
             @Override public void commit(String name, Runnable redo, Runnable undo) { executePropertyChange(name, redo, undo); }
+            @Override public String fontsDirectory() { return com.vanvatcorporation.doubleclips.TextStyle.fontsDirOf(project); }
             @Override public void clipChanged(Clip clip) {
                 if (clip.viewRef instanceof ClipNode cn) {
                     cn.updateKeyframes(pixelsPerSecond);
@@ -3145,6 +3147,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clip textClip = new Clip("Text", currentTime, 5.0f, 0, ClipType.TEXT, false, 1280, 720);
         textClip.textContent = "New Text";
         textClip.fontSize = 48;
+        textClip.textColor = "#FFFFFF"; // white: black text vanishes on dark footage
         
         historyManager.execute(new AddClipCommand(timeline, textClip, 0, () -> {
             refreshTimelineUI();
@@ -3180,6 +3183,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             Clip textClip = new Clip(presets[i], 0, 5.0f, 0, ClipType.TEXT, false, 1280, 720);
             textClip.textContent = presets[i];
             textClip.fontSize = sizes[i];
+            textClip.textColor = "#FFFFFF";
             addClipToMediaGrid(mediaGrid, textClip);
         }
     }

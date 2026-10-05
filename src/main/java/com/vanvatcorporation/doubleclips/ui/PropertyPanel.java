@@ -174,6 +174,8 @@ public class PropertyPanel extends VBox {
                     });
                 } catch (Exception ignored) {}
             }));
+
+            addTextStyleFields(fields, selectedClip);
         }
 
         if (selectedClip.type != ClipType.EFFECT) {
@@ -274,6 +276,235 @@ public class PropertyPanel extends VBox {
         Clip transClip = context.getSelectedTransitionSourceClip();
         if (transClip != null && transClip.endTransition != null) {
             getChildren().add(buildTransitionSection(transClip));
+        }
+    }
+
+    // ---- text style: font, bold / italic / alignment, colour, outline ---------------------------
+
+    /** One entry of the font dropdown: the default, an imported font file, or an installed family. */
+    private static final class FontChoice {
+        final String label;
+        final String family;   // null = the default font
+        final String file;     // file name in the project's Fonts folder, or null
+
+        FontChoice(String label, String family, String file) {
+            this.label = label;
+            this.family = family;
+            this.file = file;
+        }
+
+        boolean matches(Clip clip) {
+            if (file != null) return file.equals(clip.textFontFile);
+            return clip.textFontFile == null && java.util.Objects.equals(family, emptyToNull(clip.textFontFamily));
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    private static String emptyToNull(String s) {
+        return s == null || s.isEmpty() ? null : s;
+    }
+
+    private void addTextStyleFields(VBox fields, Clip clip) {
+        // Font
+        VBox fontBox = new VBox(4);
+        Label fontLabel = new Label("Font");
+        fontLabel.getStyleClass().add("text-muted");
+        fontLabel.setStyle("-fx-font-size: 11px;");
+        ComboBox<FontChoice> fontCombo = new ComboBox<>();
+        java.util.List<FontChoice> choices = fontChoices(clip);
+        fontCombo.getItems().addAll(choices);
+        for (FontChoice c : choices) {
+            if (c.matches(clip)) {
+                fontCombo.setValue(c);
+                break;
+            }
+        }
+        fontCombo.setMaxWidth(Double.MAX_VALUE);
+        // Set AFTER the initial value: showing a clip must not count as the user picking a font.
+        fontCombo.setOnAction(e -> {
+            FontChoice chosen = fontCombo.getValue();
+            if (chosen == null || chosen.matches(clip)) return;
+            setFont(clip, chosen.family, chosen.file);
+        });
+        fontBox.getChildren().addAll(fontLabel, fontCombo);
+        fields.getChildren().add(fontBox);
+        fields.getChildren().add(buildButton("Import font...", e -> importFont(clip), "tool-button"));
+
+        // Bold / italic
+        HBox styleRow = new HBox(8);
+        styleRow.setAlignment(Pos.CENTER_LEFT);
+        ToggleButton bold = new ToggleButton("B");
+        bold.setStyle("-fx-font-weight: bold;");
+        bold.setSelected(clip.textBold);
+        bold.setOnAction(e -> setTextProperty("Change Text Bold", clip.textBold, bold.isSelected(), v -> clip.textBold = v));
+        ToggleButton italic = new ToggleButton("I");
+        italic.setStyle("-fx-font-style: italic;");
+        italic.setSelected(clip.textItalic);
+        italic.setOnAction(e -> setTextProperty("Change Text Italic", clip.textItalic, italic.isSelected(), v -> clip.textItalic = v));
+        Region gap = new Region();
+        gap.setMinWidth(12);
+        // Alignment: one of three, never none
+        ToggleGroup alignGroup = new ToggleGroup();
+        String[] alignNames = {"Left", "Center", "Right"};
+        HBox alignRow = new HBox(4);
+        for (int i = 0; i < alignNames.length; i++) {
+            final int value = i;
+            ToggleButton t = new ToggleButton(alignNames[i]);
+            t.setToggleGroup(alignGroup);
+            t.setSelected(clip.textAlign == value);
+            t.setOnAction(e -> {
+                if (!t.isSelected()) { t.setSelected(true); return; } // clicking the active one must not clear it
+                setTextProperty("Change Text Alignment", clip.textAlign, value, v -> clip.textAlign = v);
+            });
+            alignRow.getChildren().add(t);
+        }
+        styleRow.getChildren().addAll(bold, italic, gap, alignRow);
+        fields.getChildren().add(styleRow);
+
+        // Color
+        fields.getChildren().add(buildColorField("Color", clip.textColor, "#000000", hex ->
+                setTextProperty("Change Text Color", clip.textColor, hex, v -> clip.textColor = v)));
+
+        // Outline
+        fields.getChildren().add(buildPropertyField("Outline Width", String.valueOf(clip.textOutlineWidth), newValue -> {
+            try {
+                float val = Math.max(0f, Float.parseFloat(newValue.trim()));
+                setTextProperty("Change Text Outline Width", clip.textOutlineWidth, val, v -> clip.textOutlineWidth = v);
+            } catch (NumberFormatException ignored) {}
+        }));
+        fields.getChildren().add(buildColorField("Outline Color", clip.textOutlineColor, "#000000", hex ->
+                setTextProperty("Change Text Outline Color", clip.textOutlineColor, hex, v -> clip.textOutlineColor = v)));
+    }
+
+    /** A label and a color picker; reports "#RRGGBB" when the user picks one. */
+    private VBox buildColorField(String label, String hex, String defaultHex, Consumer<String> onPicked) {
+        VBox box = new VBox(4);
+        Label lbl = new Label(label);
+        lbl.getStyleClass().add("text-muted");
+        lbl.setStyle("-fx-font-size: 11px;");
+        Color initial;
+        try {
+            initial = Color.web(hex != null ? hex : defaultHex);
+        } catch (IllegalArgumentException ex) {
+            initial = Color.web(defaultHex);
+        }
+        ColorPicker picker = new ColorPicker(initial);
+        picker.setMaxWidth(Double.MAX_VALUE);
+        picker.setOnAction(e -> {
+            Color c = picker.getValue();
+            if (c == null) return;
+            onPicked.accept(String.format("#%02X%02X%02X",
+                    Math.round(c.getRed() * 255), Math.round(c.getGreen() * 255), Math.round(c.getBlue() * 255)));
+        });
+        box.getChildren().addAll(lbl, picker);
+        return box;
+    }
+
+    /** One undoable change of a text property, then redraw, save and refresh the panel (so undo shows in the controls). */
+    private <T> void setTextProperty(String name, T oldVal, T newVal, Consumer<T> setter) {
+        if (java.util.Objects.equals(oldVal, newVal)) return;
+        context.executePropertyChange(name, () -> {
+            setter.accept(newVal);
+            context.refreshTimelineUI();
+            context.saveProject();
+            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        }, () -> {
+            setter.accept(oldVal);
+            context.refreshTimelineUI();
+            context.saveProject();
+            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        });
+    }
+
+    /** Picking a font sets family and file together, as one undo step. */
+    private void setFont(Clip clip, String family, String file) {
+        String oldFamily = clip.textFontFamily, oldFile = clip.textFontFile;
+        if (java.util.Objects.equals(oldFamily, family) && java.util.Objects.equals(oldFile, file)) return;
+        context.executePropertyChange("Change Font", () -> {
+            clip.textFontFamily = family;
+            clip.textFontFile = file;
+            context.refreshTimelineUI();
+            context.saveProject();
+            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        }, () -> {
+            clip.textFontFamily = oldFamily;
+            clip.textFontFile = oldFile;
+            context.refreshTimelineUI();
+            context.saveProject();
+            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        });
+    }
+
+    /** The dropdown's entries: default, this project's imported fonts, then every installed family. */
+    private java.util.List<FontChoice> fontChoices(Clip clip) {
+        java.util.List<FontChoice> choices = new java.util.ArrayList<>();
+        choices.add(new FontChoice("Default", null, null));
+
+        java.util.List<String> importedNames = new java.util.ArrayList<>();
+        String dir = com.vanvatcorporation.doubleclips.TextStyle.fontsDirOf(context.getProject());
+        java.io.File[] imported = dir == null ? null : new java.io.File(dir).listFiles((d, n) -> {
+            String lower = n.toLowerCase();
+            return lower.endsWith(".ttf") || lower.endsWith(".otf");
+        });
+        if (imported != null) {
+            java.util.Arrays.sort(imported);
+            for (java.io.File f : imported) {
+                choices.add(new FontChoice(f.getName() + "  (imported)", null, f.getName()));
+                importedNames.add(f.getName());
+            }
+        }
+        // A font the clip uses but this computer doesn't have stays selectable, so opening a project never drops it.
+        if (clip.textFontFile != null && !importedNames.contains(clip.textFontFile)) {
+            choices.add(new FontChoice(clip.textFontFile + "  (missing)", null, clip.textFontFile));
+        }
+        java.util.List<String> families = javafx.scene.text.Font.getFamilies();
+        for (String family : families) choices.add(new FontChoice(family, family, null));
+        String wanted = emptyToNull(clip.textFontFamily);
+        if (clip.textFontFile == null && wanted != null && !families.contains(wanted)) {
+            choices.add(new FontChoice(wanted + "  (not installed)", wanted, null));
+        }
+        return choices;
+    }
+
+    /** Lets the user pick a .ttf/.otf, copies it into the project's Fonts folder, and uses it for this clip. */
+    private void importFont(Clip clip) {
+        javafx.stage.Window owner = getScene() != null ? getScene().getWindow() : null;
+        javafx.stage.FileChooser chooser = new javafx.stage.FileChooser();
+        chooser.setTitle("Import font");
+        chooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("Fonts (*.ttf, *.otf)", "*.ttf", "*.otf"));
+        java.io.File picked = chooser.showOpenDialog(owner);
+        if (picked == null) return;
+
+        if (!com.vanvatcorporation.doubleclips.TextLayoutEngine.isLoadableFont(picked)) {
+            Alert alert = new Alert(Alert.AlertType.ERROR, "That file isn't a font this editor can read.");
+            alert.initOwner(owner);
+            alert.showAndWait();
+            return;
+        }
+        String dir = com.vanvatcorporation.doubleclips.TextStyle.fontsDirOf(context.getProject());
+        if (dir == null) return;
+        try {
+            java.io.File folder = new java.io.File(dir);
+            if (!folder.isDirectory() && !folder.mkdirs()) throw new java.io.IOException("could not create " + folder);
+            // Never overwrite: another clip may use a different font that happens to share the file name.
+            String name = picked.getName();
+            java.io.File target = new java.io.File(folder, name);
+            int n = 1;
+            while (target.exists() && target.length() != picked.length()) {
+                int dot = name.lastIndexOf('.');
+                target = new java.io.File(folder, (dot > 0 ? name.substring(0, dot) : name) + "-" + n++ + (dot > 0 ? name.substring(dot) : ""));
+            }
+            if (!target.exists()) java.nio.file.Files.copy(picked.toPath(), target.toPath());
+            String family = com.vanvatcorporation.doubleclips.TextLayoutEngine.familyOfFile(target);
+            setFont(clip, family, target.getName());
+        } catch (java.io.IOException ex) {
+            Alert alert = new Alert(Alert.AlertType.ERROR, "Could not import the font: " + ex.getMessage());
+            alert.initOwner(owner);
+            alert.showAndWait();
         }
     }
 

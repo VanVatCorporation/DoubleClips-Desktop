@@ -63,6 +63,8 @@ public final class PreviewGizmo {
         void commit(String name, Runnable redo, Runnable undo);
         /** A clip's data changed outside a gesture (commit, undo, redo, cancel): refresh timeline knots, save, redraw. */
         void clipChanged(Clip clip);
+        /** The project's Fonts folder (imported fonts), so a text clip's box is measured with the font the preview draws. */
+        String fontsDirectory();
     }
 
     private static final double HANDLE_RADIUS = 5.5;
@@ -667,7 +669,7 @@ public final class PreviewGizmo {
                 // Same box the preview worker draws (TextLayoutEngine), centred on the canvas, then offset by
                 // PosX/PosY - exactly OpenGLEdit.buildClipMvp's text rule.
                 float[] box = com.vanvatcorporation.doubleclips.TextLayoutEngine.measure(
-                        com.vanvatcorporation.doubleclips.TextStyle.of(clip, settings.videoWidth));
+                        com.vanvatcorporation.doubleclips.TextStyle.of(clip, settings.videoWidth, host.fontsDirectory()));
                 baseW = box[0];
                 baseH = box[1];
                 posX += (settings.videoWidth - baseW) / 2.0;

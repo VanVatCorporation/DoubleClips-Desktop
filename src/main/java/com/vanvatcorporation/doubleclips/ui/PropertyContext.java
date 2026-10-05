@@ -24,4 +24,5 @@ public interface PropertyContext {
     void handleExportKeyframes();
     void updatePropertiesPane();
     com.vanvatcorporation.doubleclips.data.editing.VideoSettings getVideoSettings();
+    com.vanvatcorporation.doubleclips.data.ProjectData getProject();
 }
