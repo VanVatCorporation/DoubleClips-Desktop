@@ -14,6 +14,7 @@ import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -242,6 +243,7 @@ public final class OpenGLTimelineExporter {
                 }
                 releaseInactive(videoLayers, stillActive, compositor);
                 releaseInactiveImages(imageLayers, stillActive, compositor);
+                renderer.releaseInactiveUnits(stillActive);
 
                 drawFrameLayers(compositor, layers, outputTimeSeconds, 1f, renderer::render);
 
@@ -274,6 +276,7 @@ public final class OpenGLTimelineExporter {
                 compositor.destroyLayer(v.layer);
             }
             for (ImageLayer i : imageLayers.values()) compositor.destroyLayer(i.layer);
+            renderer.releaseAllUnits();
         }
 
         if (completed) {
@@ -302,6 +305,24 @@ public final class OpenGLTimelineExporter {
         private final Map<Clip, ImageLayer> imageLayers;
         private final Set<Clip> reported;
         private final Listener listener;
+        /** Animated text: one texture per unit of each text clip, kept while the clip is on screen. */
+        private final Map<Clip, Map<Integer, ImageLayer>> unitLayers = new IdentityHashMap<>();
+
+        /** Frees the unit textures of clips that are no longer active (they never come back). */
+        void releaseInactiveUnits(Set<Clip> stillActive) {
+            Iterator<Map.Entry<Clip, Map<Integer, ImageLayer>>> it = unitLayers.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<Clip, Map<Integer, ImageLayer>> entry = it.next();
+                if (stillActive.contains(entry.getKey())) continue;
+                for (ImageLayer l : entry.getValue().values()) compositor.destroyLayer(l.layer);
+                it.remove();
+            }
+        }
+
+        void releaseAllUnits() {
+            for (Map<Integer, ImageLayer> m : unitLayers.values()) for (ImageLayer l : m.values()) compositor.destroyLayer(l.layer);
+            unitLayers.clear();
+        }
 
         ClipRenderer(Compositor compositor, ProjectData projectData, String ffmpegPath, int frameRate, int canvasWidth,
                      Map<Clip, String> reversedClipPaths, Map<Clip, VideoLayer> videoLayers,
@@ -340,6 +361,29 @@ public final class OpenGLTimelineExporter {
                 ByteBuffer upload = image.pixelsUntilUploaded;
                 image.pixelsUntilUploaded = null;
                 compositor.draw(image.layer, upload, cmd);
+                return true;
+            }
+
+            if (clip.type == ClipType.TEXT && cmd.textUnitMode != null && cmd.textUnitIndex >= 0) {
+                // One unit of an animated text (see OpenGLEdit.buildTextUnitCommands), rasterised once per unit.
+                Map<Integer, ImageLayer> perUnit = unitLayers.computeIfAbsent(clip, c -> new HashMap<>());
+                ImageLayer unit = perUnit.get(cmd.textUnitIndex);
+                if (unit == null) {
+                    try {
+                        TextLayoutEngine.Bitmap bitmap = TextLayoutEngine.renderUnit(
+                                TextStyle.of(clip, canvasWidth, TextStyle.fontsDirOf(projectData)), cmd.textUnitMode, cmd.textUnitIndex, 1f);
+                        unit = new ImageLayer(compositor.createLayer(bitmap.width, bitmap.height), bitmap.rgba);
+                        perUnit.put(cmd.textUnitIndex, unit);
+                    } catch (RuntimeException e) {
+                        if (reported.add(clip)) {
+                            log(listener, "Could not draw an animated text clip, it will be missing from this export: " + e);
+                        }
+                        return false;
+                    }
+                }
+                ByteBuffer upload = unit.pixelsUntilUploaded;
+                unit.pixelsUntilUploaded = null;
+                compositor.draw(unit.layer, upload, cmd);
                 return true;
             }
 

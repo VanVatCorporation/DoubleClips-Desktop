@@ -6,6 +6,7 @@ import com.vanvatcorporation.doubleclips.data.editing.EffectTemplate;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class FXCommandEmitter {
@@ -138,7 +139,7 @@ public class FXCommandEmitter {
         else {
             tags.storeTag(mergedClip, outputLabel, fromTag.index);
             return fromTag.tag + toTag.tag +
-                    "xfade=transition=" + transition.effect.style + ":duration=" + transition.duration + ":offset=" +
+                    "xfade=transition=" + FXRegistry.normalizeTransitionStyle(transition.effect.style) + ":duration=" + transition.duration + ":offset=" +
                     transitionOffset
                     + outputLabel + ";\n";
         }
@@ -162,43 +163,52 @@ public class FXCommandEmitter {
             put("spin-burst", "Spinning Burst");
         }});
 
-        public static Map<String, String> transitionFXMap = Collections.unmodifiableMap(new HashMap<String, String>() {{
-            put("custom_expose", "Expose [Custom]");
-            put("custom_two-stage-slide", "Two Stage Slide [Custom]");
-            put("custom_radial-shockwave", "Radial Shockwave [Custom]");
-            put("custom_massive-effect", "Massive Effect [Custom]");
-            put("custom_fake-glass-shatter", "Fake Glass Shatter [Custom]");
-
-
+        public static Map<String, String> transitionFXMap = Collections.unmodifiableMap(new LinkedHashMap<String, String>() {{
+            // Fixed display order (a HashMap listed these in arbitrary order). Keys are FFmpeg xfade
+            // names and must not carry whitespace ("radial " / "circleopen " used to, which made xfade
+            // fail). Styles the OpenGL export honours come first, then the FFmpeg-only ones.
             put("none", "None");
 
             put("fade", "Cross Fade");
             put("dissolve", "Dissolve");
-            put("radial ", "Radial");
-            put("circleopen ", "Circle Open");
+            put("wipeleft", "Wipe Left");
+            put("wiperight", "Wipe Right");
+            put("slideleft", "Slide Left");
+            put("slideright", "Slide Right");
+            put("slideup", "Slide Up");
+            put("slidedown", "Slide Down");
+
+            put("fadeblack", "Fade Black");
+            put("fadewhite", "Fade White");
+            put("fadegrays", "Fade Gray");
+            put("radial", "Radial");
+            put("circleopen", "Circle Open");
             put("circleclose", "Circle Close");
+            put("circlecrop", "Circle Crop");
+            put("rectcrop", "Rect Crop");
             put("pixelize", "Pixelize");
             put("hlslice", "Horizontal Left Slice");
             put("hrslice", "Horizontal Right Slice");
             put("vuslice", "Vertical Up Slice");
             put("vdslice", "Vertical Down Slice");
             put("hblur", "Horizontal Blur");
-            put("fadegrays", "Fade Gray");
-            put("fadeblack", "Fade Black");
-            put("fadewhite", "Fade White");
-            put("rectcrop", "Rect Crop");
-            put("circlecrop", "Circle Crop");
-            put("wipeleft", "Wipe Left");
-            put("wiperight", "Wipe Right");
-            put("slidedown", "Slide Down");
-            put("slideup", "Slide Up");
-            put("slideleft", "Slide Left");
-            put("slideright", "Slide Right");
             put("distance", "Distance");
             put("diagtl", "Diagonal Top-Left Wipe");
             put("diagbl", "Diagonal Bottom-Left Wipe");
             put("revealup", "Reveal Up");
+
+            put("custom_expose", "Expose [Custom]");
+            put("custom_two-stage-slide", "Two Stage Slide [Custom]");
+            put("custom_radial-shockwave", "Radial Shockwave [Custom]");
+            put("custom_massive-effect", "Massive Effect [Custom]");
+            put("custom_fake-glass-shatter", "Fake Glass Shatter [Custom]");
         }});
+
+        /** Projects saved before the key fix may hold "radial " / "circleopen "; use this when reading a style. */
+        public static String normalizeTransitionStyle(String style) {
+            return style == null ? "none" : style.trim();
+        }
+
 
     }
 

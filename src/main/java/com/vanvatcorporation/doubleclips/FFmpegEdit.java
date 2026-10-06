@@ -904,9 +904,17 @@ public class FFmpegEdit {
                 if (clip == null) continue;
                 collectUnsupportedAnimation(clip.inAnimation, ClipAnimation.Direction.IN, found);
                 collectUnsupportedAnimation(clip.outAnimation, ClipAnimation.Direction.OUT, found);
+                if (OpenGLEdit.animatesPerUnit(clip) && (isRealAnimation(clip.inAnimation) || isRealAnimation(clip.outAnimation))) {
+                    found.add("Text animated per " + clip.textUnitMode.toLowerCase(java.util.Locale.ROOT)
+                            + " animates as one block (FFmpeg can't animate parts of a text)");
+                }
             }
         }
         return new ArrayList<>(found);
+    }
+
+    private static boolean isRealAnimation(AnimationClip slot) {
+        return slot != null && slot.type != null && !slot.type.isEmpty() && !"none".equals(slot.type);
     }
 
     private static void collectUnsupportedAnimation(AnimationClip slot, ClipAnimation.Direction wanted,

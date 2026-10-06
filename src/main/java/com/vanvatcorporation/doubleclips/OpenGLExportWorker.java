@@ -117,6 +117,7 @@ public class OpenGLExportWorker {
                     OpenGLEdit edit = new OpenGLEdit();
                     final String fontsDir = TextStyle.fontsDirOf(projectData);
                     edit.setTextMetrics((clip, canvasW, canvasH) -> TextLayoutEngine.measure(TextStyle.of(clip, canvasW, fontsDir)));
+                    edit.setTextUnitProvider((clip, mode, canvasW, canvasH) -> TextLayoutEngine.toUnits(TextLayoutEngine.units(TextStyle.of(clip, canvasW, fontsDir), mode)));
                     boolean completed = OpenGLTimelineExporter.export(timeline, edit, projectData, compositor,
                             width, height, frameRate, stretchToFull, reversedClipPaths,
                             ffmpegPath, encoderArgs, outputPath,

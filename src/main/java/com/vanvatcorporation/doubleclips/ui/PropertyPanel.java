@@ -378,6 +378,70 @@ public class PropertyPanel extends VBox {
         }));
         fields.getChildren().add(buildColorField("Outline Color", clip.textOutlineColor, "#000000", hex ->
                 setTextProperty("Change Text Outline Color", clip.textOutlineColor, hex, v -> clip.textOutlineColor = v)));
+
+        addTextUnitAnimationFields(fields, clip);
+    }
+
+    private static final String[] UNIT_LABELS = {"Whole text", "Character", "Word", "Line"};
+    private static final String[] UNIT_VALUES = {null, "CHARACTER", "WORD", "LINE"};
+    private static final String[] ORDER_LABELS = {"Forward", "Reverse", "Centre out", "Random"};
+    private static final String[] ORDER_VALUES = {null, "REVERSE", "CENTER_OUT", "RANDOM"};
+
+    /** The index of {@code value} in {@code values} (null counts as the first entry); 0 for anything unknown. */
+    private static int indexOfValue(String[] values, String value) {
+        if (value == null || value.isEmpty()) return 0;
+        for (int i = 1; i < values.length; i++) if (values[i].equals(value)) return i;
+        return 0;
+    }
+
+    /**
+     * Per-character / word / line animation: the clip's own In / Out animation is played on each unit in turn
+     * instead of on the whole text. OpenGL render engine only (FFmpeg's drawtext can't do it).
+     */
+    private void addTextUnitAnimationFields(VBox fields, Clip clip) {
+        Label heading = new Label("Text animation");
+        heading.getStyleClass().add("text-muted");
+        heading.setStyle("-fx-font-size: 11px; -fx-padding: 8 0 0 0;");
+        fields.getChildren().add(heading);
+
+        ComboBox<String> unitCombo = new ComboBox<>();
+        unitCombo.getItems().addAll(UNIT_LABELS);
+        unitCombo.getSelectionModel().select(indexOfValue(UNIT_VALUES, clip.textUnitMode));
+        unitCombo.setMaxWidth(Double.MAX_VALUE);
+        unitCombo.setOnAction(e -> {
+            int i = unitCombo.getSelectionModel().getSelectedIndex();
+            if (i < 0) return;
+            setTextProperty("Change Text Animation Unit", clip.textUnitMode, UNIT_VALUES[i], v -> clip.textUnitMode = v);
+        });
+        VBox unitBox = new VBox(4, new Label("Animate by"), unitCombo);
+        fields.getChildren().add(unitBox);
+
+        if (clip.textUnitMode == null || clip.textUnitMode.isEmpty()) return; // the rest only matters once a unit is chosen
+
+        float shownStagger = clip.textStagger > 0f ? clip.textStagger : com.vanvatcorporation.doubleclips.OpenGLEdit.DEFAULT_TEXT_STAGGER;
+        fields.getChildren().add(buildPropertyField("Stagger (%)", String.valueOf(Math.round(shownStagger * 100f)), newValue -> {
+            try {
+                float pct = Math.max(5f, Math.min(95f, Float.parseFloat(newValue.trim())));
+                setTextProperty("Change Text Stagger", clip.textStagger, pct / 100f, v -> clip.textStagger = v);
+            } catch (NumberFormatException ignored) {}
+        }));
+
+        ComboBox<String> orderCombo = new ComboBox<>();
+        orderCombo.getItems().addAll(ORDER_LABELS);
+        orderCombo.getSelectionModel().select(indexOfValue(ORDER_VALUES, clip.textUnitOrder));
+        orderCombo.setMaxWidth(Double.MAX_VALUE);
+        orderCombo.setOnAction(e -> {
+            int i = orderCombo.getSelectionModel().getSelectedIndex();
+            if (i < 0) return;
+            setTextProperty("Change Text Animation Order", clip.textUnitOrder, ORDER_VALUES[i], v -> clip.textUnitOrder = v);
+        });
+        fields.getChildren().add(new VBox(4, new Label("Order"), orderCombo));
+
+        Label hint = new Label("Plays this clip's In and Out animation on each unit in turn. Needs the OpenGL render engine; FFmpeg export animates the text as one block.");
+        hint.setWrapText(true);
+        hint.getStyleClass().add("text-muted");
+        hint.setStyle("-fx-font-size: 11px;");
+        fields.getChildren().add(hint);
     }
 
     /** A label and a color picker; reports "#RRGGBB" when the user picks one. */
@@ -738,9 +802,9 @@ public class PropertyPanel extends VBox {
 
         ComboBox<String> typeCombo = new ComboBox<>();
         com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap.forEach((k, v) -> typeCombo.getItems().add(v));
-        typeCombo.getItems().sort(String::compareToIgnoreCase);
 
-        String currentStyle = tc.effect != null ? tc.effect.style : "none";
+        String currentStyle = tc.effect != null
+                ? com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.normalizeTransitionStyle(tc.effect.style) : "none";
         com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap.entrySet().stream()
                 .filter(e -> e.getKey().equals(currentStyle)).findFirst().ifPresent(e -> typeCombo.setValue(e.getValue()));
 

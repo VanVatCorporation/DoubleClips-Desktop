@@ -163,6 +163,7 @@ public final class PreviewWorker {
                                    String fontsDir) throws Exception {
         OpenGLEdit edit = new OpenGLEdit();
         edit.setTextMetrics((clip, cw, ch) -> TextLayoutEngine.measure(TextStyle.of(clip, cw, fontsDir)));
+        edit.setTextUnitProvider((clip, mode, cw, ch) -> TextLayoutEngine.toUnits(TextLayoutEngine.units(TextStyle.of(clip, cw, fontsDir), mode)));
         ByteBuffer pixels = ByteBuffer.allocateDirect(previewW * previewH * 4).order(ByteOrder.nativeOrder());
         byte[] out = new byte[previewW * previewH * 4];
         byte[] row = new byte[previewW * 4];

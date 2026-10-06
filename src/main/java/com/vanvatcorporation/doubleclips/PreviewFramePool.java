@@ -47,7 +47,7 @@ final class PreviewFramePool {
     static final long FORWARD_WINDOW_FRAMES = 45;
     static final int MAX_VIDEO_STREAMS = 10;
     static final int MAX_IMAGES = 16;
-    static final int MAX_TEXTS = 32;
+    static final int MAX_TEXTS = 96; // a per-character animation needs one texture per letter
     /** Decoded-but-not-yet-uploaded images kept ready (about 3.7 MB each at the preview size). */
     static final int MAX_PRELOADED_IMAGES = 24;
     /** A stream nobody asked for in this long is closed. */
@@ -389,11 +389,14 @@ final class PreviewFramePool {
 
     private boolean drawText(Clip clip, OpenGLEdit.DrawCommand cmd) {
         TextStyle style = TextStyle.of(clip, canvasWidth, fontsDir);
-        String key = style.key() + '\u0002' + renderScale;
+        boolean unit = cmd.textUnitMode != null && cmd.textUnitIndex >= 0;
+        String key = style.key() + '\u0002' + renderScale + (unit ? '\u0003' + cmd.textUnitMode + '\u0003' + cmd.textUnitIndex : "");
         TextEntry entry = texts.get(key);
         if (entry == null) {
             try {
-                TextLayoutEngine.Bitmap bitmap = TextLayoutEngine.render(style, renderScale);
+                TextLayoutEngine.Bitmap bitmap = unit
+                        ? TextLayoutEngine.renderUnit(style, cmd.textUnitMode, cmd.textUnitIndex, renderScale)
+                        : TextLayoutEngine.render(style, renderScale);
                 entry = new TextEntry(compositor.createLayer(bitmap.width, bitmap.height), bitmap.rgba);
             } catch (RuntimeException e) {
                 if (reported.add(clip)) log.accept("Could not draw a text clip in preview: " + e);

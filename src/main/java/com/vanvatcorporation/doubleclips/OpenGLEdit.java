@@ -79,6 +79,39 @@ public class OpenGLEdit {
 
     private TextMetrics textMetrics;
 
+    /** One animatable piece of a text clip (a character, word or line): its rectangle inside the text box, canvas units. */
+    public static final class TextUnit {
+        public final float x, y, w, h;
+
+        public TextUnit(float x, float y, float w, float h) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+        }
+    }
+
+    /** Splits a TEXT clip into units for a mode ("CHARACTER" / "WORD" / "LINE"), in reading order. Platform-supplied, like {@link TextMetrics}. */
+    public interface TextUnitProvider {
+        List<TextUnit> units(Clip clip, String mode, int canvasWidth, int canvasHeight);
+    }
+
+    private TextUnitProvider textUnitProvider;
+
+    /** Needed (with TextMetrics) for per-unit text animation; without it text just animates as one block. */
+    public void setTextUnitProvider(TextUnitProvider provider) {
+        this.textUnitProvider = provider;
+    }
+
+    public static final String UNIT_CHARACTER = "CHARACTER", UNIT_WORD = "WORD", UNIT_LINE = "LINE";
+    public static final float DEFAULT_TEXT_STAGGER = 0.6f;
+
+    /** True when this text clip animates per unit (and so must be drawn as units while an animation window is open). */
+    public static boolean animatesPerUnit(Clip clip) {
+        return clip != null && clip.type == ClipType.TEXT && clip.textUnitMode != null
+                && (UNIT_CHARACTER.equals(clip.textUnitMode) || UNIT_WORD.equals(clip.textUnitMode) || UNIT_LINE.equals(clip.textUnitMode));
+    }
+
     /** Required to produce DrawCommands for TEXT clips; without it they are skipped. */
     public void setTextMetrics(TextMetrics textMetrics) {
         this.textMetrics = textMetrics;
@@ -167,10 +200,24 @@ public class OpenGLEdit {
         public final float unfoldHeight;
         /** Contrast multiplier about mid-grey from "unfold" (1 = none). Applied in the colour stage of the shader. */
         public final float contrast;
+        /** TEXT only: when set, this command draws just one unit of the text (see TextUnit) instead of the whole box. */
+        public final String textUnitMode;
+        /** Index into the units of {@link #textUnitMode}; -1 = the whole text box. */
+        public final int textUnitIndex;
 
         public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
                             float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
                             float unfoldTopWidth, float unfoldBottomWidth, float unfoldHeight, float contrast) {
+            this(clip, localSourceTimeSeconds, mvpMatrix, opacity, hueDegrees, saturation, brightness, temperatureKelvin,
+                    blurSigmaPixels, unfoldTopWidth, unfoldBottomWidth, unfoldHeight, contrast, null, -1);
+        }
+
+        public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
+                            float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
+                            float unfoldTopWidth, float unfoldBottomWidth, float unfoldHeight, float contrast,
+                            String textUnitMode, int textUnitIndex) {
+            this.textUnitMode = textUnitMode;
+            this.textUnitIndex = textUnitIndex;
             this.clip = clip;
             this.localSourceTimeSeconds = localSourceTimeSeconds;
             this.mvpMatrix = mvpMatrix;
@@ -262,6 +309,12 @@ public class OpenGLEdit {
 
             Clip activeClip = findActiveClip(track, outputTimeSeconds);
             if (activeClip == null) continue;
+            // Per-character / word / line text animation: one layer per unit, in reading order.
+            List<DrawCommand> unitCommands = buildTextUnitCommands(activeClip, outputTimeSeconds, canvasWidth, canvasHeight, projection);
+            if (unitCommands != null) {
+                for (DrawCommand unit : unitCommands) layers.add(FrameLayer.of(unit));
+                continue;
+            }
             DrawCommand cmd = buildDrawCommand(activeClip, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
             if (cmd != null) layers.add(FrameLayer.of(cmd));
         }
@@ -354,6 +407,147 @@ public class OpenGLEdit {
             if (p >= 0f) return outDef.evaluate(p);
         }
         return ClipAnimationFrame.NEUTRAL;
+    }
+
+    /**
+     * Per-unit text animation. When a TEXT clip animates per unit and its in or out animation window is open at t,
+     * returns one command per unit: the clip's own in / out animation evaluated per unit, each starting a little
+     * after the previous one (stagger), applied about the unit's own centre on top of the clip's (keyframed)
+     * position, scale, rotation and pivot. Returns null when the whole-box path should be used (not a text clip,
+     * no unit mode, outside the animation windows - where every unit is neutral anyway - or nothing to split).
+     * Same maths as buildClipMvp, so units sit exactly where the whole box would put them.
+     * Per unit: delay = stagger * window * rank/(N-1), length = window * (1 - stagger).
+     */
+    private List<DrawCommand> buildTextUnitCommands(Clip clip, float t, int canvasWidth, int canvasHeight, float[] projection) {
+        if (!animatesPerUnit(clip) || textUnitProvider == null || textMetrics == null) return null;
+
+        ClipAnimation inDef = animationFor(clip.inAnimation, ClipAnimation.Direction.IN);
+        ClipAnimation outDef = animationFor(clip.outAnimation, ClipAnimation.Direction.OUT);
+        if (inDef == null && outDef == null) return null;
+        float inRaw = inDef != null ? clip.inAnimation.duration : 0f;
+        float outRaw = outDef != null ? clip.outAnimation.duration : 0f;
+        float inDur = inDef != null ? ClipAnimation.fitDuration(inRaw, outRaw, clip.duration) : 0f;
+        float outDur = outDef != null ? ClipAnimation.fitDuration(outRaw, inRaw, clip.duration) : 0f;
+        float clipEnd = clip.startTime + clip.duration;
+        boolean inOpen = inDef != null && inDur > 0f && t - clip.startTime >= 0f && t - clip.startTime < inDur;
+        boolean outOpen = outDef != null && outDur > 0f && t >= clipEnd - outDur;
+        if (!inOpen && !outOpen) return null;
+
+        float[] box = textMetrics.measure(clip, canvasWidth, canvasHeight);
+        if (box == null || box[0] <= 0f || box[1] <= 0f) return null;
+        List<TextUnit> units = textUnitProvider.units(clip, clip.textUnitMode, canvasWidth, canvasHeight);
+        if (units == null || units.isEmpty()) return null;
+        int n = units.size();
+
+        // Block transform: the same quantities buildClipMvp reads, with the clip-level animation left out.
+        float textW = box[0], textH = box[1];
+        float scaleX = readAtTime(clip, t, VideoProperties.ValueType.ScaleX);
+        float scaleY = readAtTime(clip, t, VideoProperties.ValueType.ScaleY);
+        float posX = readAtTime(clip, t, VideoProperties.ValueType.PosX) + (canvasWidth - textW) / 2f;
+        float posY = readAtTime(clip, t, VideoProperties.ValueType.PosY) + (canvasHeight - textH) / 2f;
+        float pivotX = readAtTime(clip, t, VideoProperties.ValueType.PivotX);
+        float pivotY = readAtTime(clip, t, VideoProperties.ValueType.PivotY);
+        float blockRot = readAtTime(clip, t, VideoProperties.ValueType.RotInRadians);
+        float cos = (float) Math.cos(blockRot), sin = (float) Math.sin(blockRot);
+        float pivotCanvasX = posX + pivotX * textW;
+        float pivotCanvasY = posY + pivotY * textH;
+
+        float opacityBase = readAtTime(clip, t, VideoProperties.ValueType.Opacity);
+        float hueBase = readAtTime(clip, t, VideoProperties.ValueType.Hue);
+        float satBase = readAtTime(clip, t, VideoProperties.ValueType.Saturation);
+        float brightBase = readAtTime(clip, t, VideoProperties.ValueType.Brightness);
+        float tempBase = readAtTime(clip, t, VideoProperties.ValueType.Temperature);
+
+        float stagger = clip.textStagger > 0f ? clip.textStagger : DEFAULT_TEXT_STAGGER;
+        stagger = Math.max(0f, Math.min(0.95f, stagger));
+        int[] rank = unitRanks(n, clip.textUnitOrder, clip);
+
+        List<DrawCommand> out = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            TextUnit u = units.get(i);
+            float frac = n > 1 ? rank[i] / (float) (n - 1) : 0f;
+            ClipAnimationFrame anim = unitAnimation(inOpen, inDef, outDef, inDur, outDur, clip.startTime, clipEnd, t, stagger, frac);
+
+            float ux = u.x + u.w / 2f, uy = u.y + u.h / 2f;
+            float dx = (ux - pivotX * textW) * scaleX;
+            float dy = (uy - pivotY * textH) * scaleY;
+            float centerX = pivotCanvasX + dx * cos - dy * sin + anim.offsetX() * canvasWidth;
+            float centerY = pivotCanvasY + dx * sin + dy * cos + anim.offsetY() * canvasHeight;
+            float rot = blockRot + (float) Math.toRadians(anim.rotationDegrees());
+            float c = (float) Math.cos(rot), s = (float) Math.sin(rot);
+            float halfW = u.w * scaleX * anim.scale() / 2f;
+            float halfH = u.h * scaleY * anim.scale() / 2f;
+
+            float[] model = new float[16];
+            model[0] = halfW * c;   model[1] = halfW * s;   model[2] = 0; model[3] = 0;
+            model[4] = -halfH * s;  model[5] = halfH * c;   model[6] = 0; model[7] = 0;
+            model[8] = 0;           model[9] = 0;           model[10] = 1; model[11] = 0;
+            model[12] = centerX;    model[13] = centerY;    model[14] = 0; model[15] = 1;
+            float[] mvp = new float[16];
+            multiplyMM(mvp, projection, model);
+
+            out.add(new DrawCommand(clip, 0f, mvp,
+                    opacityBase * anim.opacity(),
+                    hueBase + anim.hueDegrees(),
+                    satBase * anim.saturation(),
+                    brightBase + anim.brightness(),
+                    tempBase + anim.temperatureKelvin(),
+                    0f, // blur is not applied per unit
+                    anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast(),
+                    clip.textUnitMode, i));
+        }
+        return out;
+    }
+
+    /**
+     * One unit's animation frame. In: a unit that has not started is held at the first frame, a finished one is
+     * neutral. Out: a unit that has not started is neutral, a finished one is held at the last frame.
+     * {@code frac} is the unit's rank as 0..1 (0 = first to start).
+     */
+    static ClipAnimationFrame unitAnimation(boolean inWindow, ClipAnimation inDef, ClipAnimation outDef,
+                                            float inDur, float outDur, float clipStart, float clipEnd, float t,
+                                            float stagger, float frac) {
+        if (inWindow) {
+            float delay = stagger * inDur * frac;
+            float length = Math.max(inDur * (1f - stagger), 1e-3f);
+            float e = (t - clipStart) - delay;
+            if (e < 0f) return inDef.evaluate(0f);
+            if (e < length) return inDef.evaluate(e / length);
+            return ClipAnimationFrame.NEUTRAL;
+        }
+        float delay = stagger * outDur * frac;
+        float length = Math.max(outDur * (1f - stagger), 1e-3f);
+        float e = t - (clipEnd - outDur) - delay;
+        if (e >= length) return outDef.evaluate(1f);
+        if (e >= 0f) return outDef.evaluate(e / length);
+        return ClipAnimationFrame.NEUTRAL;
+    }
+
+    /** rank[i] = when unit i starts, 0 = first. Deterministic: the same clip always shuffles the same way. */
+    static int[] unitRanks(int n, String order, Clip clip) {
+        int[] rank = new int[n];
+        String o = order == null ? "FORWARD" : order;
+        if (o.equals("REVERSE")) {
+            for (int i = 0; i < n; i++) rank[i] = n - 1 - i;
+        } else if (o.equals("CENTER_OUT")) {
+            Integer[] idx = new Integer[n];
+            for (int i = 0; i < n; i++) idx[i] = i;
+            final float mid = (n - 1) / 2f;
+            java.util.Arrays.sort(idx, (a, b) -> {
+                int byDistance = Float.compare(Math.abs(a - mid), Math.abs(b - mid));
+                return byDistance != 0 ? byDistance : Integer.compare(a, b);
+            });
+            for (int r = 0; r < n; r++) rank[idx[r]] = r;
+        } else if (o.equals("RANDOM")) {
+            Integer[] idx = new Integer[n];
+            for (int i = 0; i < n; i++) idx[i] = i;
+            java.util.Collections.shuffle(java.util.Arrays.asList(idx),
+                    new java.util.Random((clip.textContent == null ? 0 : clip.textContent.hashCode()) * 31L + n));
+            for (int r = 0; r < n; r++) rank[idx[r]] = r;
+        } else {
+            for (int i = 0; i < n; i++) rank[i] = i;
+        }
+        return rank;
     }
 
     /** Builds one clip's complete draw info at outputTimeSeconds, or null if its type isn't drawable (audio/text/effect/3D — see getUnsupportedFeatures). */
