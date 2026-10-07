@@ -12,6 +12,7 @@ import com.vanvatcorporation.doubleclips.data.*;
 import com.vanvatcorporation.doubleclips.data.editing.*;
 import com.vanvatcorporation.doubleclips.history.*;
 import com.vanvatcorporation.doubleclips.ui.renderer.TimelineRenderer;
+import com.vanvatcorporation.doubleclips.ProjectLibrary;
 import com.vanvatcorporation.doubleclips.helper.MediaHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.constants.Constants;
@@ -127,6 +128,25 @@ public class EditorWindow extends Stage implements PropertyContext {
     private float tempTime = -1;
     private Slider zoomSlider;
     private FlowPane mediaGrid;
+    // Media tab (the project's files): what is on disk, how it is shown, and the badge that counts clips using each file
+    private static final class MediaEntry {
+        final com.vanvatcorporation.doubleclips.ProjectLibrary.Item item;
+        final MediaHelper.MediaInfo info;
+
+        MediaEntry(com.vanvatcorporation.doubleclips.ProjectLibrary.Item item, MediaHelper.MediaInfo info) {
+            this.item = item;
+            this.info = info;
+        }
+    }
+    private final List<MediaEntry> mediaEntries = new ArrayList<>();
+    private final java.util.Map<String, MediaHelper.MediaInfo> mediaInfoCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<String, Label> usageBadges = new java.util.HashMap<>();
+    private com.vanvatcorporation.doubleclips.ProjectLibrary.Filter mediaFilter = com.vanvatcorporation.doubleclips.ProjectLibrary.Filter.ALL;
+    private com.vanvatcorporation.doubleclips.ProjectLibrary.Sort mediaSort = com.vanvatcorporation.doubleclips.ProjectLibrary.Sort.NEWEST;
+    private HBox mediaToolbar;
+    private final Label toastLabel = new Label();
+    private javafx.animation.SequentialTransition toastAnimation;
+    private boolean usageRefreshQueued = false;
     private ToggleButton mediaTab;
     private VBox mediaDropOverlay;
 
@@ -1030,7 +1050,45 @@ public class EditorWindow extends Stage implements PropertyContext {
         mediaDropOverlay.getChildren().addAll(dropIcon, dropLabel);
         leftStack.getChildren().add(mediaDropOverlay);
 
-        panel.getChildren().addAll(tabStrip, importBar, leftStack);
+        // Filter / sort / more, for the Media tab only
+        mediaToolbar = new HBox(6);
+        mediaToolbar.setPadding(new Insets(0, 10, 6, 10));
+        mediaToolbar.setAlignment(Pos.CENTER_LEFT);
+        ComboBox<String> filterBox = new ComboBox<>();
+        filterBox.getItems().addAll("All", "Video", "Image", "Audio", "Unused");
+        filterBox.getSelectionModel().select(0);
+        filterBox.setOnAction(e -> {
+            mediaFilter = com.vanvatcorporation.doubleclips.ProjectLibrary.Filter.values()[Math.max(0, filterBox.getSelectionModel().getSelectedIndex())];
+            renderMediaGrid();
+        });
+        ComboBox<String> sortBox = new ComboBox<>();
+        sortBox.getItems().addAll("Newest", "Name", "Size");
+        sortBox.getSelectionModel().select(0);
+        sortBox.setOnAction(e -> {
+            mediaSort = com.vanvatcorporation.doubleclips.ProjectLibrary.Sort.values()[Math.max(0, sortBox.getSelectionModel().getSelectedIndex())];
+            renderMediaGrid();
+        });
+        Region toolbarSpacer = new Region();
+        HBox.setHgrow(toolbarSpacer, Priority.ALWAYS);
+        MenuButton moreBtn = new MenuButton();
+        moreBtn.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignD.DOTS_HORIZONTAL));
+        moreBtn.getStyleClass().add("button-transparent");
+        MenuItem solidItem = new MenuItem("Solid colour...");
+        solidItem.setOnAction(e -> mediaActions.solidColor());
+        MenuItem unusedItem = new MenuItem("Delete unused files...");
+        unusedItem.setOnAction(e -> mediaActions.deleteUnused(com.vanvatcorporation.doubleclips.ProjectLibrary.unused(
+                libraryItems(), com.vanvatcorporation.doubleclips.ProjectLibrary.usage(timeline))));
+        moreBtn.getItems().addAll(solidItem, unusedItem);
+        mediaToolbar.getChildren().addAll(filterBox, sortBox, toolbarSpacer, moreBtn);
+
+        toastLabel.setStyle("-fx-background-color: rgba(0,0,0,0.82); -fx-text-fill: white; -fx-padding: 6 12 6 12; -fx-background-radius: 14; -fx-font-size: 11px;");
+        toastLabel.setMouseTransparent(true);
+        toastLabel.setVisible(false);
+        StackPane.setAlignment(toastLabel, Pos.BOTTOM_CENTER);
+        StackPane.setMargin(toastLabel, new Insets(0, 0, 14, 0));
+        leftStack.getChildren().add(toastLabel);
+
+        panel.getChildren().addAll(tabStrip, importBar, mediaToolbar, leftStack);
 
         leftStack.setOnDragEntered(event -> {
             if (event.getDragboard().hasFiles() && mediaTab.isSelected()) {
@@ -1064,57 +1122,187 @@ public class EditorWindow extends Stage implements PropertyContext {
         return panel;
     }
 
+    private List<com.vanvatcorporation.doubleclips.ProjectLibrary.Item> libraryItems() {
+        List<com.vanvatcorporation.doubleclips.ProjectLibrary.Item> items = new ArrayList<>();
+        for (MediaEntry entry : mediaEntries) items.add(entry.item);
+        return items;
+    }
+
+    /** Reads the project's files from disk (their length and size are probed once and remembered), then shows them. */
     private void loadMediaGrid(FlowPane mediaGrid) {
-        String clipDir = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_CLIP_DIRECTORY);
-        File dir = new File(clipDir);
-        if (!dir.exists() || !dir.isDirectory())
-            return;
-
-        File[] files = dir.listFiles();
-        if (files == null || files.length == 0)
-            return;
-
-        Task<List<Clip>> task = new Task<>() {
+        String projectPath = project.getProjectPath();
+        Task<List<MediaEntry>> task = new Task<>() {
             @Override
-            protected List<Clip> call() throws Exception {
-                List<Clip> loadedClips = new ArrayList<>();
-                for (File f : files) {
-                    if (f.isDirectory() || f.getName().startsWith("."))
-                        continue;
-
-                    String filename = f.getName();
-                    MediaHelper.MediaInfo info = MediaHelper.probeMediaInfo(f.getAbsolutePath());
-
-                    String mime = Files.probeContentType(f.toPath());
-                    ClipType type = ClipType.VIDEO;
-                    if (mime != null) {
-                        if (mime.startsWith("audio"))
-                            type = ClipType.AUDIO;
-                        else if (mime.startsWith("image"))
-                            type = ClipType.IMAGE;
-                    } else {
-                        if (filename.endsWith(".mp3") || filename.endsWith(".wav"))
-                            type = ClipType.AUDIO;
-                        else if (filename.endsWith(".png") || filename.endsWith(".jpg"))
-                            type = ClipType.IMAGE;
-                    }
-
-                    Clip clip = new Clip(filename, 0, info.duration, 0, type, info.hasAudio, info.width, info.height);
-                    loadedClips.add(clip);
+            protected List<MediaEntry> call() {
+                List<MediaEntry> loaded = new ArrayList<>();
+                for (com.vanvatcorporation.doubleclips.ProjectLibrary.Item item : com.vanvatcorporation.doubleclips.ProjectLibrary.scan(projectPath)) {
+                    String key = item.name + "|" + item.bytes + "|" + item.modified;
+                    MediaHelper.MediaInfo info = mediaInfoCache.computeIfAbsent(key,
+                            k -> MediaHelper.probeMediaInfo(item.file.getAbsolutePath()));
+                    if (item.kind != com.vanvatcorporation.doubleclips.ProjectLibrary.Kind.IMAGE) item.duration = (double) info.duration;
+                    loaded.add(new MediaEntry(item, info));
                 }
-                return loadedClips;
+                return loaded;
             }
         };
-
         task.setOnSucceeded(e -> {
-            for (Clip c : task.getValue()) {
-                addClipToMediaGrid(mediaGrid, c);
-            }
+            mediaEntries.clear();
+            mediaEntries.addAll(task.getValue());
+            // The user may have switched tab while this was reading; the grid then belongs to another tab.
+            if (mediaTab != null && mediaTab.isSelected()) renderMediaGrid();
         });
-
-        Thread t = new Thread(task);
+        Thread t = new Thread(task, "media-scan");
         t.setDaemon(true);
         t.start();
+    }
+
+    /** Draws the Media tab from {@link #mediaEntries} with the current filter and sort. */
+    private void renderMediaGrid() {
+        if (mediaGrid == null || mediaTab == null || !mediaTab.isSelected()) return;
+        mediaGrid.getChildren().clear();
+        usageBadges.clear();
+
+        java.util.Map<String, Integer> usage = com.vanvatcorporation.doubleclips.ProjectLibrary.usage(timeline);
+        List<com.vanvatcorporation.doubleclips.ProjectLibrary.Item> shown = com.vanvatcorporation.doubleclips.ProjectLibrary.visible(
+                libraryItems(), mediaFilter, mediaSort, usage);
+        if (shown.isEmpty()) {
+            Label empty = new Label(mediaEntries.isEmpty() ? "No media yet.\nClick Import to add files." : "No files match this filter.");
+            empty.setStyle("-fx-text-fill: -color-fg-muted; -fx-text-alignment: center;");
+            empty.setAlignment(Pos.CENTER);
+            mediaGrid.getChildren().add(empty);
+            return;
+        }
+        java.util.Map<String, MediaEntry> byName = new java.util.HashMap<>();
+        for (MediaEntry entry : mediaEntries) byName.put(entry.item.name, entry);
+        for (com.vanvatcorporation.doubleclips.ProjectLibrary.Item item : shown) {
+            MediaHelper.MediaInfo info = byName.get(item.name).info;
+            Clip clip = new Clip(item.name, 0, info.duration, 0, item.kind.clipType(), info.hasAudio, info.width, info.height);
+            addClipToMediaGrid(mediaGrid, clip, item, usage.getOrDefault(item.name, 0));
+        }
+    }
+
+    private static void setUsageBadge(Label badge, int used) {
+        badge.setText(used > 0 ? "\u00D7" + used : "");
+        badge.setVisible(used > 0);
+        badge.setStyle("-fx-background-color: #2E6BD8; -fx-text-fill: white; -fx-font-size: 9px; -fx-background-radius: 8; -fx-padding: 0 4 0 4;");
+    }
+
+    /** Keeps the \u00D7N badges right as clips come and go. Cheap, and run once however many refreshes pile up. */
+    private void scheduleUsageBadgeRefresh() {
+        if (usageRefreshQueued) return;
+        usageRefreshQueued = true;
+        Platform.runLater(() -> {
+            usageRefreshQueued = false;
+            java.util.Map<String, Integer> usage = com.vanvatcorporation.doubleclips.ProjectLibrary.usage(timeline);
+            usageBadges.forEach((name, badge) -> setUsageBadge(badge, usage.getOrDefault(name, 0)));
+        });
+    }
+
+    private static String mediaCaption(com.vanvatcorporation.doubleclips.ProjectLibrary.Item item) {
+        String size = com.vanvatcorporation.doubleclips.ui.MediaLibraryActions.readableSize(item.bytes);
+        if (item.duration == null || item.duration <= 0) return size;
+        int total = (int) Math.round(item.duration);
+        return String.format("%d:%02d \u00B7 %s", total / 60, total % 60, size);
+    }
+
+    private void attachMediaMenu(VBox box, com.vanvatcorporation.doubleclips.ProjectLibrary.Item item) {
+        ContextMenu menu = new ContextMenu();
+        MenuItem add = new MenuItem("Add to timeline");
+        add.setOnAction(e -> mediaActions.addToTimeline(item));
+        MenuItem rename = new MenuItem("Rename...");
+        rename.setOnAction(e -> mediaActions.rename(item));
+        MenuItem replace = new MenuItem("Replace file...");
+        replace.setOnAction(e -> mediaActions.replace(item));
+        MenuItem delete = new MenuItem("Delete");
+        delete.setOnAction(e -> mediaActions.delete(item));
+        menu.getItems().addAll(add, new SeparatorMenuItem(), rename, replace, new SeparatorMenuItem(), delete);
+        box.setOnContextMenuRequested(e -> {
+            menu.show(box, e.getScreenX(), e.getScreenY());
+            e.consume();
+        });
+        box.addEventHandler(javafx.scene.input.MouseEvent.MOUSE_CLICKED, e -> {
+            if (e.getButton() == javafx.scene.input.MouseButton.PRIMARY && e.getClickCount() == 2) mediaActions.addToTimeline(item);
+        });
+    }
+
+    // ---- what the Media tab's actions need from the editor -----------------------------------------------------------
+
+    private final MediaLibraryActions mediaActions = new MediaLibraryActions(new MediaLibraryActions.Host() {
+        @Override public javafx.stage.Window window() { return EditorWindow.this; }
+        @Override public String projectPath() { return project.getProjectPath(); }
+        @Override public Timeline timeline() { return timeline; }
+        @Override public float playhead() { return currentTime; }
+        @Override public Track selectedTrack() { return selectedTrack; }
+
+        @Override
+        public void addClip(Clip clip, int trackIndex) {
+            historyManager.execute(new AddClipCommand(timeline, clip, trackIndex, () -> {
+                refreshTrackHeaders(); // the add may have made a track
+                refreshTimelineUI();
+                saveProject();
+            }));
+            selectClip(clip);
+            updateCurrentTime(clip.startTime + clip.duration); // ready for the next one
+        }
+
+        @Override public void timelineChanged() { refreshTimelineUI(); saveProject(); }
+        @Override public void reloadLibrary() { if (mediaTab != null && mediaTab.isSelected()) loadMediaGrid(mediaGrid); }
+        @Override public void clearHistory() { historyManager.clear(); }
+
+        @Override
+        public void rebuildProxies(File file, ClipType type, MediaHelper.MediaInfo info, Runnable done) {
+            runWithProgress("Processing Media", () -> generateProxies(file, file.getName(), type, info, (d, t) -> { }), done);
+        }
+
+        @Override public void toast(String text) { showToast(text); }
+    });
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    /** Runs {@code work} off the FX thread behind a small modal "processing" dialog, then {@code onDone} on it. */
+    private void runWithProgress(String title, ThrowingRunnable work, Runnable onDone) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle(title);
+        dialog.initOwner(this);
+        dialog.initModality(Modality.WINDOW_MODAL);
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
+        dialog.getDialogPane().lookupButton(ButtonType.CANCEL).setVisible(false);
+        VBox content = new VBox(10, new Label("Processing..."), new ProgressIndicator());
+        content.setAlignment(Pos.CENTER);
+        content.setPadding(new Insets(20));
+        dialog.getDialogPane().setContent(content);
+
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                work.run();
+                return null;
+            }
+        };
+        task.setOnSucceeded(e -> dialog.setResult(ButtonType.OK));
+        task.setOnFailed(e -> dialog.setResult(ButtonType.CANCEL));
+        Thread thread = new Thread(task, "media-work");
+        thread.setDaemon(true);
+        thread.start();
+        dialog.showAndWait();
+        if (onDone != null) onDone.run();
+    }
+
+    /** A short message that fades by itself, at the bottom of the media panel. */
+    private void showToast(String text) {
+        toastLabel.setText(text);
+        toastLabel.setOpacity(1);
+        toastLabel.setVisible(true);
+        if (toastAnimation != null) toastAnimation.stop();
+        javafx.animation.PauseTransition pause = new javafx.animation.PauseTransition(javafx.util.Duration.seconds(2));
+        javafx.animation.FadeTransition fade = new javafx.animation.FadeTransition(javafx.util.Duration.millis(400), toastLabel);
+        fade.setFromValue(1);
+        fade.setToValue(0);
+        toastAnimation = new javafx.animation.SequentialTransition(pause, fade);
+        toastAnimation.setOnFinished(e -> toastLabel.setVisible(false));
+        toastAnimation.play();
     }
 
     private void handleImportMedia(FlowPane mediaGrid) {
@@ -1149,14 +1337,17 @@ public class EditorWindow extends Stage implements PropertyContext {
                     File f = files.get(i);
                     updateMessage("Processing: " + f.getName());
 
-                    String filename = f.getName();
                     String clipDir = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_CLIP_DIRECTORY);
                     File clipDirFile = new File(clipDir);
                     if (!clipDirFile.exists())
                         clipDirFile.mkdirs();
 
+                    // Never overwrite a different file that has this name: the clips using the old one would silently
+                    // change. The same file imported again is reused; another one becomes "name (1).ext".
+                    boolean existedBefore = new File(clipDir, f.getName()).exists();
+                    String filename = ProjectLibrary.copyIn(f, project.getProjectPath());
                     File targetFile = new File(clipDir, filename);
-                    Files.copy(f.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    boolean reused = existedBefore && filename.equals(f.getName());
 
                     MediaHelper.MediaInfo info = MediaHelper.probeMediaInfo(targetFile.getAbsolutePath());
 
@@ -1173,9 +1364,55 @@ public class EditorWindow extends Stage implements PropertyContext {
                         else if (filename.endsWith(".png") || filename.endsWith(".jpg"))
                             type = ClipType.IMAGE;
                     }
+                    ProjectLibrary.Kind kind = ProjectLibrary.Kind.ofName(filename);
+                    if (kind != ProjectLibrary.Kind.OTHER) type = kind.clipType(); // the extension is more reliable than the OS's guess
 
                     Clip clip = new Clip(filename, 0, info.duration, 0, type, info.hasAudio, info.width, info.height);
 
+                    // A file that was already here keeps the proxies it has; anything else gets them made.
+                    if (!reused || ProjectLibrary.previewFiles(filename, project.getProjectPath()).isEmpty()) {
+                        generateProxies(targetFile, filename, type, info, (done, total) -> updateProgress(done, total));
+                    }
+
+                    Platform.runLater(() -> {
+                        loadMediaGrid(mediaGrid); // redraw from disk: the tile gets its badges and menu, and a renamed duplicate shows up
+                        if (startTime >= 0 && trackIdx >= 0) {
+                            clip.startTime = startTime;
+                            clip.trackIndex = trackIdx;
+                            while (timeline.tracks.size() <= trackIdx) {
+                                addNewTrack("Track " + (timeline.tracks.size() + 1));
+                            }
+                            timeline.tracks.get(trackIdx).addClip(clip);
+                            timeline.tracks.get(trackIdx).sortClips();
+                            saveProject();
+                            refreshTimelineUI();
+                        }
+                    });
+                }
+                return null;
+            }
+        };
+
+        desc.textProperty().bind(task.messageProperty());
+        progress.progressProperty().bind(task.progressProperty());
+
+        task.setOnSucceeded(e -> progressDialog.setResult(ButtonType.OK));
+        task.setOnFailed(e -> progressDialog.setResult(ButtonType.CANCEL));
+
+        Thread thread = new Thread(task);
+        thread.setDaemon(true);
+        thread.start();
+
+        progressDialog.showAndWait();
+    }
+
+    /**
+     * Makes the preview proxies of a media file in PreviewClips: for a video the thumbnail, the 720p editing proxy and
+     * the audio proxy, for an audio file the audio proxy. Blocks until ffmpeg is done, so call it off the FX thread.
+     * {@code progress} gets (seconds done, seconds total) while the video proxy is made.
+     */
+    private void generateProxies(File targetFile, String filename, ClipType type, MediaHelper.MediaInfo info,
+                                 java.util.function.BiConsumer<Double, Double> progress) throws InterruptedException {
                     String previewDir = IOHelper.CombinePath(project.getProjectPath(),
                             Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY);
                     File previewDirFile = new File(previewDir);
@@ -1211,7 +1448,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                                 log -> {
                                 }, stats -> {
                                     if (stats.getTimeInMs() > 0 && info.duration > 0) {
-                                        updateProgress(stats.getTimeInMs() / 1000.0, info.duration);
+                                        progress.accept(stats.getTimeInMs() / 1000.0, (double) info.duration);
                                     }
                                 });
                         latch.await();
@@ -1242,40 +1479,14 @@ public class EditorWindow extends Stage implements PropertyContext {
                                 });
                         latch.await();
                     }
-
-                    Platform.runLater(() -> {
-                        addClipToMediaGrid(mediaGrid, clip);
-                        if (startTime >= 0 && trackIdx >= 0) {
-                            clip.startTime = startTime;
-                            clip.trackIndex = trackIdx;
-                            while (timeline.tracks.size() <= trackIdx) {
-                                addNewTrack("Track " + (timeline.tracks.size() + 1));
-                            }
-                            timeline.tracks.get(trackIdx).addClip(clip);
-                            timeline.tracks.get(trackIdx).sortClips();
-                            saveProject();
-                            refreshTimelineUI();
-                        }
-                    });
-                }
-                return null;
-            }
-        };
-
-        desc.textProperty().bind(task.messageProperty());
-        progress.progressProperty().bind(task.progressProperty());
-
-        task.setOnSucceeded(e -> progressDialog.setResult(ButtonType.OK));
-        task.setOnFailed(e -> progressDialog.setResult(ButtonType.CANCEL));
-
-        Thread thread = new Thread(task);
-        thread.setDaemon(true);
-        thread.start();
-
-        progressDialog.showAndWait();
     }
 
     private void addClipToMediaGrid(FlowPane mediaGrid, Clip clip) {
+        addClipToMediaGrid(mediaGrid, clip, null, 0);
+    }
+
+    /** One tile. With a library {@code item} (the Media tab) it also shows length / size, how many clips use the file, and a right-click menu. */
+    private void addClipToMediaGrid(FlowPane mediaGrid, Clip clip, com.vanvatcorporation.doubleclips.ProjectLibrary.Item item, int usedBy) {
         if (!mediaGrid.getChildren().isEmpty() && mediaGrid.getChildren().get(0) instanceof Label) {
             mediaGrid.getChildren().clear();
         }
@@ -1342,7 +1553,21 @@ public class EditorWindow extends Stage implements PropertyContext {
         nameLbl.setMaxHeight(20);
         nameLbl.setAlignment(Pos.CENTER);
 
-        box.getChildren().addAll(graphicNode, nameLbl);
+        if (item == null) {
+            box.getChildren().addAll(graphicNode, nameLbl);
+        } else {
+            StackPane thumb = new StackPane(graphicNode);
+            Label badge = new Label();
+            setUsageBadge(badge, usedBy);
+            StackPane.setAlignment(badge, Pos.TOP_RIGHT);
+            thumb.getChildren().add(badge);
+            usageBadges.put(item.name, badge);
+            Label details = new Label(mediaCaption(item));
+            details.setStyle("-fx-text-fill: #999; -fx-font-size: 9px;");
+            box.setPrefHeight(96);
+            box.getChildren().addAll(thumb, nameLbl, details);
+            attachMediaMenu(box, item);
+        }
         mediaGrid.getChildren().add(box);
 
         box.setOnMousePressed(e -> {
@@ -2413,6 +2638,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         timeline.reassignClips(videoSettings.frameRate);
         timeline.recalculateDuration();
         project.setProjectDuration((long) (timeline.duration * 1000));
+        if (!usageBadges.isEmpty()) scheduleUsageBadgeRefresh();
 
         double totalDuration = timeline.duration;
         double contentWidth = Math.max(1200, totalDuration * pixelsPerSecond + 1000); // Add 1000px padding at end
@@ -3167,6 +3393,12 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void reloadLeftPanelContent(String tabName) {
         mediaGrid.getChildren().clear();
+        usageBadges.clear();
+        if (mediaToolbar != null) {
+            boolean media = "Media".equals(tabName);
+            mediaToolbar.setVisible(media);
+            mediaToolbar.setManaged(media);
+        }
         switch (tabName) {
             case "Media":
                 loadMediaGrid(mediaGrid);
