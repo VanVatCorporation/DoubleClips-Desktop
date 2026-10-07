@@ -108,8 +108,12 @@ public class OpenGLEdit {
 
     /** True when this text clip animates per unit (and so must be drawn as units while an animation window is open). */
     public static boolean animatesPerUnit(Clip clip) {
-        return clip != null && clip.type == ClipType.TEXT && clip.textUnitMode != null
-                && (UNIT_CHARACTER.equals(clip.textUnitMode) || UNIT_WORD.equals(clip.textUnitMode) || UNIT_LINE.equals(clip.textUnitMode));
+        if (clip == null || clip.type != ClipType.TEXT) return false;
+        com.vanvatcorporation.doubleclips.data.editing.TextStyleData style = clip.effectiveTextStyle();
+        String mode = style.unitMode;
+        // A background box belongs to the whole text, so with one the text animates as a block.
+        return !style.hasBackground()
+                && (UNIT_CHARACTER.equals(mode) || UNIT_WORD.equals(mode) || UNIT_LINE.equals(mode));
     }
 
     /** Required to produce DrawCommands for TEXT clips; without it they are skipped. */
@@ -435,7 +439,8 @@ public class OpenGLEdit {
 
         float[] box = textMetrics.measure(clip, canvasWidth, canvasHeight);
         if (box == null || box[0] <= 0f || box[1] <= 0f) return null;
-        List<TextUnit> units = textUnitProvider.units(clip, clip.textUnitMode, canvasWidth, canvasHeight);
+        com.vanvatcorporation.doubleclips.data.editing.TextStyleData textStyle = clip.effectiveTextStyle();
+        List<TextUnit> units = textUnitProvider.units(clip, textStyle.unitMode, canvasWidth, canvasHeight);
         if (units == null || units.isEmpty()) return null;
         int n = units.size();
 
@@ -458,9 +463,9 @@ public class OpenGLEdit {
         float brightBase = readAtTime(clip, t, VideoProperties.ValueType.Brightness);
         float tempBase = readAtTime(clip, t, VideoProperties.ValueType.Temperature);
 
-        float stagger = clip.textStagger > 0f ? clip.textStagger : DEFAULT_TEXT_STAGGER;
+        float stagger = textStyle.stagger > 0f ? textStyle.stagger : DEFAULT_TEXT_STAGGER;
         stagger = Math.max(0f, Math.min(0.95f, stagger));
-        int[] rank = unitRanks(n, clip.textUnitOrder, clip);
+        int[] rank = unitRanks(n, textStyle.unitOrder, clip);
 
         List<DrawCommand> out = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
@@ -494,7 +499,7 @@ public class OpenGLEdit {
                     tempBase + anim.temperatureKelvin(),
                     0f, // blur is not applied per unit
                     anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast(),
-                    clip.textUnitMode, i));
+                    textStyle.unitMode, i));
         }
         return out;
     }

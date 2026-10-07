@@ -3147,7 +3147,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clip textClip = new Clip("Text", currentTime, 5.0f, 0, ClipType.TEXT, false, 1280, 720);
         textClip.textContent = "New Text";
         textClip.fontSize = 48;
-        textClip.textColor = "#FFFFFF"; // white: black text vanishes on dark footage
+        textClip.textStyle = com.vanvatcorporation.doubleclips.TextPresets.defaultStyle(); // iOS format; the Classic look: white, centred
         
         historyManager.execute(new AddClipCommand(timeline, textClip, 0, () -> {
             refreshTimelineUI();
@@ -3183,7 +3183,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             Clip textClip = new Clip(presets[i], 0, 5.0f, 0, ClipType.TEXT, false, 1280, 720);
             textClip.textContent = presets[i];
             textClip.fontSize = sizes[i];
-            textClip.textColor = "#FFFFFF";
+            textClip.textStyle = com.vanvatcorporation.doubleclips.TextPresets.defaultStyle();
             addClipToMediaGrid(mediaGrid, textClip);
         }
     }

@@ -423,24 +423,26 @@ public class ClipRenderer {
     private String lastLabelStyle = "";
 
     private String labelStyleSignature() {
-        return clip.fontSize + "|" + clip.textFontFamily + "|" + clip.textBold + "|" + clip.textItalic + "|"
-                + clip.textColor + "|" + clip.textAlign;
+        com.vanvatcorporation.doubleclips.data.editing.TextStyleData d = clip.effectiveTextStyle();
+        return clip.fontSize + "|" + d.fontName + "|" + d.bold + "|" + d.italic + "|" + d.colorHex + "|" + d.alignment;
     }
 
     private void styleLabel(Label label) {
         lastLabelStyle = labelStyleSignature();
+        com.vanvatcorporation.doubleclips.data.editing.TextStyleData d = clip.effectiveTextStyle();
         Color fill = Color.BLACK;
         try {
-            if (clip.textColor != null) fill = Color.web(clip.textColor);
+            fill = Color.web(d.colorHex != null ? d.colorHex : "#000000"); // "#RRGGBB" or "#RRGGBBAA"
         } catch (IllegalArgumentException ignored) {
         }
         label.setTextFill(fill);
         float size = clip.fontSize > 0 ? clip.fontSize : 48;
-        String family = clip.textFontFamily != null && !clip.textFontFamily.isEmpty() ? clip.textFontFamily : "System";
-        label.setFont(Font.font(family, clip.textBold ? javafx.scene.text.FontWeight.BOLD : javafx.scene.text.FontWeight.NORMAL,
-                clip.textItalic ? javafx.scene.text.FontPosture.ITALIC : javafx.scene.text.FontPosture.REGULAR, size));
-        label.setTextAlignment(clip.textAlign == 2 ? javafx.scene.text.TextAlignment.RIGHT
-                : clip.textAlign == 1 ? javafx.scene.text.TextAlignment.CENTER : javafx.scene.text.TextAlignment.LEFT);
+        String family = d.fontName != null && !d.fontName.isEmpty() ? d.fontName : "System";
+        label.setFont(Font.font(family, d.bold ? javafx.scene.text.FontWeight.BOLD : javafx.scene.text.FontWeight.NORMAL,
+                d.italic ? javafx.scene.text.FontPosture.ITALIC : javafx.scene.text.FontPosture.REGULAR, size));
+        int align = d.alignmentIndex();
+        label.setTextAlignment(align == 2 ? javafx.scene.text.TextAlignment.RIGHT
+                : align == 1 ? javafx.scene.text.TextAlignment.CENTER : javafx.scene.text.TextAlignment.LEFT);
     }
 
     /**

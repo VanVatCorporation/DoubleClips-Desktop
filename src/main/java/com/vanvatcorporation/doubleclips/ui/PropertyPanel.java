@@ -293,9 +293,9 @@ public class PropertyPanel extends VBox {
             this.file = file;
         }
 
-        boolean matches(Clip clip) {
-            if (file != null) return file.equals(clip.textFontFile);
-            return clip.textFontFile == null && java.util.Objects.equals(family, emptyToNull(clip.textFontFamily));
+        boolean matches(TextStyleData d) {
+            if (file != null) return file.equals(d.fontFile);
+            return d.fontFile == null && java.util.Objects.equals(family, emptyToNull(d.fontName));
         }
 
         @Override
@@ -308,7 +308,191 @@ public class PropertyPanel extends VBox {
         return s == null || s.isEmpty() ? null : s;
     }
 
+    /**
+     * Changes the clip's text style as ONE undo step: {@code change} is applied to a copy, and the whole
+     * style is swapped in (and back on undo). A clip from before text styles gets one built from its old
+     * settings the first time, so it keeps looking the same. Changing a value by hand makes the look
+     * "Custom" (it forgets which preset it came from) and keeps Android's spelling of it in step.
+     */
+    private void editTextStyle(Clip clip, String undoName, java.util.function.Consumer<TextStyleData> change) {
+        TextStyleData before = new TextStyleData(clip.effectiveTextStyle());
+        TextStyleData after = new TextStyleData(before);
+        change.accept(after);
+        if (before.sameAs(after)) return;
+        after.clearPreset();
+        after.withAndroidFields();
+        commitTextStyle(clip, undoName, after, null, null);
+    }
+
+    /**
+     * Puts {@code after} on the clip as one undo step; {@code inSlot} / {@code outSlot}, when not null, replace the
+     * clip's In / Out animation in the same step (a preset can name them).
+     */
+    private void commitTextStyle(Clip clip, String undoName, TextStyleData after,
+                                 com.vanvatcorporation.doubleclips.data.editing.AnimationClip inSlot,
+                                 com.vanvatcorporation.doubleclips.data.editing.AnimationClip outSlot) {
+        final TextStyleData before = new TextStyleData(clip.effectiveTextStyle());
+        final com.vanvatcorporation.doubleclips.data.editing.AnimationClip inBefore = clip.inAnimation == null ? null
+                : new com.vanvatcorporation.doubleclips.data.editing.AnimationClip(clip.inAnimation);
+        final com.vanvatcorporation.doubleclips.data.editing.AnimationClip outBefore = clip.outAnimation == null ? null
+                : new com.vanvatcorporation.doubleclips.data.editing.AnimationClip(clip.outAnimation);
+        final TextStyleData next = new TextStyleData(after);
+        context.executePropertyChange(undoName, () -> {
+            clip.textStyle = new TextStyleData(next);
+            if (inSlot != null) clip.inAnimation = new com.vanvatcorporation.doubleclips.data.editing.AnimationClip(inSlot);
+            if (outSlot != null) clip.outAnimation = new com.vanvatcorporation.doubleclips.data.editing.AnimationClip(outSlot);
+            context.refreshTimelineUI();
+            context.saveProject();
+            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        }, () -> {
+            clip.textStyle = new TextStyleData(before);
+            clip.inAnimation = inBefore == null ? null : new com.vanvatcorporation.doubleclips.data.editing.AnimationClip(inBefore);
+            clip.outAnimation = outBefore == null ? null : new com.vanvatcorporation.doubleclips.data.editing.AnimationClip(outBefore);
+            context.refreshTimelineUI();
+            context.saveProject();
+            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        });
+    }
+
+    // ---- style presets ----------------------------------------------------------------------------
+
+    private static javafx.scene.image.Image thumbnailImage(TextStyleData preset, String fontsDir) {
+        com.vanvatcorporation.doubleclips.TextPresetThumbnail.Pixels px = com.vanvatcorporation.doubleclips.TextPresetThumbnail.render(
+                preset, null, fontsDir, com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.TILE_WIDTH,
+                com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.PICTURE_HEIGHT);
+        javafx.scene.image.WritableImage image = new javafx.scene.image.WritableImage(px.width, px.height);
+        image.getPixelWriter().setPixels(0, 0, px.width, px.height, javafx.scene.image.PixelFormat.getIntArgbInstance(), px.argb, 0, px.width);
+        return image;
+    }
+
+    private static java.util.Set<String> enginesOf(TextStyleData d) {
+        java.util.Set<String> engines = new java.util.LinkedHashSet<>();
+        if (d.supportsEngine(TextStyleData.ENGINE_FFMPEG)) engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_FFMPEG);
+        if (d.supportsEngine(TextStyleData.ENGINE_OPENGL)) engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_OPENGL);
+        return engines;
+    }
+
+    /** "Style: <name> >" - the preset the look came from, or Custom; opens the tile browser. */
+    private void addStylePresetRow(VBox fields, Clip clip) {
+        TextStyleData d = clip.effectiveTextStyle();
+        Label label = new Label("Style");
+        label.getStyleClass().add("text-muted");
+        label.setStyle("-fx-font-size: 11px;");
+        Button open = buildButton(com.vanvatcorporation.doubleclips.TextPresets.labelOf(d) + "   \u25B8", e -> showStyleBrowser(clip), "tool-button");
+        open.setMaxWidth(Double.MAX_VALUE);
+        fields.getChildren().add(new VBox(4, label, open));
+    }
+
+    private void showStyleBrowser(Clip clip) {
+        com.vanvatcorporation.doubleclips.TextPresetLibrary library = com.vanvatcorporation.doubleclips.TextPresetLibrary.shared();
+        String fontsDir = com.vanvatcorporation.doubleclips.TextStyle.fontsDirOf(context.getProject());
+        java.util.List<TextStyleData> builtIns = com.vanvatcorporation.doubleclips.TextPresets.builtIns();
+        java.util.List<TextStyleData> mine = library.load();
+        java.util.List<TextStyleData> everything = new java.util.ArrayList<>(builtIns);
+        everything.addAll(mine);
+
+        java.util.function.Function<TextStyleData, com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile> tileOf = d ->
+                new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile(d.id, d.name, d.author, enginesOf(d),
+                        () -> thumbnailImage(d, fontsDir), com.vanvatcorporation.doubleclips.TextPresetLibrary.isUserStyle(d));
+        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile> builtInTiles = new java.util.ArrayList<>();
+        for (TextStyleData d : builtIns) builtInTiles.add(tileOf.apply(d));
+        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile> myTiles = new java.util.ArrayList<>();
+        for (TextStyleData d : mine) myTiles.add(tileOf.apply(d));
+        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section> sections = new java.util.ArrayList<>();
+        sections.add(new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section("Styles", builtInTiles));
+        sections.add(new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section("My styles", myTiles));
+
+        javafx.stage.Window owner = getScene() != null ? getScene().getWindow() : null;
+        com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.show(owner, "Text style", sections, clip.effectiveTextStyle().id,
+                new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Listener() {
+                    @Override
+                    public void onPick(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile tile) {
+                        TextStyleData preset = com.vanvatcorporation.doubleclips.TextPresets.find(everything, tile.id);
+                        if (preset != null) applyStylePreset(clip, preset);
+                    }
+
+                    @Override
+                    public boolean onDelete(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile tile) {
+                        try {
+                            library.delete(tile.id);
+                            return true;
+                        } catch (java.io.IOException ex) {
+                            Alert alert = new Alert(Alert.AlertType.ERROR, "Could not delete the style: " + ex.getMessage());
+                            alert.initOwner(owner);
+                            alert.showAndWait();
+                            return false;
+                        }
+                    }
+                },
+                "Save current look as a style...", () -> saveCurrentLookAsStyle(clip, owner));
+    }
+
+    /** Puts a preset on the clip (its look and, if it names them, its In / Out animations) as one undo step. */
+    private void applyStylePreset(Clip clip, TextStyleData preset) {
+        TextStyleData after = com.vanvatcorporation.doubleclips.TextPresets.apply(clip.effectiveTextStyle(), preset);
+        java.util.function.Predicate<String> installed = id -> com.vanvatcorporation.doubleclips.ClipAnimationLoader.get(id) != null;
+        commitTextStyle(clip, "Apply Text Style", after,
+                com.vanvatcorporation.doubleclips.TextPresets.slotFor(clip.inAnimation, after.inAnimationId, installed),
+                com.vanvatcorporation.doubleclips.TextPresets.slotFor(clip.outAnimation, after.outAnimationId, installed));
+    }
+
+    private void saveCurrentLookAsStyle(Clip clip, javafx.stage.Window owner) {
+        javafx.scene.control.TextInputDialog ask = new javafx.scene.control.TextInputDialog("My style");
+        ask.initOwner(owner);
+        ask.setTitle("Save style");
+        ask.setHeaderText("Name this style");
+        ask.setContentText("Name:");
+        java.util.Optional<String> name = ask.showAndWait();
+        if (!name.isPresent()) return;
+        try {
+            TextStyleData look = new TextStyleData(clip.effectiveTextStyle());
+            // The saved style also takes this clip's In / Out animations if it animates per unit, as the built-in animated ones do.
+            if (look.unitMode != null) {
+                look.inAnimationId = clip.inAnimation != null && !"none".equals(clip.inAnimation.type) ? clip.inAnimation.type : null;
+                look.outAnimationId = clip.outAnimation != null && !"none".equals(clip.outAnimation.type) ? clip.outAnimation.type : null;
+            }
+            TextStyleData saved = com.vanvatcorporation.doubleclips.TextPresetLibrary.shared().save(look, name.get());
+            // The clip now IS that style.
+            TextStyleData marked = new TextStyleData(clip.effectiveTextStyle());
+            marked.id = saved.id;
+            marked.name = saved.name;
+            marked.author = saved.author;
+            marked.withAndroidFields();
+            commitTextStyle(clip, "Save Text Style", marked, null, null);
+        } catch (java.io.IOException ex) {
+            Alert alert = new Alert(Alert.AlertType.ERROR, "Could not save the style: " + ex.getMessage());
+            alert.initOwner(owner);
+            alert.showAndWait();
+        }
+    }
+
+    private static String numberText(float v) {
+        return v == Math.rint(v) ? String.valueOf((int) v) : String.valueOf(v);
+    }
+
+    /** A labelled number box that clamps to [min, max] and edits one style field. */
+    private VBox styleNumberField(Clip clip, String label, float value, float min, float max, String undoName,
+                                  java.util.function.BiConsumer<TextStyleData, Float> setter) {
+        return buildPropertyField(label, numberText(value), text -> {
+            try {
+                float v = Math.max(min, Math.min(max, Float.parseFloat(text.trim())));
+                editTextStyle(clip, undoName, d -> setter.accept(d, v));
+            } catch (NumberFormatException ignored) {}
+        });
+    }
+
+    private void addSectionLabel(VBox fields, String label) {
+        Label heading = new Label(label);
+        heading.getStyleClass().add("text-muted");
+        heading.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 8 0 0 0;");
+        fields.getChildren().add(heading);
+    }
+
     private void addTextStyleFields(VBox fields, Clip clip) {
+        TextStyleData d = clip.effectiveTextStyle();
+
+        addStylePresetRow(fields, clip);
+
         // Font
         VBox fontBox = new VBox(4);
         Label fontLabel = new Label("Font");
@@ -318,7 +502,7 @@ public class PropertyPanel extends VBox {
         java.util.List<FontChoice> choices = fontChoices(clip);
         fontCombo.getItems().addAll(choices);
         for (FontChoice c : choices) {
-            if (c.matches(clip)) {
+            if (c.matches(d)) {
                 fontCombo.setValue(c);
                 break;
             }
@@ -327,24 +511,24 @@ public class PropertyPanel extends VBox {
         // Set AFTER the initial value: showing a clip must not count as the user picking a font.
         fontCombo.setOnAction(e -> {
             FontChoice chosen = fontCombo.getValue();
-            if (chosen == null || chosen.matches(clip)) return;
+            if (chosen == null || chosen.matches(clip.effectiveTextStyle())) return;
             setFont(clip, chosen.family, chosen.file);
         });
         fontBox.getChildren().addAll(fontLabel, fontCombo);
         fields.getChildren().add(fontBox);
         fields.getChildren().add(buildButton("Import font...", e -> importFont(clip), "tool-button"));
 
-        // Bold / italic
+        // Bold / italic / alignment
         HBox styleRow = new HBox(8);
         styleRow.setAlignment(Pos.CENTER_LEFT);
         ToggleButton bold = new ToggleButton("B");
         bold.setStyle("-fx-font-weight: bold;");
-        bold.setSelected(clip.textBold);
-        bold.setOnAction(e -> setTextProperty("Change Text Bold", clip.textBold, bold.isSelected(), v -> clip.textBold = v));
+        bold.setSelected(d.bold);
+        bold.setOnAction(e -> { boolean on = bold.isSelected(); editTextStyle(clip, "Change Text Bold", s -> s.bold = on); });
         ToggleButton italic = new ToggleButton("I");
         italic.setStyle("-fx-font-style: italic;");
-        italic.setSelected(clip.textItalic);
-        italic.setOnAction(e -> setTextProperty("Change Text Italic", clip.textItalic, italic.isSelected(), v -> clip.textItalic = v));
+        italic.setSelected(d.italic);
+        italic.setOnAction(e -> { boolean on = italic.isSelected(); editTextStyle(clip, "Change Text Italic", s -> s.italic = on); });
         Region gap = new Region();
         gap.setMinWidth(12);
         // Alignment: one of three, never none
@@ -355,29 +539,52 @@ public class PropertyPanel extends VBox {
             final int value = i;
             ToggleButton t = new ToggleButton(alignNames[i]);
             t.setToggleGroup(alignGroup);
-            t.setSelected(clip.textAlign == value);
+            t.setSelected(d.alignmentIndex() == value);
             t.setOnAction(e -> {
                 if (!t.isSelected()) { t.setSelected(true); return; } // clicking the active one must not clear it
-                setTextProperty("Change Text Alignment", clip.textAlign, value, v -> clip.textAlign = v);
+                editTextStyle(clip, "Change Text Alignment", s -> s.setAlignmentIndex(value));
             });
             alignRow.getChildren().add(t);
         }
         styleRow.getChildren().addAll(bold, italic, gap, alignRow);
         fields.getChildren().add(styleRow);
 
-        // Color
-        fields.getChildren().add(buildColorField("Color", clip.textColor, "#000000", hex ->
-                setTextProperty("Change Text Color", clip.textColor, hex, v -> clip.textColor = v)));
+        // Colour
+        fields.getChildren().add(buildColorField("Color", d.colorHex, "#FFFFFF", hex ->
+                editTextStyle(clip, "Change Text Color", s -> s.colorHex = hex)));
 
-        // Outline
-        fields.getChildren().add(buildPropertyField("Outline Width", String.valueOf(clip.textOutlineWidth), newValue -> {
+        // Spacing (ranges as on iOS)
+        addSectionLabel(fields, "Spacing");
+        fields.getChildren().add(styleNumberField(clip, "Letters", d.letterSpacing, -5f, 30f, "Change Letter Spacing", (s, v) -> s.letterSpacing = v));
+        fields.getChildren().add(styleNumberField(clip, "Lines", d.lineSpacing, -10f, 60f, "Change Line Spacing", (s, v) -> s.lineSpacing = v));
+        String wrapText = d.wrapWidth < 0f ? "clip width" : numberText(Math.round(d.wrapWidth * 100f));
+        fields.getChildren().add(buildPropertyField("Wrap at (% of canvas, 0 = off)", wrapText, text -> {
             try {
-                float val = Math.max(0f, Float.parseFloat(newValue.trim()));
-                setTextProperty("Change Text Outline Width", clip.textOutlineWidth, val, v -> clip.textOutlineWidth = v);
+                float pct = Math.max(0f, Math.min(100f, Float.parseFloat(text.trim())));
+                editTextStyle(clip, "Change Text Wrap", s -> s.wrapWidth = pct / 100f);
             } catch (NumberFormatException ignored) {}
         }));
-        fields.getChildren().add(buildColorField("Outline Color", clip.textOutlineColor, "#000000", hex ->
-                setTextProperty("Change Text Outline Color", clip.textOutlineColor, hex, v -> clip.textOutlineColor = v)));
+
+        // Outline
+        addSectionLabel(fields, "Outline");
+        fields.getChildren().add(styleNumberField(clip, "Width", d.outlineWidth, 0f, 24f, "Change Text Outline Width", (s, v) -> s.outlineWidth = v));
+        fields.getChildren().add(buildColorField("Outline Color", d.outlineColorHex, "#000000", hex ->
+                editTextStyle(clip, "Change Text Outline Color", s -> s.outlineColorHex = hex)));
+
+        // Shadow
+        addSectionLabel(fields, "Shadow");
+        fields.getChildren().add(styleNumberField(clip, "Blur", d.shadowBlur, 0f, 40f, "Change Shadow Blur", (s, v) -> s.shadowBlur = v));
+        fields.getChildren().add(styleNumberField(clip, "Offset X", d.shadowOffsetX, -40f, 40f, "Change Shadow Offset", (s, v) -> s.shadowOffsetX = v));
+        fields.getChildren().add(styleNumberField(clip, "Offset Y", d.shadowOffsetY, -40f, 40f, "Change Shadow Offset", (s, v) -> s.shadowOffsetY = v));
+        fields.getChildren().add(buildColorField("Shadow Color", d.shadowColorHex, "#00000099", hex ->
+                editTextStyle(clip, "Change Shadow Color", s -> s.shadowColorHex = hex)));
+
+        // Background box
+        addSectionLabel(fields, "Background box");
+        fields.getChildren().add(buildColorField("Box Color (transparent = no box)", d.backgroundColorHex, "#00000000", hex ->
+                editTextStyle(clip, "Change Box Color", s -> s.backgroundColorHex = hex)));
+        fields.getChildren().add(styleNumberField(clip, "Padding", d.backgroundPadding, 0f, 80f, "Change Box Padding", (s, v) -> s.backgroundPadding = v));
+        fields.getChildren().add(styleNumberField(clip, "Corners", d.backgroundRadius, 0f, 80f, "Change Box Corners", (s, v) -> s.backgroundRadius = v));
 
         addTextUnitAnimationFields(fields, clip);
     }
@@ -399,52 +606,52 @@ public class PropertyPanel extends VBox {
      * instead of on the whole text. OpenGL render engine only (FFmpeg's drawtext can't do it).
      */
     private void addTextUnitAnimationFields(VBox fields, Clip clip) {
-        Label heading = new Label("Text animation");
-        heading.getStyleClass().add("text-muted");
-        heading.setStyle("-fx-font-size: 11px; -fx-padding: 8 0 0 0;");
-        fields.getChildren().add(heading);
+        TextStyleData d = clip.effectiveTextStyle();
+        addSectionLabel(fields, "Text animation");
 
         ComboBox<String> unitCombo = new ComboBox<>();
         unitCombo.getItems().addAll(UNIT_LABELS);
-        unitCombo.getSelectionModel().select(indexOfValue(UNIT_VALUES, clip.textUnitMode));
+        unitCombo.getSelectionModel().select(indexOfValue(UNIT_VALUES, d.unitMode));
         unitCombo.setMaxWidth(Double.MAX_VALUE);
         unitCombo.setOnAction(e -> {
             int i = unitCombo.getSelectionModel().getSelectedIndex();
             if (i < 0) return;
-            setTextProperty("Change Text Animation Unit", clip.textUnitMode, UNIT_VALUES[i], v -> clip.textUnitMode = v);
+            editTextStyle(clip, "Change Text Animation Unit", s -> s.unitMode = UNIT_VALUES[i]);
         });
-        VBox unitBox = new VBox(4, new Label("Animate by"), unitCombo);
-        fields.getChildren().add(unitBox);
+        fields.getChildren().add(new VBox(4, new Label("Animate by"), unitCombo));
 
-        if (clip.textUnitMode == null || clip.textUnitMode.isEmpty()) return; // the rest only matters once a unit is chosen
+        if (d.unitMode == null || d.unitMode.isEmpty()) return; // the rest only matters once a unit is chosen
 
-        float shownStagger = clip.textStagger > 0f ? clip.textStagger : com.vanvatcorporation.doubleclips.OpenGLEdit.DEFAULT_TEXT_STAGGER;
+        float shownStagger = d.stagger > 0f ? d.stagger : com.vanvatcorporation.doubleclips.OpenGLEdit.DEFAULT_TEXT_STAGGER;
         fields.getChildren().add(buildPropertyField("Stagger (%)", String.valueOf(Math.round(shownStagger * 100f)), newValue -> {
             try {
                 float pct = Math.max(5f, Math.min(95f, Float.parseFloat(newValue.trim())));
-                setTextProperty("Change Text Stagger", clip.textStagger, pct / 100f, v -> clip.textStagger = v);
+                editTextStyle(clip, "Change Text Stagger", s -> s.stagger = pct / 100f);
             } catch (NumberFormatException ignored) {}
         }));
 
         ComboBox<String> orderCombo = new ComboBox<>();
         orderCombo.getItems().addAll(ORDER_LABELS);
-        orderCombo.getSelectionModel().select(indexOfValue(ORDER_VALUES, clip.textUnitOrder));
+        orderCombo.getSelectionModel().select(indexOfValue(ORDER_VALUES, d.unitOrder));
         orderCombo.setMaxWidth(Double.MAX_VALUE);
         orderCombo.setOnAction(e -> {
             int i = orderCombo.getSelectionModel().getSelectedIndex();
             if (i < 0) return;
-            setTextProperty("Change Text Animation Order", clip.textUnitOrder, ORDER_VALUES[i], v -> clip.textUnitOrder = v);
+            editTextStyle(clip, "Change Text Animation Order", s -> s.unitOrder = ORDER_VALUES[i]);
         });
         fields.getChildren().add(new VBox(4, new Label("Order"), orderCombo));
 
-        Label hint = new Label("Plays this clip's In and Out animation on each unit in turn. Needs the OpenGL render engine; FFmpeg export animates the text as one block.");
+        String note = d.hasBackground()
+                ? "A background box is on, so the text animates as one block. Turn the box off to animate each unit."
+                : "Plays this clip's In and Out animation on each unit in turn. Needs the OpenGL render engine; FFmpeg export animates the text as one block.";
+        Label hint = new Label(note);
         hint.setWrapText(true);
         hint.getStyleClass().add("text-muted");
         hint.setStyle("-fx-font-size: 11px;");
         fields.getChildren().add(hint);
     }
 
-    /** A label and a color picker; reports "#RRGGBB" when the user picks one. */
+    /** A label and a color picker; reports "#RRGGBB" (or "#RRGGBBAA" when translucent) when the user picks one. */
     private VBox buildColorField(String label, String hex, String defaultHex, Consumer<String> onPicked) {
         VBox box = new VBox(4);
         Label lbl = new Label(label);
@@ -461,8 +668,10 @@ public class PropertyPanel extends VBox {
         picker.setOnAction(e -> {
             Color c = picker.getValue();
             if (c == null) return;
-            onPicked.accept(String.format("#%02X%02X%02X",
-                    Math.round(c.getRed() * 255), Math.round(c.getGreen() * 255), Math.round(c.getBlue() * 255)));
+            String rgb = String.format("#%02X%02X%02X",
+                    Math.round(c.getRed() * 255), Math.round(c.getGreen() * 255), Math.round(c.getBlue() * 255));
+            // "#RRGGBBAA" when not fully opaque (the iOS format), so shadows and boxes can be translucent
+            onPicked.accept(c.getOpacity() >= 0.999 ? rgb : rgb + String.format("%02X", Math.round(c.getOpacity() * 255)));
         });
         box.getChildren().addAll(lbl, picker);
         return box;
@@ -486,20 +695,9 @@ public class PropertyPanel extends VBox {
 
     /** Picking a font sets family and file together, as one undo step. */
     private void setFont(Clip clip, String family, String file) {
-        String oldFamily = clip.textFontFamily, oldFile = clip.textFontFile;
-        if (java.util.Objects.equals(oldFamily, family) && java.util.Objects.equals(oldFile, file)) return;
-        context.executePropertyChange("Change Font", () -> {
-            clip.textFontFamily = family;
-            clip.textFontFile = file;
-            context.refreshTimelineUI();
-            context.saveProject();
-            javafx.application.Platform.runLater(context::updatePropertiesPane);
-        }, () -> {
-            clip.textFontFamily = oldFamily;
-            clip.textFontFile = oldFile;
-            context.refreshTimelineUI();
-            context.saveProject();
-            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        editTextStyle(clip, "Change Font", d -> {
+            d.fontName = family == null ? "" : family;
+            d.fontFile = file;
         });
     }
 
@@ -522,13 +720,14 @@ public class PropertyPanel extends VBox {
             }
         }
         // A font the clip uses but this computer doesn't have stays selectable, so opening a project never drops it.
-        if (clip.textFontFile != null && !importedNames.contains(clip.textFontFile)) {
-            choices.add(new FontChoice(clip.textFontFile + "  (missing)", null, clip.textFontFile));
+        TextStyleData current = clip.effectiveTextStyle();
+        if (current.fontFile != null && !importedNames.contains(current.fontFile)) {
+            choices.add(new FontChoice(current.fontFile + "  (missing)", null, current.fontFile));
         }
         java.util.List<String> families = javafx.scene.text.Font.getFamilies();
         for (String family : families) choices.add(new FontChoice(family, family, null));
-        String wanted = emptyToNull(clip.textFontFamily);
-        if (clip.textFontFile == null && wanted != null && !families.contains(wanted)) {
+        String wanted = emptyToNull(current.fontName);
+        if (current.fontFile == null && wanted != null && !families.contains(wanted)) {
             choices.add(new FontChoice(wanted + "  (not installed)", wanted, null));
         }
         return choices;

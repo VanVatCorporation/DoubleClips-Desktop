@@ -55,9 +55,12 @@ public final class TextLayoutEngine {
         final float outlineWidth;
         final int outlineArgb;
         final float pad;
+        final TextStyle style;
         private final Map<String, List<Unit>> unitCache = new java.util.HashMap<>();
 
-        Layout(float width, float height, List<Line> lines, int fillArgb, float outlineWidth, int outlineArgb, float pad) {
+        Layout(float width, float height, List<Line> lines, int fillArgb, float outlineWidth, int outlineArgb, float pad,
+               TextStyle style) {
+            this.style = style;
             this.width = width;
             this.height = height;
             this.pad = pad;
@@ -82,6 +85,7 @@ public final class TextLayoutEngine {
 
         /** The colour of the outermost thing drawn: what the empty margin's texels should carry (see toStraightRgba). */
         int edgeArgb() {
+            if (style.hasBackground()) return style.backgroundArgb;
             return outlineWidth > 0f ? outlineArgb : fillArgb;
         }
     }
@@ -169,23 +173,11 @@ public final class TextLayoutEngine {
      */
     public static Bitmap render(TextStyle style, float scale) {
         Layout layout = layout(style);
-        float s = scale > 0f ? scale : 1f;
-        int w = Math.max(1, (int) Math.ceil(layout.width * s));
-        int h = Math.max(1, (int) Math.ceil(layout.height * s));
-
-        BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB_PRE);
-        Graphics2D g = image.createGraphics();
-        try {
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
-            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-            // The box is ceil()ed to whole pixels; scale by the real ratio so the text isn't stretched.
-            g.scale(w / (double) layout.width, h / (double) layout.height);
-            drawLayout(g, layout);
-        } finally {
-            g.dispose();
-        }
+        float sc = scale > 0f ? scale : 1f;
+        int w = Math.max(1, (int) Math.ceil(layout.width * sc));
+        int h = Math.max(1, (int) Math.ceil(layout.height * sc));
+        // The box is ceil()ed to whole pixels; scale by the real ratio so the text isn't stretched.
+        BufferedImage image = rasterize(layout, w, h, w / (double) layout.width, h / (double) layout.height, null);
         return new Bitmap(w, h, toStraightRgba(image, layout.edgeArgb()));
     }
 
@@ -202,20 +194,7 @@ public final class TextLayoutEngine {
         int w = Math.max(1, (int) Math.ceil(u.w * s));
         int h = Math.max(1, (int) Math.ceil(u.h * s));
 
-        BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB_PRE);
-        Graphics2D g = image.createGraphics();
-        try {
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
-            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-            g.scale(w / (double) u.w, h / (double) u.h);
-            g.translate(-u.x, -u.y);
-            g.clip(new java.awt.geom.Rectangle2D.Float(u.x, u.y, u.w, u.h));
-            drawLayout(g, layout);
-        } finally {
-            g.dispose();
-        }
+        BufferedImage image = rasterize(layout, w, h, w / (double) u.w, h / (double) u.h, u);
         return new Bitmap(w, h, toStraightRgba(image, layout.edgeArgb()));
     }
 
@@ -231,35 +210,150 @@ public final class TextLayoutEngine {
         return layout(style).units(mode);
     }
 
-    private static void drawLayout(Graphics2D g, Layout layout) {
-        {
-            if (layout.outlineWidth > 0f) {
-                // Stroke the glyph outlines first, then fill the letters on top: the stroke is centred on the
-                // edge, so half of it (the inside) is covered, and a stroke of 2w leaves w visible outside.
-                g.setStroke(new BasicStroke(layout.outlineWidth * 2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g.setColor(new Color(layout.outlineArgb, true));
-                for (Line line : layout.lines) {
-                    if (line.layout == null) continue;
-                    Shape outline = line.layout.getOutline(AffineTransform.getTranslateInstance(line.x, line.baselineY));
-                    g.draw(outline);
-                }
-            }
-            g.setColor(new Color(layout.fillArgb, true));
-            for (Line line : layout.lines) {
-                if (line.layout != null) line.layout.draw(g, line.x, line.baselineY);
+    private static Graphics2D graphics(BufferedImage image, double sx, double sy, Unit tile) {
+        Graphics2D g = image.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        g.scale(sx, sy);
+        if (tile != null) {
+            g.translate(-tile.x, -tile.y);
+            g.clip(new java.awt.geom.Rectangle2D.Float(tile.x, tile.y, tile.w, tile.h));
+        }
+        return g;
+    }
+
+    /**
+     * Draws the whole block - or, with {@code tile}, just that unit's rectangle of it - into a w x h bitmap.
+     * Layers, bottom to top, as iOS draws them: the background box, the shadow (of the outline and the
+     * letters together), the outline, the letters. A unit has no background box: it belongs to the whole text.
+     */
+    private static BufferedImage rasterize(Layout layout, int w, int h, double sx, double sy, Unit tile) {
+        TextStyle style = layout.style;
+        BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB_PRE);
+
+        if (style.hasBackground() && tile == null) {
+            Graphics2D g = graphics(image, sx, sy, null);
+            try {
+                float boxPad = style.backgroundPadding;
+                float inset = layout.pad - boxPad;
+                float bw = layout.width - 2 * inset, bh = layout.height - 2 * inset;
+                float radius = Math.min(style.backgroundRadius, Math.min(bw, bh) / 2f) * 2f;
+                g.setColor(new Color(style.backgroundArgb, true));
+                g.fill(new java.awt.geom.RoundRectangle2D.Float(inset, inset, bw, bh, radius, radius));
+            } finally {
+                g.dispose();
             }
         }
+
+        if (style.hasShadow()) {
+            BufferedImage silhouette = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB_PRE);
+            Graphics2D g = graphics(silhouette, sx, sy, tile);
+            try {
+                drawLayout(g, layout, style.shadowArgb);
+            } finally {
+                g.dispose();
+            }
+            // NSShadow's blur radius is about two standard deviations; the reach we reserved is the radius.
+            blur(silhouette, (float) (style.shadowBlur * 0.5 * Math.max(sx, sy)));
+            Graphics2D out = image.createGraphics();
+            try {
+                out.drawImage(silhouette, Math.round((float) (style.shadowOffsetX * sx)), Math.round((float) (style.shadowOffsetY * sy)), null);
+            } finally {
+                out.dispose();
+            }
+        }
+
+        Graphics2D g = graphics(image, sx, sy, tile);
+        try {
+            drawLayout(g, layout, null);
+        } finally {
+            g.dispose();
+        }
+        return image;
+    }
+
+    /** Draws the outline (if any) and then the letters; {@code override} paints both in one colour (the shadow). */
+    private static void drawLayout(Graphics2D g, Layout layout, Integer override) {
+        if (layout.outlineWidth > 0f) {
+            // Stroke the glyph outlines first, then fill the letters on top: the stroke is centred on the
+            // edge, so half of it (the inside) is covered, and a stroke of 2w leaves w visible outside.
+            g.setStroke(new BasicStroke(layout.outlineWidth * 2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.setColor(new Color(override != null ? override : layout.outlineArgb, true));
+            for (Line line : layout.lines) {
+                if (line.layout == null) continue;
+                Shape outline = line.layout.getOutline(AffineTransform.getTranslateInstance(line.x, line.baselineY));
+                g.draw(outline);
+            }
+        }
+        g.setColor(new Color(override != null ? override : layout.fillArgb, true));
+        for (Line line : layout.lines) {
+            if (line.layout != null) line.layout.draw(g, line.x, line.baselineY);
+        }
+    }
+
+    /**
+     * Gaussian-like blur of a premultiplied ARGB image in place: three box blurs per axis, whose combined
+     * spread matches a Gaussian of standard deviation {@code sigma} (in pixels). A no-op below a third of a pixel.
+     */
+    static void blur(BufferedImage image, float sigma) {
+        if (sigma < 0.34f) return;
+        int radius = Math.max(1, Math.round((float) ((Math.sqrt(4.0 * sigma * sigma + 1.0) - 1.0) / 2.0)));
+        int w = image.getWidth(), h = image.getHeight();
+        int[] px = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        int[] tmp = new int[Math.max(w, h)];
+        for (int pass = 0; pass < 3; pass++) {
+            for (int y = 0; y < h; y++) boxLine(px, y * w, 1, w, radius, tmp);
+            for (int x = 0; x < w; x++) boxLine(px, x, w, h, radius, tmp);
+        }
+    }
+
+    /** One box-blur pass along a line of {@code n} pixels starting at {@code start}, stepping by {@code stride}. */
+    private static void boxLine(int[] px, int start, int stride, int n, int r, int[] tmp) {
+        long a = 0, rr = 0, gg = 0, bb = 0;
+        int window = 2 * r + 1;
+        // Prime the window with pixels [-r .. r-1] (outside the image counts as transparent).
+        for (int i = 0; i < r && i < n; i++) {
+            int p = px[start + i * stride];
+            a += p >>> 24; rr += p >> 16 & 0xFF; gg += p >> 8 & 0xFF; bb += p & 0xFF;
+        }
+        for (int i = 0; i < n; i++) {
+            int add = i + r, drop = i - r - 1;
+            if (add < n) {
+                int p = px[start + add * stride];
+                a += p >>> 24; rr += p >> 16 & 0xFF; gg += p >> 8 & 0xFF; bb += p & 0xFF;
+            }
+            if (drop >= 0) {
+                int p = px[start + drop * stride];
+                a -= p >>> 24; rr -= p >> 16 & 0xFF; gg -= p >> 8 & 0xFF; bb -= p & 0xFF;
+            }
+            long half = window / 2;
+            tmp[i] = (int) ((a + half) / window) << 24 | (int) ((rr + half) / window) << 16 | (int) ((gg + half) / window) << 8 | (int) ((bb + half) / window);
+        }
+        for (int i = 0; i < n; i++) px[start + i * stride] = tmp[i];
     }
 
     // ── layout ───────────────────────────────────────────────────────────
 
     private static Layout build(TextStyle style) {
         Font font = fontFor(style);
+        if (style.letterSpacing != 0f) {
+            // Java tracks in fractions of the font size (the style's spacing is in canvas units), and only
+            // honours it when it is part of the font itself, not as a separate text attribute.
+            Map<TextAttribute, Object> tracking = new java.util.HashMap<>();
+            tracking.put(TextAttribute.TRACKING, style.letterSpacing / Math.max(1f, style.fontSize));
+            font = font.deriveFont(tracking);
+        }
 
         String text = style.text == null ? "" : style.text.replace("\r\n", "\n").replace('\r', '\n');
         // The outline sits outside the letters, so the margin grows with it (and wrapping leaves room for it).
-        float pad = PAD + style.outlineWidth;
-        float wrap = style.maxWidth > 0 ? Math.max(1f, style.maxWidth - 2 * pad) : Float.MAX_VALUE;
+        // iOS: the margin also covers the shadow's reach and the box's padding.
+        float shadowReach = style.hasShadow() ? style.shadowBlur + Math.max(Math.abs(style.shadowOffsetX), Math.abs(style.shadowOffsetY)) : 0f;
+        float boxPad = style.hasBackground() ? style.backgroundPadding : 0f;
+        float pad = (float) Math.ceil(PAD + style.outlineWidth + shadowReach + boxPad);
+        float wrap = style.maxWidth <= 0 ? Float.MAX_VALUE
+                : style.wrapExcludesMargin ? Math.max(1f, style.maxWidth) : Math.max(1f, style.maxWidth - 2 * pad);
 
         List<TextLayout> layouts = new ArrayList<>();
         List<String> paragraphOf = new ArrayList<>();
@@ -286,7 +380,7 @@ public final class TextLayoutEngine {
             startOf.add(0);
         }
 
-        float emptyHeight = font.getLineMetrics("Ag", FRC).getHeight();
+        float emptyHeight = Math.max(1f, font.getLineMetrics("Ag", FRC).getHeight() + style.lineSpacing);
         float maxAdvance = 0f;
         for (TextLayout l : layouts) {
             if (l != null) maxAdvance = Math.max(maxAdvance, l.getVisibleAdvance());
@@ -302,13 +396,14 @@ public final class TextLayoutEngine {
                 continue;
             }
             float baseline = y + l.getAscent();
-            float pitch = l.getAscent() + l.getDescent() + l.getLeading();
+            float pitch = Math.max(1f, l.getAscent() + l.getDescent() + l.getLeading() + style.lineSpacing);
             lines.add(new Line(l, pad + (maxAdvance - l.getVisibleAdvance()) * shift, baseline,
                     paragraphOf.get(li), startOf.get(li), l.getAscent(), pitch));
             y += pitch;
         }
+        y -= style.lineSpacing; // spacing goes BETWEEN lines, not after the last one
         return new Layout(Math.max(1f, maxAdvance) + 2 * pad, Math.max(1f, y - pad) + 2 * pad, lines,
-                style.colorArgb, style.outlineWidth, style.outlineColorArgb, pad);
+                style.colorArgb, style.outlineWidth, style.outlineColorArgb, pad, style);
     }
 
     // ── units ────────────────────────────────────────────────────────────
@@ -394,7 +489,38 @@ public final class TextLayoutEngine {
         int flags = (style.bold ? Font.BOLD : 0) | (style.italic ? Font.ITALIC : 0);
         Font base = style.fontFile != null ? fileFont(style.fontFile) : null;
         if (base != null) return base.deriveFont(flags, Math.max(1f, style.fontSize));
+        Font byPostScript = postScriptFont(style.fontFamily);
+        if (byPostScript != null) return byPostScript.deriveFont(flags, Math.max(1f, style.fontSize));
         return new Font(style.fontFamily, flags, 12).deriveFont(Math.max(1f, style.fontSize));
+    }
+
+    private static final java.util.Set<String> LOGICAL = new java.util.HashSet<>(
+            java.util.Arrays.asList("Dialog", "DialogInput", "Monospaced", "SansSerif", "Serif"));
+    private static volatile java.util.Set<String> installedFamilies;
+    private static volatile Map<String, Font> postScriptNames;
+
+    /**
+     * iOS stores a font by its PostScript name ("HelveticaNeue-Bold"), desktop by family. A name that is not a
+     * family but is an installed font's PostScript name resolves to that font; otherwise null (use as a family).
+     */
+    private static Font postScriptFont(String name) {
+        if (name == null || LOGICAL.contains(name)) return null;
+        java.util.Set<String> families = installedFamilies;
+        if (families == null) {
+            families = new java.util.HashSet<>(java.util.Arrays.asList(
+                    java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
+            installedFamilies = families;
+        }
+        if (families.contains(name)) return null;
+        Map<String, Font> byName = postScriptNames;
+        if (byName == null) {
+            byName = new java.util.HashMap<>();
+            for (Font f : java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAllFonts()) {
+                byName.putIfAbsent(f.getPSName(), f);
+            }
+            postScriptNames = byName;
+        }
+        return byName.get(name);
     }
 
     private static Font fileFont(String path) {

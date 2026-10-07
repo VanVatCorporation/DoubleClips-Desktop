@@ -905,7 +905,7 @@ public class FFmpegEdit {
                 collectUnsupportedAnimation(clip.inAnimation, ClipAnimation.Direction.IN, found);
                 collectUnsupportedAnimation(clip.outAnimation, ClipAnimation.Direction.OUT, found);
                 if (OpenGLEdit.animatesPerUnit(clip) && (isRealAnimation(clip.inAnimation) || isRealAnimation(clip.outAnimation))) {
-                    found.add("Text animated per " + clip.textUnitMode.toLowerCase(java.util.Locale.ROOT)
+                    found.add("Text animated per " + clip.effectiveTextStyle().unitMode.toLowerCase(java.util.Locale.ROOT)
                             + " animates as one block (FFmpeg can't animate parts of a text)");
                 }
             }
