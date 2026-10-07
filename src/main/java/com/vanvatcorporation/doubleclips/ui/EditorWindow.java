@@ -117,6 +117,11 @@ public class EditorWindow extends Stage implements PropertyContext {
     private final Button playBtn = new Button();
     private final Pane tracksPane = new Pane();
     private final VBox trackHeadersContainer = new VBox(0);
+    /** Track reorder: grips are shown on the track headers while this is on; dragging a grip moves that track. */
+    private boolean reorderingTracks = false;
+    private Button reorderTracksButton;
+    private com.vanvatcorporation.doubleclips.ui.TrackReorderDrag trackDrag;
+    private double trackDragStartSceneY;
     private Line playheadLine;
     private Line ghostPlayheadLine;
     private float tempTime = -1;
@@ -300,9 +305,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             addNewTrack("Audio 1");
         } else {
             // Rebuild sidebar headers
-            for (Track t : timeline.tracks) {
-                trackHeadersContainer.getChildren().add(buildTrackHeader("Track " + (t.timelineIndex + 1)));
-            }
+            refreshTrackHeaders();
             refreshTimelineUI();
         }
     }
@@ -1696,15 +1699,22 @@ public class EditorWindow extends Stage implements PropertyContext {
         // Tiny "Add Track" at top of sidebar
         HBox sidebarTop = new HBox();
         sidebarTop.setPrefHeight(30);
-        sidebarTop.setAlignment(Pos.CENTER_RIGHT);
+        sidebarTop.setAlignment(Pos.CENTER_LEFT);
         sidebarTop.setPadding(new Insets(0, 6, 0, 6));
         sidebarTop.getStyleClass().add("sidebar-top-row");
+        reorderTracksButton = new Button();
+        reorderTracksButton.getStyleClass().add("button-transparent");
+        reorderTracksButton.setStyle("-fx-padding: 2px;");
+        reorderTracksButton.setOnAction(e -> toggleTrackReorder());
+        updateReorderTracksButton();
+        Region sidebarSpacer = new Region();
+        HBox.setHgrow(sidebarSpacer, Priority.ALWAYS);
         Button addTrackBtn = new Button();
         addTrackBtn.setGraphic(new FontIcon(MaterialDesignP.PLUS));
         addTrackBtn.getStyleClass().add("button-transparent");
         addTrackBtn.setStyle("-fx-padding: 2px;");
         addTrackBtn.setOnAction(e -> addNewTrack("New Track"));
-        sidebarTop.getChildren().add(addTrackBtn);
+        sidebarTop.getChildren().addAll(reorderTracksButton, sidebarSpacer, addTrackBtn);
 
         // Tracks sidebar container
         ScrollPane trackHeadersScrollPane = new ScrollPane(trackHeadersContainer);
@@ -3208,7 +3218,83 @@ public class EditorWindow extends Stage implements PropertyContext {
     public void refreshTrackHeaders() {
         trackHeadersContainer.getChildren().clear();
         for (Track t : timeline.tracks) {
-            trackHeadersContainer.getChildren().add(buildTrackHeader("Track " + (t.timelineIndex + 1)));
+            trackHeadersContainer.getChildren().add(buildTrackHeader("Track " + (t.timelineIndex + 1), t.timelineIndex));
+        }
+        updateReorderTracksButton();
+    }
+
+    // ---- track reorder ------------------------------------------------------------------------
+
+    private void toggleTrackReorder() {
+        reorderingTracks = !reorderingTracks;
+        trackDrag = null;
+        refreshTrackHeaders(); // grips appear / disappear
+    }
+
+    private void updateReorderTracksButton() {
+        if (reorderTracksButton == null) return;
+        reorderTracksButton.setGraphic(new FontIcon(reorderingTracks
+                ? org.kordamp.ikonli.materialdesign2.MaterialDesignC.CHECK
+                : org.kordamp.ikonli.materialdesign2.MaterialDesignS.SWAP_VERTICAL));
+        reorderTracksButton.setTooltip(new Tooltip(reorderingTracks
+                ? "Done reordering"
+                : "Reorder tracks (a lower track is drawn on top of the ones above it)"));
+        reorderTracksButton.setDisable(timeline.tracks.size() < 2 && !reorderingTracks);
+    }
+
+    private void trackGripPressed(int index, javafx.scene.input.MouseEvent e) {
+        if (index < 0 || index >= timeline.tracks.size()) return;
+        if (isPlaying) stopPlayback();
+        trackDrag = new com.vanvatcorporation.doubleclips.ui.TrackReorderDrag(index, timeline.tracks.size(), TRACK_HEIGHT + TRACK_SPACING);
+        trackDragStartSceneY = e.getSceneY();
+        javafx.scene.Node grabbed = trackHeadersContainer.getChildren().get(index);
+        grabbed.setViewOrder(-1); // above the rows it slides over
+        e.consume();
+    }
+
+    private void trackGripDragged(javafx.scene.input.MouseEvent e) {
+        if (trackDrag == null) return;
+        trackDrag.setTranslation(e.getSceneY() - trackDragStartSceneY);
+        applyTrackDragOffsets();
+        e.consume();
+    }
+
+    private void trackGripReleased(javafx.scene.input.MouseEvent e) {
+        if (trackDrag == null) return;
+        int from = trackDrag.startIndex;
+        int to = trackDrag.targetIndex();
+        trackDrag = null;
+        clearTrackDragOffsets();
+        e.consume();
+        if (from == to) return;
+        // The tracks are only reordered now, in one undoable step.
+        historyManager.execute(new com.vanvatcorporation.doubleclips.history.MoveTrackCommand(timeline, from, to, () -> {
+            refreshTrackHeaders();
+            refreshTimelineUI();
+            saveProject();
+        }));
+    }
+
+    /** Slides each track's header and its clips by the drag's offset for that row. */
+    private void applyTrackDragOffsets() {
+        for (int i = 0; i < timeline.tracks.size(); i++) {
+            double offset = trackDrag.offsetOfRow(i);
+            if (i < trackHeadersContainer.getChildren().size()) trackHeadersContainer.getChildren().get(i).setTranslateY(offset);
+            for (Clip clip : timeline.tracks.get(i).clips) {
+                if (clip.viewRef instanceof ClipNode cn) cn.setTranslateY(offset);
+            }
+        }
+    }
+
+    private void clearTrackDragOffsets() {
+        for (javafx.scene.Node header : trackHeadersContainer.getChildren()) {
+            header.setTranslateY(0);
+            header.setViewOrder(0);
+        }
+        for (Track track : timeline.tracks) {
+            for (Clip clip : track.clips) {
+                if (clip.viewRef instanceof ClipNode cn) cn.setTranslateY(0);
+            }
         }
     }
 
@@ -3512,13 +3598,24 @@ public class EditorWindow extends Stage implements PropertyContext {
         });
     }
 
-    private HBox buildTrackHeader(String name) {
+    private HBox buildTrackHeader(String name, int index) {
         HBox header = new HBox(6);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(0, 8, 0, 8));
         header.setPrefHeight(75);
         header.setMaxHeight(75);
         header.getStyleClass().add("track-header");
+
+        if (reorderingTracks) {
+            Label grip = new Label();
+            grip.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignD.DRAG));
+            grip.setStyle("-fx-cursor: move; -fx-padding: 6 2 6 0;");
+            grip.setTooltip(new Tooltip("Drag to reorder - a lower track is drawn on top"));
+            grip.setOnMousePressed(e -> trackGripPressed(index, e));
+            grip.setOnMouseDragged(this::trackGripDragged);
+            grip.setOnMouseReleased(this::trackGripReleased);
+            header.getChildren().add(grip);
+        }
 
         Label lbl = new Label(name);
         lbl.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");

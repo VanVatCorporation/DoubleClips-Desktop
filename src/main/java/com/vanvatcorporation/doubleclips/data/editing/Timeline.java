@@ -26,6 +26,8 @@ public class Timeline implements Serializable {
             tracks.get(i).timelineIndex = i;
             for (Clip clip : tracks.get(i).clips) {
                 clip.trackIndex = i;
+                // A transition carries its own copy of the track number; it must follow the clip.
+                if (clip.endTransition != null) clip.endTransition.trackIndex = i;
             }
         }
     }
