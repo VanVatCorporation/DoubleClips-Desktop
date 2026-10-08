@@ -144,6 +144,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     private com.vanvatcorporation.doubleclips.ProjectLibrary.Filter mediaFilter = com.vanvatcorporation.doubleclips.ProjectLibrary.Filter.ALL;
     private com.vanvatcorporation.doubleclips.ProjectLibrary.Sort mediaSort = com.vanvatcorporation.doubleclips.ProjectLibrary.Sort.NEWEST;
     private HBox mediaToolbar;
+    private com.vanvatcorporation.doubleclips.ui.components.TilePreviewAnimator effectAnimator;
     private final Label toastLabel = new Label();
     private javafx.animation.SequentialTransition toastAnimation;
     private boolean usageRefreshQueued = false;
@@ -3392,6 +3393,10 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     private void reloadLeftPanelContent(String tabName) {
+        if (effectAnimator != null) { // the Effects tab's looping previews belong to that tab only
+            effectAnimator.stop();
+            effectAnimator = null;
+        }
         mediaGrid.getChildren().clear();
         usageBadges.clear();
         if (mediaToolbar != null) {
@@ -3430,13 +3435,47 @@ public class EditorWindow extends Stage implements PropertyContext {
         }
     }
 
+    /** Every effect as a tile with a looping preview of the real effect; drag one onto the timeline for an effect clip. */
     private void loadEffectSamples() {
-        String[] effects = {"B&W", "Vintage", "Blur", "Glow"};
-        for (String fx : effects) {
-            Clip effectClip = new Clip(fx, 0, 5.0f, 0, ClipType.EFFECT, false, 1280, 720);
-            effectClip.effect = new EffectTemplate(fx.toLowerCase(), 5.0f, 0);
+        effectAnimator = new com.vanvatcorporation.doubleclips.ui.components.TilePreviewAnimator(12);
+        for (com.vanvatcorporation.doubleclips.EffectCatalog.Style style : com.vanvatcorporation.doubleclips.EffectCatalog.styles()) {
+            Clip effectClip = new Clip(style.title, 0, 5.0f, 0, ClipType.EFFECT, false, 1280, 720);
+            effectClip.effect = new EffectTemplate(style.key, 5.0f, 0);
             addClipToMediaGrid(mediaGrid, effectClip);
+            decorateEffectTile((VBox) mediaGrid.getChildren().get(mediaGrid.getChildren().size() - 1), style);
         }
+    }
+
+    /** Swaps a plain effect tile's star icon for the effect's own looping picture, and adds "@author" and engine badges. */
+    private void decorateEffectTile(VBox box, com.vanvatcorporation.doubleclips.EffectCatalog.Style style) {
+        final int side = 72;
+        com.vanvatcorporation.doubleclips.EffectCpuRenderer.Frame card = com.vanvatcorporation.doubleclips.EffectPreview.testCard(side);
+        ImageView picture = new ImageView(com.vanvatcorporation.doubleclips.ui.components.FxImages.of(
+                com.vanvatcorporation.doubleclips.EffectPreview.frame(style.key, 1f, card, 0.9).toImage()));
+        picture.setFitWidth(side);
+        picture.setFitHeight(side);
+        picture.setPreserveRatio(true);
+        picture.setMouseTransparent(true); // the whole tile is the drag handle
+        if (effectAnimator != null) {
+            effectAnimator.add(picture, () -> com.vanvatcorporation.doubleclips.ui.components.FxImages.of(
+                    com.vanvatcorporation.doubleclips.EffectPreview.loop(style.key, 1f, side)));
+        }
+        box.getChildren().set(0, picture);
+
+        Label author = new Label(style.author);
+        author.setStyle("-fx-text-fill: #999; -fx-font-size: 9px;");
+        HBox badges = new HBox(3);
+        badges.setAlignment(Pos.CENTER);
+        for (String engine : style.engines()) {
+            boolean gl = com.vanvatcorporation.doubleclips.EffectCatalog.ENGINE_OPENGL.equals(engine);
+            Label pill = new Label(gl ? "OpenGL" : "FFmpeg");
+            pill.setStyle("-fx-background-color: " + (gl ? "#2E9B5B" : "#2E6BD8")
+                    + "; -fx-text-fill: white; -fx-font-size: 8px; -fx-background-radius: 7; -fx-padding: 0 4 0 4;");
+            badges.getChildren().add(pill);
+        }
+        box.getChildren().addAll(author, badges);
+        box.setPrefWidth(84);
+        box.setPrefHeight(124);
     }
 
     private void splitClipProxy(Clip clip) {

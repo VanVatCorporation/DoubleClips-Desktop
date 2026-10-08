@@ -904,6 +904,10 @@ public class FFmpegEdit {
                 if (clip == null) continue;
                 collectUnsupportedAnimation(clip.inAnimation, ClipAnimation.Direction.IN, found);
                 collectUnsupportedAnimation(clip.outAnimation, ClipAnimation.Direction.OUT, found);
+                if (clip.type == ClipType.EFFECT && clip.effect != null && EffectCatalog.find(clip.effect.style) != null) {
+                    // The FFmpeg filter graph never draws effect clips; only the OpenGL export does (as an adjustment layer).
+                    found.add("The effect \"" + EffectCatalog.find(clip.effect.style).title + "\" is skipped (only the OpenGL export draws effect clips)");
+                }
                 if (OpenGLEdit.animatesPerUnit(clip) && (isRealAnimation(clip.inAnimation) || isRealAnimation(clip.outAnimation))) {
                     found.add("Text animated per " + clip.effectiveTextStyle().unitMode.toLowerCase(java.util.Locale.ROOT)
                             + " animates as one block (FFmpeg can't animate parts of a text)");

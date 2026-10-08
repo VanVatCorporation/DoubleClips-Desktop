@@ -76,6 +76,14 @@ public final class OpenGLTimelineExporter {
          */
         void beginOffscreen(int slot);
 
+        /**
+         * Filters everything drawn onto the main canvas so far through the effect {@code style} (an
+         * {@link EffectCatalog} key), in place: an adjustment layer. {@code time} is the timeline time,
+         * {@code progress} 0..1 through the effect clip and {@code elapsed} seconds since it began.
+         * An effect that can't run on this machine leaves the canvas as it is.
+         */
+        void applyEffect(String style, float intensity, float progress, float time, float elapsed);
+
         /** Redirects {@link #draw} back onto the main canvas. */
         void endOffscreen();
 
@@ -131,6 +139,11 @@ public final class OpenGLTimelineExporter {
                 } else {
                     drawer.draw(cmd, outputTimeSeconds);
                 }
+                continue;
+            }
+            if (layer.effect != null) {
+                OpenGLEdit.EffectCommand fx = layer.effect;
+                compositor.applyEffect(fx.style, fx.intensity, fx.progress, outputTimeSeconds, fx.elapsed);
                 continue;
             }
             // Transition: each side is rendered to its own full-canvas transparent

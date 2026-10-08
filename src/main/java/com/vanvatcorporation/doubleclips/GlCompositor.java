@@ -221,10 +221,15 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     }
 
     // Created lazily on first use, so a project with no transitions or blur pays nothing for them.
-    private final GlTarget[] scratch = new GlTarget[2];
+    private final GlTarget[] scratch = new GlTarget[3]; // 0 and 1: transitions and blur; effects use all three
     private int transitionProgram = 0, blurProgram = 0;
     private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc;
     private int uBlurTexLoc, uBlurDirLoc, uBlurTexelLoc, uBlurSigmaLoc;
+    // Effect clips: one program for the whole catalog (resources/shaders/effects.frag), built on first use.
+    private int effectProgram = 0;
+    private boolean effectsUnavailable = false;
+    private int uFxTexLoc, uFxTex2Loc, uFxStyleLoc, uFxPassLoc, uFxIntensityLoc, uFxProgressLoc, uFxTimeLoc, uFxElapsedLoc,
+            uFxWanderLoc, uFxResolutionLoc, uFxRandLoc;
 
     GlCompositor(int width, int height) {
         this.width = width;
@@ -407,8 +412,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glActiveTexture(GL_TEXTURE0); // leave unit 0 active: draw() assumes it
     }
 
-    @Override
-    public void blurOntoMain(int sourceSlot, int tempSlot, float sigmaPixels) {
+    private void ensureBlurProgram() {
         if (blurProgram == 0) {
             blurProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, BLUR_FRAGMENT_SHADER);
             uBlurTexLoc = glGetUniformLocation(blurProgram, "uTexture");
@@ -416,6 +420,145 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uBlurTexelLoc = glGetUniformLocation(blurProgram, "uTexelSize");
             uBlurSigmaLoc = glGetUniformLocation(blurProgram, "uSigmaPixels");
         }
+    }
+
+    // ---- effect clips ------------------------------------------------------------------------------
+
+    private static final int EFFECT_BLUR = 10, EFFECT_GLOW = 11; // positions in EffectCatalog
+
+    /** Builds the effect program once. A shader that won't compile here turns effects off for the run instead of ending it. */
+    private boolean prepareEffects() {
+        if (effectProgram != 0) return true;
+        if (effectsUnavailable) return false;
+        try {
+            String source;
+            try (java.io.InputStream in = GlCompositor.class.getResourceAsStream("/shaders/effects.frag")) {
+                if (in == null) throw new IllegalStateException("shaders/effects.frag is missing from the app");
+                source = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+            effectProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, source);
+            uFxTexLoc = glGetUniformLocation(effectProgram, "uTexture");
+            uFxTex2Loc = glGetUniformLocation(effectProgram, "uTexture2");
+            uFxStyleLoc = glGetUniformLocation(effectProgram, "uStyle");
+            uFxPassLoc = glGetUniformLocation(effectProgram, "uPass");
+            uFxIntensityLoc = glGetUniformLocation(effectProgram, "uIntensity");
+            uFxProgressLoc = glGetUniformLocation(effectProgram, "uProgress");
+            uFxTimeLoc = glGetUniformLocation(effectProgram, "uTime");
+            uFxElapsedLoc = glGetUniformLocation(effectProgram, "uElapsed");
+            uFxWanderLoc = glGetUniformLocation(effectProgram, "uWander");
+            uFxResolutionLoc = glGetUniformLocation(effectProgram, "uResolution");
+            uFxRandLoc = glGetUniformLocation(effectProgram, "uRand");
+            return true;
+        } catch (RuntimeException | java.io.IOException e) {
+            effectsUnavailable = true;
+            System.err.println("LOG Effects are unavailable on this GPU, effect clips will be skipped: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /** Runs a fullscreen pass of the effect program, reading scratch {@code sourceSlot} (and {@code secondSlot} if >= 0). */
+    private void effectPass(int pass, int sourceSlot, int secondSlot) {
+        glUseProgram(effectProgram);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(sourceSlot).texture);
+        if (secondSlot >= 0) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, scratchTarget(secondSlot).texture);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        glUniform1i(uFxPassLoc, pass);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    /** One separable Gaussian pass of the blur program: {@code from} scratch slot to the currently bound target. */
+    private void gaussianPass(int fromSlot, float dx, float dy, float sigma) {
+        glUseProgram(blurProgram);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(uBlurTexLoc, 0);
+        glUniform2f(uBlurTexelLoc, 1f / width, 1f / height);
+        glUniform1f(uBlurSigmaLoc, sigma);
+        glUniform2f(uBlurDirLoc, dx, dy);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(fromSlot).texture);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    /**
+     * An effect clip: copy the picture so far, then redraw it through the effect over the main canvas, which it
+     * REPLACES (blending is off for these passes). "blur" is two Gaussian passes; "glow" keeps the bright parts,
+     * softens them with two Gaussian passes and adds them back; every other effect is one pass.
+     * (tests/glcheck runs this exact pass order against the CPU renderer on a software GL.)
+     */
+    @Override
+    public void applyEffect(String style, float intensity, float progress, float time, float elapsed) {
+        int index = EffectCatalog.indexOf(style);
+        if (index < 0 || !prepareEffects()) return;
+        float a = Math.max(intensity, 0f);
+
+        glDisable(GL_BLEND);
+        try {
+            glBindVertexArray(vao);
+
+            // 1. a copy of everything drawn so far (the effect reads it while it writes the canvas)
+            GlTarget copy = scratchTarget(0);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copy.fbo);
+            glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+            if (index == EFFECT_BLUR) {
+                float sigma = height * 0.014f * a;
+                if (sigma <= 0.1f) return; // nothing to soften: the canvas is already what it should be
+                ensureBlurProgram();
+                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(1).fbo);
+                glViewport(0, 0, width, height);
+                gaussianPass(0, 1f, 0f, sigma);
+                bindMain();
+                gaussianPass(1, 0f, 1f, sigma);
+                return;
+            }
+
+            // the effect program's uniforms are the same for every pass
+            glUseProgram(effectProgram);
+            glUniform1i(uFxTexLoc, 0);
+            glUniform1i(uFxTex2Loc, 1);
+            glUniform1i(uFxStyleLoc, index);
+            glUniform1f(uFxIntensityLoc, a);
+            glUniform1f(uFxProgressLoc, progress);
+            glUniform1f(uFxTimeLoc, time);
+            glUniform1f(uFxElapsedLoc, elapsed);
+            glUniform1f(uFxWanderLoc, EffectCpuRenderer.wander(time));
+            glUniform2f(uFxResolutionLoc, width, height);
+            glUniform1fv(uFxRandLoc, EffectCpuRenderer.randoms(style, time));
+
+            if (index == EFFECT_GLOW) {
+                float sigma = height * 0.025f * a;
+                ensureBlurProgram();
+                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(1).fbo);
+                glViewport(0, 0, width, height);
+                effectPass(1, 0, -1);                            // bright parts -> slot 1
+                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(2).fbo);
+                glViewport(0, 0, width, height);
+                gaussianPass(1, 1f, 0f, sigma);                  // soften sideways -> slot 2
+                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(1).fbo);
+                glViewport(0, 0, width, height);
+                gaussianPass(2, 0f, 1f, sigma);                  // soften up and down -> slot 1
+                bindMain();
+                glUseProgram(effectProgram);
+                effectPass(2, 0, 1);                             // picture + glow -> canvas
+                return;
+            }
+
+            bindMain();
+            effectPass(0, 0, -1);
+        } finally {
+            glEnable(GL_BLEND); // draw() assumes it; beginFrame set it up once
+            glUseProgram(program);
+            glActiveTexture(GL_TEXTURE0);
+        }
+    }
+
+    @Override
+    public void blurOntoMain(int sourceSlot, int tempSlot, float sigmaPixels) {
+        ensureBlurProgram();
         glUseProgram(blurProgram);
         glBindVertexArray(vao);
         glActiveTexture(GL_TEXTURE0);
@@ -452,6 +595,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         }
         if (transitionProgram != 0) glDeleteProgram(transitionProgram);
         if (blurProgram != 0) glDeleteProgram(blurProgram);
+        if (effectProgram != 0) glDeleteProgram(effectProgram);
         glDeleteTextures(colorTex);
         glDeleteFramebuffers(fbo);
         glDeleteBuffers(vbo);

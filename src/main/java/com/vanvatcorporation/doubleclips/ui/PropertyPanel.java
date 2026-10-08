@@ -178,6 +178,10 @@ public class PropertyPanel extends VBox {
             addTextStyleFields(fields, selectedClip);
         }
 
+        if (selectedClip.type == ClipType.EFFECT) {
+            addEffectFields(fields, selectedClip);
+        }
+
         if (selectedClip.type != ClipType.EFFECT) {
             fields.getChildren().add(buildSectionDivider("Transform"));
             addKeyframeableField(fields, "Position X", selectedClip.videoProperties.valuePosX, VideoProperties.ValueType.PosX, selectedClip);
@@ -277,6 +281,137 @@ public class PropertyPanel extends VBox {
         if (transClip != null && transClip.endTransition != null) {
             getChildren().add(buildTransitionSection(transClip));
         }
+    }
+
+    // ---- effect clips: which effect, and how strong ---------------------------------------------------------
+
+    private static String strengthText(float v) {
+        return String.format(java.util.Locale.ROOT, "%.2f", v);
+    }
+
+    /**
+     * An effect clip is an adjustment layer: it filters everything on the tracks above it for as long as it lasts.
+     * Here: the effect (opens the tile picker with looping previews) and, for effects that have one, its strength.
+     */
+    private void addEffectFields(VBox fields, Clip clip) {
+        EffectTemplate fx = clip.effect;
+        if (fx == null) return;
+        com.vanvatcorporation.doubleclips.EffectCatalog.Style style = com.vanvatcorporation.doubleclips.EffectCatalog.find(fx.style);
+
+        fields.getChildren().add(buildSectionDivider("Effect"));
+        Label label = new Label("Effect");
+        label.getStyleClass().add("text-muted");
+        label.setStyle("-fx-font-size: 11px;");
+        Button open = buildButton((style != null ? style.title : fx.style) + "   \u25B8", e -> showEffectBrowser(clip), "tool-button");
+        open.setMaxWidth(Double.MAX_VALUE);
+        fields.getChildren().add(new VBox(4, label, open));
+
+        if (style == null) {
+            Label note = new Label("This effect comes from a newer version of the app, so it isn't drawn here. Pick another to replace it.");
+            note.setWrapText(true);
+            note.getStyleClass().add("text-muted");
+            note.setStyle("-fx-font-size: 11px;");
+            fields.getChildren().add(note);
+            return;
+        }
+
+        if (style.hasIntensity()) {
+            float value = com.vanvatcorporation.doubleclips.EffectCatalog.clampIntensity(style, fx.intensity());
+            Label strengthLabel = new Label(style.intensityLabel);
+            strengthLabel.getStyleClass().add("text-muted");
+            strengthLabel.setStyle("-fx-font-size: 11px;");
+            Label shown = new Label(strengthText(value));
+            shown.setStyle("-fx-font-size: 11px;");
+            Slider slider = new Slider(style.intensityMin, style.intensityMax, value);
+            slider.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(slider, Priority.ALWAYS);
+            // Dragging only moves the number; the change is made (one undo step) when the slider is let go.
+            slider.valueProperty().addListener((o, was, now) -> {
+                shown.setText(strengthText(now.floatValue()));
+                if (!slider.isValueChanging()) commitEffectStrength(clip, now.floatValue());
+            });
+            slider.valueChangingProperty().addListener((o, was, changing) -> {
+                if (!changing) commitEffectStrength(clip, (float) slider.getValue());
+            });
+            HBox row = new HBox(8, slider, shown);
+            row.setAlignment(Pos.CENTER_LEFT);
+            fields.getChildren().add(new VBox(4, strengthLabel, row));
+        }
+
+        Label hint = new Label("Filters everything on the tracks above this one while it lasts. Clips on tracks below it are drawn over the result. Drawn by the OpenGL engine.");
+        hint.setWrapText(true);
+        hint.getStyleClass().add("text-muted");
+        hint.setStyle("-fx-font-size: 11px;");
+        fields.getChildren().add(hint);
+    }
+
+    /** One undo step: swaps the clip's whole effect (and its name, which is the effect's title) and back. */
+    private void commitEffect(Clip clip, String undoName, EffectTemplate after, String newName) {
+        final EffectTemplate before = new EffectTemplate(clip.effect);
+        final String nameBefore = clip.getClipName();
+        final EffectTemplate next = new EffectTemplate(after);
+        context.executePropertyChange(undoName, () -> {
+            clip.effect = new EffectTemplate(next);
+            clip.setClipName(newName);
+            context.refreshTimelineUI();
+            context.saveProject();
+            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        }, () -> {
+            clip.effect = new EffectTemplate(before);
+            clip.setClipName(nameBefore);
+            context.refreshTimelineUI();
+            context.saveProject();
+            javafx.application.Platform.runLater(context::updatePropertiesPane);
+        });
+    }
+
+    private void commitEffectStrength(Clip clip, float value) {
+        com.vanvatcorporation.doubleclips.EffectCatalog.Style style = com.vanvatcorporation.doubleclips.EffectCatalog.find(clip.effect.style);
+        float clamped = com.vanvatcorporation.doubleclips.EffectCatalog.clampIntensity(style, value);
+        if (Math.abs(clamped - clip.effect.intensity()) < 1e-4f) return; // the slider reports a change twice on release
+        EffectTemplate after = new EffectTemplate(clip.effect);
+        after.setIntensity(clamped);
+        commitEffect(clip, "Change Effect Strength", after, clip.getClipName());
+    }
+
+    private void showEffectBrowser(Clip clip) {
+        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile> tiles = new java.util.ArrayList<>();
+        final int side = com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.PICTURE_HEIGHT;
+        for (com.vanvatcorporation.doubleclips.EffectCatalog.Style st : com.vanvatcorporation.doubleclips.EffectCatalog.styles()) {
+            java.util.Set<String> engines = new java.util.LinkedHashSet<>();
+            for (String engine : st.engines()) {
+                engines.add(com.vanvatcorporation.doubleclips.EffectCatalog.ENGINE_FFMPEG.equals(engine)
+                        ? com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_FFMPEG
+                        : com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_OPENGL);
+            }
+            tiles.add(new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile(st.key, st.title, st.author, engines,
+                    () -> com.vanvatcorporation.doubleclips.ui.components.FxImages.of(
+                            com.vanvatcorporation.doubleclips.EffectPreview.frame(st.key, 1f,
+                                    com.vanvatcorporation.doubleclips.EffectPreview.testCard(side), 0.9).toImage()),
+                    false,
+                    () -> com.vanvatcorporation.doubleclips.ui.components.FxImages.of(
+                            com.vanvatcorporation.doubleclips.EffectPreview.loop(st.key, 1f, side))));
+        }
+        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section> sections = new java.util.ArrayList<>();
+        sections.add(new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section("Effects", tiles));
+        javafx.stage.Window owner = getScene() != null ? getScene().getWindow() : null;
+        com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.show(owner, "Effect", sections, clip.effect.style,
+                new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Listener() {
+                    @Override
+                    public void onPick(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile tile) {
+                        com.vanvatcorporation.doubleclips.EffectCatalog.Style chosen = com.vanvatcorporation.doubleclips.EffectCatalog.find(tile.id);
+                        if (chosen == null || chosen.key.equals(clip.effect.style)) return;
+                        EffectTemplate after = new EffectTemplate(clip.effect);
+                        after.style = chosen.key;
+                        after.params = null; // another effect starts at its own default strength
+                        commitEffect(clip, "Change Effect", after, chosen.title);
+                    }
+
+                    @Override
+                    public boolean onDelete(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile tile) {
+                        return false;
+                    }
+                }, null, null);
     }
 
     // ---- text style: font, bold / italic / alignment, colour, outline ---------------------------

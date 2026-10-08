@@ -48,14 +48,25 @@ public final class TileGridDialog {
         public final Supplier<Image> thumbnail;
         /** The user's own: shows a delete button. */
         public final boolean deletable;
+        /**
+         * Optional: the frames of a looping preview, made off the FX thread after the dialog is up (the tile shows
+         * {@link #thumbnail} until they are ready). Null = a still tile.
+         */
+        public final Supplier<Image[]> animation;
 
         public Tile(String id, String title, String author, Set<String> engines, Supplier<Image> thumbnail, boolean deletable) {
+            this(id, title, author, engines, thumbnail, deletable, null);
+        }
+
+        public Tile(String id, String title, String author, Set<String> engines, Supplier<Image> thumbnail, boolean deletable,
+                    Supplier<Image[]> animation) {
             this.id = id;
             this.title = title;
             this.author = author;
             this.engines = engines;
             this.thumbnail = thumbnail;
             this.deletable = deletable;
+            this.animation = animation;
         }
     }
 
@@ -93,6 +104,9 @@ public final class TileGridDialog {
         }
         stage.setTitle(heading);
 
+        TilePreviewAnimator animator = new TilePreviewAnimator(12);
+        stage.setOnHidden(e -> animator.stop());
+
         VBox content = new VBox(10);
         content.setPadding(new Insets(12));
         for (Section section : sections) {
@@ -101,7 +115,7 @@ public final class TileGridDialog {
             title.setStyle("-fx-font-weight: bold; -fx-font-size: 12px;");
             FlowPane flow = new FlowPane(10, 10);
             for (Tile tile : section.tiles) {
-                flow.getChildren().add(buildTile(tile, tile.id != null && tile.id.equals(selectedId), stage, flow, listener));
+                flow.getChildren().add(buildTile(tile, tile.id != null && tile.id.equals(selectedId), stage, flow, listener, animator));
             }
             content.getChildren().addAll(title, flow);
         }
@@ -128,7 +142,7 @@ public final class TileGridDialog {
         return stage;
     }
 
-    private static Node buildTile(Tile tile, boolean selected, Stage stage, FlowPane flow, Listener listener) {
+    private static Node buildTile(Tile tile, boolean selected, Stage stage, FlowPane flow, Listener listener, TilePreviewAnimator animator) {
         StackPane picture = new StackPane();
         picture.setMinSize(TILE_WIDTH, PICTURE_HEIGHT);
         picture.setMaxSize(TILE_WIDTH, PICTURE_HEIGHT);
@@ -140,6 +154,7 @@ public final class TileGridDialog {
             view.setFitWidth(TILE_WIDTH);
             view.setFitHeight(PICTURE_HEIGHT);
             picture.getChildren().add(view);
+            if (tile.animation != null) animator.add(view, tile.animation);
         }
 
         VBox box = new VBox(3);

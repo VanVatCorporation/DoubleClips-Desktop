@@ -143,7 +143,8 @@ public class OpenGLEdit {
                         if (!textRenderingAvailable) found.add("Text clips");
                         break;
                     case EFFECT:
-                        found.add("Effect clips");
+                        // Effects are drawn (see buildEffectCommand); only one this version doesn't know is skipped.
+                        if (clip.effect != null && EffectCatalog.find(clip.effect.style) == null) found.add("Effects this version doesn't know");
                         break;
                     case SCENE_3D:
                         found.add("3D scene clips");
@@ -262,16 +263,43 @@ public class OpenGLEdit {
         }
     }
 
-    /** One track's single frame layer: exactly one of simpleDraw/transition is non-null. Order in the list returned by computeFrameForTimestamp is the actual draw order. */
+    /**
+     * An effect clip at one moment: an ADJUSTMENT LAYER. It filters everything drawn before it in the layer
+     * list (the tracks below it in the stack), so clips on later tracks are drawn over the result untouched.
+     */
+    public static final class EffectCommand {
+        public final Clip clip;
+        /** The effect's key in {@link EffectCatalog}. */
+        public final String style;
+        /** The strength setting, already inside the effect's range (1 = the default look). */
+        public final float intensity;
+        /** 0..1 through the effect clip. */
+        public final float progress;
+        /** Seconds since the effect clip began. */
+        public final float elapsed;
+
+        EffectCommand(Clip clip, String style, float intensity, float progress, float elapsed) {
+            this.clip = clip;
+            this.style = style;
+            this.intensity = intensity;
+            this.progress = progress;
+            this.elapsed = elapsed;
+        }
+    }
+
+    /** One track's single frame layer: exactly one of simpleDraw/transition/effect is non-null. Order in the list returned by computeFrameForTimestamp is the actual draw order. */
     public static class FrameLayer {
         public final DrawCommand simpleDraw;
         public final TransitionCommand transition;
-        private FrameLayer(DrawCommand simpleDraw, TransitionCommand transition) {
+        public final EffectCommand effect;
+        private FrameLayer(DrawCommand simpleDraw, TransitionCommand transition, EffectCommand effect) {
             this.simpleDraw = simpleDraw;
             this.transition = transition;
+            this.effect = effect;
         }
-        static FrameLayer of(DrawCommand d) { return new FrameLayer(d, null); }
-        static FrameLayer of(TransitionCommand t) { return new FrameLayer(null, t); }
+        static FrameLayer of(DrawCommand d) { return new FrameLayer(d, null, null); }
+        static FrameLayer of(TransitionCommand t) { return new FrameLayer(null, t, null); }
+        static FrameLayer of(EffectCommand e) { return new FrameLayer(null, null, e); }
     }
 
     /**
@@ -313,6 +341,12 @@ public class OpenGLEdit {
 
             Clip activeClip = findActiveClip(track, outputTimeSeconds);
             if (activeClip == null) continue;
+            if (activeClip.type == ClipType.EFFECT) {
+                // An effect clip draws nothing itself: it filters the layers listed before it.
+                EffectCommand effect = buildEffectCommand(activeClip, outputTimeSeconds);
+                if (effect != null) layers.add(FrameLayer.of(effect));
+                continue;
+            }
             // Per-character / word / line text animation: one layer per unit, in reading order.
             List<DrawCommand> unitCommands = buildTextUnitCommands(activeClip, outputTimeSeconds, canvasWidth, canvasHeight, projection);
             if (unitCommands != null) {
@@ -411,6 +445,16 @@ public class OpenGLEdit {
             if (p >= 0f) return outDef.evaluate(p);
         }
         return ClipAnimationFrame.NEUTRAL;
+    }
+
+    /** The effect an EFFECT clip applies at {@code t}, or null when it has none or names one this version doesn't know. */
+    private EffectCommand buildEffectCommand(Clip clip, float t) {
+        if (clip.effect == null) return null;
+        EffectCatalog.Style style = EffectCatalog.find(clip.effect.style);
+        if (style == null) return null;
+        float elapsed = Math.max(0f, t - clip.startTime);
+        float progress = clip.duration > 1e-3f ? Math.max(0f, Math.min(1f, elapsed / clip.duration)) : 1f;
+        return new EffectCommand(clip, style.key, EffectCatalog.clampIntensity(style, clip.effect.intensity()), progress, elapsed);
     }
 
     /**
