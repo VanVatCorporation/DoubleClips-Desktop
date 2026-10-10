@@ -52,6 +52,14 @@ public class OpenGLEdit {
     // and any transition using a mode other than OVERLAP are flagged as
     // unsupported by getUnsupportedFeatures below rather than silently
     // approximated or ignored. Keys must match FXCommandEmitter.FXRegistry.
+    /**
+     * True when the OpenGL path can draw a transition with this style key: one of the hard-coded blends in
+     * {@link #SUPPORTED_TRANSITION_STYLES}, or a data-driven style file ({@link TransitionStyleLoader}).
+     */
+    public static boolean isTransitionStyleSupported(String style) {
+        return style != null && (SUPPORTED_TRANSITION_STYLES.contains(style) || TransitionStyleLoader.get(style) != null);
+    }
+
     public static final Set<String> SUPPORTED_TRANSITION_STYLES = new java.util.HashSet<>(java.util.Arrays.asList(
             "fade", "dissolve", "wipeleft", "wiperight", "slideleft", "slideright", "slideup", "slidedown"
     ));
@@ -159,7 +167,7 @@ public class OpenGLEdit {
                         && clip.endTransition.effect != null && !"none".equals(clip.endTransition.effect.style)) {
                     if (clip.endTransition.mode != TransitionClip.TransitionMode.OVERLAP) {
                         found.add("Transitions using End First/Begin Second timing (only Overlap is supported)");
-                    } else if (!SUPPORTED_TRANSITION_STYLES.contains(clip.endTransition.effect.style)) {
+                    } else if (!isTransitionStyleSupported(clip.endTransition.effect.style)) {
                         found.add("Transitions using the '" + clip.endTransition.effect.style + "' effect");
                     }
                 }
@@ -169,6 +177,9 @@ public class OpenGLEdit {
         }
         return new ArrayList<>(found);
     }
+
+    /** Half a pixel at 1920 wide, as a canvas fraction: below this a slide / motion blur is ignored. */
+    static final float STREAK_SLIDE_EPSILON = 2.5e-4f;
 
     /** One clip's contribution to a single output frame. */
     public static class DrawCommand {
@@ -209,6 +220,19 @@ public class OpenGLEdit {
         public final String textUnitMode;
         /** Index into the units of {@link #textUnitMode}; -1 = the whole text box. */
         public final int textUnitIndex;
+        // ---- iOS "look" channels (see ClipAnimationFrame). All neutral outside an animation that drives them. ----
+        /** Brightness MULTIPLIER on the colours, 1 = none. Applied in the colour stage of the fragment shader. */
+        public final float exposure;
+        /** Motion blur: total streak length as a fraction of the canvas width, 0 = none. */
+        public final float motionBlurWidthFraction;
+        /** Motion-blur direction, degrees counter-clockwise from the right. */
+        public final float blurAngleDegrees;
+        /** Extend the placed picture's edge pixels over the whole canvas. */
+        public final boolean edgeFill;
+        /** Picture slides inside its own box: fraction of canvas width (+ = right) and height (+ = down). */
+        public final float edgeSlideX, edgeSlideY;
+        /** Horizontal squeeze toward the anchor (0 = left edge, 1 = right edge of the picture), 1 = none. */
+        public final float squeezeX, squeezeAnchor;
 
         public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
                             float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
@@ -221,6 +245,28 @@ public class OpenGLEdit {
                             float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
                             float unfoldTopWidth, float unfoldBottomWidth, float unfoldHeight, float contrast,
                             String textUnitMode, int textUnitIndex) {
+            this(clip, localSourceTimeSeconds, mvpMatrix, opacity, hueDegrees, saturation, brightness, temperatureKelvin,
+                    blurSigmaPixels, unfoldTopWidth, unfoldBottomWidth, unfoldHeight, contrast,
+                    textUnitMode, textUnitIndex, ClipAnimationFrame.NEUTRAL, false);
+        }
+
+        /**
+         * Full constructor. {@code look} supplies the iOS look channels (exposure always; the streak group -
+         * edge fill / edge slide / squeeze / motion blur - only when {@code withStreak}, which per-unit text
+         * commands leave off, as on iOS where text units get colour and warp only).
+         */
+        public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
+                            float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
+                            float unfoldTopWidth, float unfoldBottomWidth, float unfoldHeight, float contrast,
+                            String textUnitMode, int textUnitIndex, ClipAnimationFrame look, boolean withStreak) {
+            this.exposure = look.exposure();
+            this.motionBlurWidthFraction = withStreak ? look.motionBlurWidthFraction() : 0f;
+            this.blurAngleDegrees = look.blurAngleDegrees();
+            this.edgeFill = withStreak && look.edgeFill() > 0.5f;
+            this.edgeSlideX = withStreak ? look.edgeSlideFraction() : 0f;
+            this.edgeSlideY = withStreak ? look.edgeSlideYFraction() : 0f;
+            this.squeezeX = withStreak ? look.squeezeX() : 1f;
+            this.squeezeAnchor = look.squeezeAnchor();
             this.textUnitMode = textUnitMode;
             this.textUnitIndex = textUnitIndex;
             this.clip = clip;
@@ -236,6 +282,19 @@ public class OpenGLEdit {
             this.unfoldBottomWidth = unfoldBottomWidth;
             this.unfoldHeight = unfoldHeight;
             this.contrast = contrast;
+        }
+
+        /**
+         * True when this clip must go through the streak pass (edge fill, edge slide, squeeze or motion blur) -
+         * the same thresholds as iOS's streakStack: slides under half a pixel and squeezes within 0.2% of 1 are
+         * ignored. Frames outside an animation that drives these channels are false, so they pay nothing.
+         */
+        public boolean needsStreakPass() {
+            return edgeFill
+                    || Math.abs(edgeSlideX) > STREAK_SLIDE_EPSILON
+                    || Math.abs(edgeSlideY) > STREAK_SLIDE_EPSILON
+                    || Math.abs(squeezeX - 1f) > 0.002f
+                    || motionBlurWidthFraction > STREAK_SLIDE_EPSILON;
         }
     }
 
@@ -327,7 +386,19 @@ public class OpenGLEdit {
             if (track == null || track.clips == null) continue;
 
             TransitionWindow window = findActiveTransition(track, outputTimeSeconds);
-            if (window != null) {
+            if (window != null && window.dataStyle != null) {
+                // Data-driven style (iOS TransitionStyleLoader): no blend. One picture at a time - A before the
+                // style's cut, B after it - drawn like any clip, with that side's look (exposure, motion blur,
+                // edge fill, warp, ...) stacked on the clip's own properties and In / Out animation.
+                Clip drawn = window.dataStyle.showsFrom(window.progress) ? window.clipA : window.clipB;
+                ClipAnimationFrame look = window.dataStyle.frameAt(window.progress);
+                DrawCommand styled = buildDrawCommand(drawn, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection, look);
+                if (styled != null) {
+                    layers.add(FrameLayer.of(styled));
+                    continue;
+                }
+                // An unsupported clip type (e.g. 3D): fall through to normal single-clip handling below.
+            } else if (window != null) {
                 DrawCommand cmdA = buildDrawCommand(window.clipA, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
                 DrawCommand cmdB = buildDrawCommand(window.clipB, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
                 if (cmdA != null && cmdB != null) {
@@ -365,8 +436,10 @@ public class OpenGLEdit {
         final Clip clipA, clipB;
         final String style;
         final float progress;
-        TransitionWindow(Clip clipA, Clip clipB, String style, float progress) {
-            this.clipA = clipA; this.clipB = clipB; this.style = style; this.progress = progress;
+        /** Non-null for a data-driven style: one picture is drawn, not a blend of two. */
+        final TransitionStyle dataStyle;
+        TransitionWindow(Clip clipA, Clip clipB, String style, float progress, TransitionStyle dataStyle) {
+            this.clipA = clipA; this.clipB = clipB; this.style = style; this.progress = progress; this.dataStyle = dataStyle;
         }
     }
 
@@ -386,14 +459,16 @@ public class OpenGLEdit {
             TransitionClip transition = clipA.endTransition;
             if (transition.mode != TransitionClip.TransitionMode.OVERLAP) continue;
             if (transition.effect == null || "none".equals(transition.effect.style)) continue;
-            if (!SUPPORTED_TRANSITION_STYLES.contains(transition.effect.style)) continue;
+            // A data-driven style (animations/transitions/*.json) wins over a hard-coded blend of the same key.
+            TransitionStyle dataStyle = TransitionStyleLoader.get(transition.effect.style);
+            if (dataStyle == null && !SUPPORTED_TRANSITION_STYLES.contains(transition.effect.style)) continue;
 
             float windowEnd = clipA.startTime + clipA.duration;
             float windowStart = windowEnd - transition.duration;
             if (t >= windowStart && t < windowEnd) {
                 Clip clipB = track.clips.get(i + 1);
                 float progress = transition.duration > 0f ? (t - windowStart) / transition.duration : 1f;
-                return new TransitionWindow(clipA, clipB, transition.effect.style, progress);
+                return new TransitionWindow(clipA, clipB, transition.effect.style, progress, dataStyle);
             }
         }
         return null;
@@ -543,7 +618,7 @@ public class OpenGLEdit {
                     tempBase + anim.temperatureKelvin(),
                     0f, // blur is not applied per unit
                     anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast(),
-                    textStyle.unitMode, i));
+                    textStyle.unitMode, i, anim, false)); // exposure yes; the streak group is not applied per unit (as on iOS)
         }
         return out;
     }
@@ -602,6 +677,16 @@ public class OpenGLEdit {
     /** Builds one clip's complete draw info at outputTimeSeconds, or null if its type isn't drawable (audio/text/effect/3D — see getUnsupportedFeatures). */
     private DrawCommand buildDrawCommand(Clip clip, float outputTimeSeconds,
                                           int canvasWidth, int canvasHeight, boolean stretchToFull, float[] projection) {
+        return buildDrawCommand(clip, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection, null);
+    }
+
+    /**
+     * As above, with {@code styleLook}: the channel values of a data-driven transition style's side (null = none),
+     * merged into the clip's own In / Out animation frame ({@link ClipAnimationFrame#merged}) so both apply at once.
+     */
+    private DrawCommand buildDrawCommand(Clip clip, float outputTimeSeconds,
+                                          int canvasWidth, int canvasHeight, boolean stretchToFull, float[] projection,
+                                          ClipAnimationFrame styleLook) {
         boolean isText = clip.type == ClipType.TEXT;
         if (clip.type != ClipType.VIDEO && clip.type != ClipType.IMAGE && !isText) {
             return null; // audio has no picture; effects/3D: see getUnsupportedFeatures
@@ -642,7 +727,7 @@ public class OpenGLEdit {
 
         // Every channel is neutral outside the animation window (the shared NEUTRAL frame, no
         // allocation), so the overwhelming majority of frames pay nothing for this.
-        ClipAnimationFrame anim = animationFrame(clip, outputTimeSeconds);
+        ClipAnimationFrame anim = animationFrame(clip, outputTimeSeconds).merged(styleLook);
 
         float[] mvp = buildClipMvp(clip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull, anim, textBox);
         float opacity = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Opacity)
@@ -658,7 +743,8 @@ public class OpenGLEdit {
         float blurSigmaPixels = anim.blurWidthFraction() * canvasWidth;
 
         return new DrawCommand(clip, localSourceTime, mvp, opacity, hue, saturation, brightness, temperature, blurSigmaPixels,
-                anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast());
+                anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast(),
+                null, -1, anim, true);
     }
 
     /**

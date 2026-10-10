@@ -102,6 +102,18 @@ public class FXCommandEmitter {
                 break;
 
         }
+        // A data-driven style (animations/transitions/*.json) only exists in the OpenGL export: xfade has no
+        // such transition and would fail the whole export, so FFmpeg plays it as a plain cross fade with the
+        // same timing (FFmpegEdit.getUnsupportedAnimationFeatures tells the user).
+        final TransitionStyle dataStyle = TransitionStyleLoader.get(FXRegistry.normalizeTransitionStyle(transition.effect.style));
+        if(dataStyle != null)
+        {
+            tags.storeTag(mergedClip, outputLabel, fromTag.index);
+            return fromTag.tag + toTag.tag +
+                    "xfade=transition=fade:duration=" + transition.duration + ":offset=" +
+                    transitionOffset
+                    + outputLabel + ";\n";
+        }
         if(transition.effect.style.contains("custom_"))
         {
             String customStyle = transition.effect.style.replace("custom_", "");
@@ -203,6 +215,25 @@ public class FXCommandEmitter {
             put("custom_massive-effect", "Massive Effect [Custom]");
             put("custom_fake-glass-shatter", "Fake Glass Shatter [Custom]");
         }});
+
+        /**
+         * What the transition picker lists, key -> label: {@link #transitionFXMap} plus the data-driven styles
+         * ({@link TransitionStyleLoader}), which go right after "none" because, like the hard-coded blends the OpenGL
+         * export honours, they come first; their label says they are OpenGL-only (FFmpeg draws a plain cross fade).
+         * Built on each call so a style registered later shows up.
+         */
+        public static Map<String, String> transitionChoices() {
+            Map<String, String> out = new LinkedHashMap<>();
+            for (Map.Entry<String, String> e : transitionFXMap.entrySet()) {
+                out.put(e.getKey(), e.getValue());
+                if ("none".equals(e.getKey())) {
+                    for (TransitionStyle s : TransitionStyleLoader.list()) {
+                        if (!transitionFXMap.containsKey(s.getId())) out.put(s.getId(), s.getName() + " [OpenGL]");
+                    }
+                }
+            }
+            return out;
+        }
 
         /** Projects saved before the key fix may hold "radial " / "circleopen "; use this when reading a style. */
         public static String normalizeTransitionStyle(String style) {

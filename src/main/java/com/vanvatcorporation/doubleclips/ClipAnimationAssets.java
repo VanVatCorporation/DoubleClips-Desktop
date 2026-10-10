@@ -19,9 +19,10 @@ import java.util.List;
  * Bundled animations are classpath resources: {@code /animations/in/*.json} ("in" animations)
  * and {@code /animations/out/*.json} ("out" animations); the folder a file is in must match the
  * direction it declares. A classpath folder can't be listed once the app is packed into a jar,
- * so the bundled files are named in {@code /animations/index.txt} (one {@code in/name.json} or
- * {@code out/name.json} per line; blank lines and lines starting with # are ignored). To add a
- * bundled animation, drop its .json into the folder AND add its line to that list.
+ * so the bundled files are named in {@code /animations/index.txt} (one {@code in/name.json},
+ * {@code out/name.json} or {@code transitions/name.json} per line; blank lines and lines starting with # are
+ * ignored). To add a bundled animation, drop its .json into the folder AND add its line to that list.
+ * {@code transitions/} files are data-driven transition styles ({@link TransitionStyleLoader}).
  * <p>
  * Installed packs live in {@code <app directory>/animation_packs/<packId>/}, where the app
  * directory is {@link StorageHelper#getAppDirectory()}. The OpenGL export runs in a separate
@@ -77,9 +78,14 @@ public final class ClipAnimationAssets {
             return errors;
         }
         List<Pending> pending = new ArrayList<>();
+        List<String> transitionFiles = new ArrayList<>(); // transitions/<file>.json: data-driven transition styles
         for (String line : index.split("\\R")) {
             String n = line.trim();
             if (n.isEmpty() || n.startsWith("#")) continue;
+            if (n.startsWith(TransitionStyleLoader.ASSET_FOLDER + "/") && n.endsWith(".json")) {
+                transitionFiles.add(n);
+                continue;
+            }
             ClipAnimation.Direction dir = null;
             for (ClipAnimation.Direction d : ClipAnimation.Direction.values()) {
                 if (n.startsWith(d.json + "/")) dir = d;
@@ -121,6 +127,18 @@ public final class ClipAnimationAssets {
             pending = stillPending;
         }
         for (Pending p : pending) errors.add(p.name + ": its \"mirrorOf\" animation was never loaded");
+
+        // Transition styles are independent files (they never mirror anything), so one pass is enough.
+        for (String name : transitionFiles) {
+            try {
+                TransitionStyleLoader.register(readResource(name), name);
+            } catch (ClipAnimationLoader.FormatException e) {
+                errors.add(e.getMessage());
+            } catch (IOException e) {
+                errors.add(name + ": can't read file: " + e.getMessage());
+            }
+        }
+        TransitionStyleLoader.markBuiltInsLoaded();
 
         builtInsLoaded = true;
         return errors;

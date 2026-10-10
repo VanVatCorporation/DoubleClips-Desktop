@@ -904,6 +904,12 @@ public class FFmpegEdit {
                 if (clip == null) continue;
                 collectUnsupportedAnimation(clip.inAnimation, ClipAnimation.Direction.IN, found);
                 collectUnsupportedAnimation(clip.outAnimation, ClipAnimation.Direction.OUT, found);
+                if (clip.endTransitionEnabled && clip.endTransition != null && clip.endTransition.effect != null) {
+                    TransitionStyle dataStyle = TransitionStyleLoader.get(FXCommandEmitter.FXRegistry.normalizeTransitionStyle(clip.endTransition.effect.style));
+                    if (dataStyle != null) {
+                        found.add("The transition \"" + dataStyle.getName() + "\" is drawn as a plain cross fade (only the OpenGL export plays it)");
+                    }
+                }
                 if (clip.type == ClipType.EFFECT && clip.effect != null && EffectCatalog.find(clip.effect.style) != null) {
                     // The FFmpeg filter graph never draws effect clips; only the OpenGL export does (as an adjustment layer).
                     found.add("The effect \"" + EffectCatalog.find(clip.effect.style).title + "\" is skipped (only the OpenGL export draws effect clips)");

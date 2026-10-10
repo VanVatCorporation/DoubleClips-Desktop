@@ -1,4 +1,4 @@
-# One bundled animation per line, as <direction>/<file>.json. A jar cannot be listed, so new bundled
+# One bundled file per line, as <direction>/<file>.json or transitions/<file>.json. A jar cannot be listed, so new bundled
 # animations must be added here as well as dropped into the folder.
 in/drop-in.json
 in/fade-in.json
@@ -13,6 +13,8 @@ out/fade-out.json
 out/fold.json
 out/pop-out.json
 out/rise-out.json
+out/shake-slide.json
 out/slide-left-out.json
 out/spin-out.json
 out/tilt-out.json
+transitions/glitchblur.json

@@ -261,7 +261,7 @@ public final class ClipAnimationLoader {
         return new ClipAnimation(id, name, direction, (float) duration, curves, false, referenceFrames);
     }
 
-    private static ClipAnimation.Curve parseCurve(Map<String, Object> m, ClipAnimation.Channel ch,
+    static ClipAnimation.Curve parseCurve(Map<String, Object> m, ClipAnimation.Channel ch,
                                                   int referenceFrames, String path) throws FormatException {
         String kind = reqString(m, "kind", path, 16);
         if ("constant".equals(kind)) {
@@ -331,7 +331,7 @@ public final class ClipAnimationLoader {
         }
     }
 
-    private static String fmt(double d) {
+    static String fmt(double d) {
         return d == Math.rint(d) && Math.abs(d) < 1e9 ? Long.toString((long) d) : Double.toString(d);
     }
 

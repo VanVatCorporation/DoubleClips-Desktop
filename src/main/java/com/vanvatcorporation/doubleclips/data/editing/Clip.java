@@ -25,6 +25,73 @@ public class Clip implements Serializable {
     @Expose public EffectTemplate effect;
     @Expose public String textContent;
     @Expose public float fontSize;
+    // Text look. Every default below (null / 0 / false) means "how text always looked", so projects saved
+    // before these existed load unchanged: SansSerif, black, no outline, left-aligned.
+    /** Font family name (as the system lists it); null = the default sans-serif. */
+    @Expose public String textFontFamily;
+    /** File name of an imported font inside the project's Fonts folder; when set it wins over the family. */
+    @Expose public String textFontFile;
+    @Expose public boolean textBold;
+    @Expose public boolean textItalic;
+    /** "#RRGGBB"; null = black. */
+    @Expose public String textColor;
+    /** Outline thickness in canvas pixels, drawn outside the letters; 0 = none. */
+    @Expose public float textOutlineWidth;
+    /** "#RRGGBB"; null = black. */
+    @Expose public String textOutlineColor;
+    /** Line alignment inside the text box: 0 left, 1 centre, 2 right. */
+    @Expose public int textAlign;
+    /**
+     * Per-unit text animation (OpenGL only): "CHARACTER", "WORD" or "LINE" animates the clip's own in/out
+     * animation separately on each unit, each starting a little after the previous one. null / empty = the
+     * whole text animates as one block, as before.
+     */
+    @Expose public String textUnitMode;
+    /** Fraction (0..0.95) of the animation window the units are spread over; 0 = the default, 0.6. */
+    @Expose public float textStagger;
+    /** "FORWARD" (null), "REVERSE", "CENTER_OUT" or "RANDOM": which unit starts first. */
+    @Expose public String textUnitOrder;
+
+    /**
+     * The text style in the iOS format (see {@link TextStyleData}). When present it wins over the flat text
+     * fields above, which only older projects use; null on a clip that has never been given one.
+     */
+    @Expose public TextStyleData textStyle;
+
+    /**
+     * The style to draw and show for this clip: its {@link #textStyle}, or - for a clip from before that
+     * existed - one built from the flat fields, looking exactly as the clip always did (black unless it had
+     * a colour, left aligned, wrapping at the clip's width). A new object each time for a legacy clip:
+     * change it through {@link #editableTextStyle()}.
+     */
+    public TextStyleData effectiveTextStyle() {
+        if (textStyle != null) return textStyle.normalized(); // may carry Android's spelling too
+        return legacyTextStyle();
+    }
+
+    /** The clip's own style object to change, creating it from the flat fields the first time. */
+    public TextStyleData editableTextStyle() {
+        if (textStyle == null) textStyle = legacyTextStyle();
+        else if (textStyle.hasAndroidFields()) textStyle = textStyle.normalized();
+        return textStyle;
+    }
+
+    private TextStyleData legacyTextStyle() {
+        TextStyleData d = new TextStyleData();
+        d.fontName = textFontFamily == null ? "" : textFontFamily;
+        d.fontFile = textFontFile == null || textFontFile.isEmpty() ? null : textFontFile;
+        d.bold = textBold;
+        d.italic = textItalic;
+        d.colorHex = textColor != null ? textColor : "#000000"; // what text has always been drawn in
+        d.setAlignmentIndex(textAlign);
+        d.outlineWidth = textOutlineWidth;
+        d.outlineColorHex = textOutlineColor != null ? textOutlineColor : "#000000";
+        d.wrapWidth = -1f; // wrap at the clip's width, as before
+        d.unitMode = textUnitMode == null || textUnitMode.isEmpty() ? null : textUnitMode;
+        d.stagger = textStagger;
+        d.unitOrder = textUnitOrder;
+        return d;
+    }
     @Expose public String sceneConfig;
     @Expose public String textureClipName;
     
@@ -89,6 +156,19 @@ public class Clip implements Serializable {
         this.endTransitionEnabled = other.endTransitionEnabled;
         this.textContent = other.textContent;
         this.fontSize = other.fontSize;
+        this.textFontFamily = other.textFontFamily;
+        this.textFontFile = other.textFontFile;
+        this.textBold = other.textBold;
+        this.textItalic = other.textItalic;
+        this.textColor = other.textColor;
+        this.textOutlineWidth = other.textOutlineWidth;
+        this.textOutlineColor = other.textOutlineColor;
+        this.textAlign = other.textAlign;
+        this.textUnitMode = other.textUnitMode;
+        this.textStagger = other.textStagger;
+        this.textUnitOrder = other.textUnitOrder;
+        this.textStyle = other.textStyle == null ? null : new TextStyleData(other.textStyle);
+        this.effect = other.effect == null ? null : new EffectTemplate(other.effect); // an effect clip keeps its effect and strength when copied
         this.sceneConfig = other.sceneConfig;
         this.textureClipName = other.textureClipName;
         this.additionalFFmpegCommand = other.additionalFFmpegCommand;

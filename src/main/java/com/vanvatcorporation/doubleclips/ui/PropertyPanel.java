@@ -1134,21 +1134,33 @@ public class PropertyPanel extends VBox {
         typeLabel.getStyleClass().add("text-muted");
         typeLabel.setStyle("-fx-font-size: 11px;");
 
+        // The duration spinner is created up here because picking a data-driven style resets it to the style's own default.
+        final Spinner<Double> durSpinner = new Spinner<>(0.0, 10.0, (double) tc.duration, 0.1);
+
         ComboBox<String> typeCombo = new ComboBox<>();
-        com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap.forEach((k, v) -> typeCombo.getItems().add(v));
+        // Hard-coded blends plus the data-driven styles (animations/transitions/*.json); the latter are labelled [OpenGL].
+        final java.util.Map<String, String> transitionChoices = com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionChoices();
+        transitionChoices.forEach((k, v) -> typeCombo.getItems().add(v));
 
         String currentStyle = tc.effect != null
                 ? com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.normalizeTransitionStyle(tc.effect.style) : "none";
-        com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap.entrySet().stream()
+        transitionChoices.entrySet().stream()
                 .filter(e -> e.getKey().equals(currentStyle)).findFirst().ifPresent(e -> typeCombo.setValue(e.getValue()));
 
         typeCombo.setMaxWidth(Double.MAX_VALUE);
         typeCombo.setOnAction(e -> {
             String chosen = typeCombo.getValue();
-            com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap.entrySet().stream()
+            transitionChoices.entrySet().stream()
                     .filter(entry -> entry.getValue().equals(chosen)).findFirst().ifPresent(entry -> {
                         if (tc.effect == null) tc.effect = new EffectTemplate(entry.getKey(), tc.duration, tc.startTime);
                         else tc.effect.style = entry.getKey();
+                        // A data-driven style is authored for a duration (Glitch Blur: 2.3 s); start from it. The spinner's
+                        // listener below copies the value into tc.duration / tc.effect.duration and saves the project.
+                        com.vanvatcorporation.doubleclips.TransitionStyle dataStyle =
+                                com.vanvatcorporation.doubleclips.TransitionStyleLoader.get(entry.getKey());
+                        if (dataStyle != null) {
+                            durSpinner.getValueFactory().setValue((double) Math.round(dataStyle.getDefaultDuration() * 10f) / 10.0);
+                        }
                         context.saveProject();
                     });
         });
@@ -1182,7 +1194,6 @@ public class PropertyPanel extends VBox {
         durLabel.getStyleClass().add("text-muted");
         durLabel.setStyle("-fx-font-size: 11px;");
 
-        Spinner<Double> durSpinner = new Spinner<>(0.0, 10.0, (double) tc.duration, 0.1);
         durSpinner.setEditable(true);
         durSpinner.setMaxWidth(Double.MAX_VALUE);
         durSpinner.valueProperty().addListener((obs, old, nv) -> {

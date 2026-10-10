@@ -35,6 +35,8 @@ public final class ClipAnimation {
      * min/max are enforced on load (every knot / gaussian endpoint of a file must lie inside).
      * BLUR is capped at 5% of the canvas width because the blur shader is a fixed 17-tap
      * kernel (taps sigma/3 apart): beyond roughly that it starts to band.
+     * The last eight (EXPOSURE .. SQUEEZE_ANCHOR) are the iOS "look" channels used by data-driven
+     * transition styles and Shake Slide: same names, neutrals and ranges as iOS ClipAnimation.swift.
      */
     public enum Channel {
         OPACITY("opacity", 1, 0, 1),
@@ -50,7 +52,16 @@ public final class ClipAnimation {
         BLUR("blur", 0, 0, 0.05),
         WARP_TOP_WIDTH("warp.topWidth", 1, 0.1, 2),
         WARP_BOTTOM_WIDTH("warp.bottomWidth", 1, 0.1, 2),
-        WARP_HEIGHT("warp.height", 1, 0.1, 2);
+        WARP_HEIGHT("warp.height", 1, 0.1, 2),
+        // ---- iOS look channels (see ClipAnimationFrame for what each one does) ----
+        EXPOSURE("exposure", 1, 0, 4),
+        MOTION_BLUR("motionBlur", 0, 0, 1),
+        BLUR_ANGLE("blurAngle", 0, -180, 180),
+        EDGE_FILL("edgeFill", 0, 0, 1),
+        EDGE_SLIDE("edgeSlide", 0, -2, 2),
+        EDGE_SLIDE_Y("edgeSlideY", 0, -2, 2),
+        SQUEEZE_X("squeezeX", 1, 0.02, 2),
+        SQUEEZE_ANCHOR("squeezeAnchor", 0.5, 0, 1);
 
         public final String json;
         public final double neutral;
