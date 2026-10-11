@@ -1090,56 +1090,12 @@ public class PropertyPanel extends VBox {
 
         btnRow.getChildren().addAll(addBtn, clearBtn, importBtn, exportBtn);
 
-        HBox easingRow = new HBox(8);
-        easingRow.setAlignment(Pos.CENTER_LEFT);
-        Label easingLbl = new Label("Easing");
-        easingLbl.setStyle("-fx-font-size: 11px;");
-        easingLbl.getStyleClass().add("text-muted");
-
-        ComboBox<EasingType> easingCombo = new ComboBox<>();
-        easingCombo.getItems().addAll(EasingType.values());
-        easingCombo.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(easingCombo, Priority.ALWAYS);
-
-        Keyframe currentKf = clip.keyframes.getKeyframeAtTime(clip, context.getCurrentTime());
-        if (currentKf != null) easingCombo.setValue(currentKf.easing);
-        else easingCombo.setDisable(true);
-
-        context.addPropertyUpdater(() -> {
-            float time = context.getTempTime() >= 0 ? context.getTempTime() : context.getCurrentTime();
-            if (clip.keyframes != null) {
-                Keyframe k = clip.keyframes.getKeyframeAtTime(clip, time);
-                if (k != null) {
-                    easingCombo.setValue(k.easing);
-                    easingCombo.setDisable(false);
-                } else {
-                    easingCombo.setDisable(true);
-                }
-            }
-        });
-
-        easingCombo.setOnAction(e -> {
-            Keyframe k = clip.keyframes.getKeyframeAtTime(clip, context.getCurrentTime());
-            if (k != null && easingCombo.isShowing()) {
-                EasingType oldE = k.easing;
-                EasingType newE = easingCombo.getValue();
-                if (oldE == newE) return;
-                context.executePropertyChange("Change Keyframe Easing", () -> {
-                    k.easing = newE;
-                    context.saveProject();
-                }, () -> {
-                    k.easing = oldE;
-                    context.saveProject();
-                });
-            }
-        });
-
-        easingRow.getChildren().addAll(easingLbl, easingCombo);
-        box.getChildren().addAll(buildSectionDivider("Keyframes"), countLbl, btnRow, easingRow);
+        box.getChildren().addAll(buildSectionDivider("Keyframes"), countLbl, btnRow);
 
         if (count > 0) {
             VBox kfList = new VBox(4);
             java.util.Map<Keyframe, FontIcon> icons = new java.util.LinkedHashMap<>();
+            java.util.Map<Keyframe, EasingChip> chips = new java.util.LinkedHashMap<>();
             for (Keyframe k : clip.keyframes.keyframes) {
                 HBox kfRow = new HBox(8);
                 kfRow.setAlignment(Pos.CENTER_LEFT);
@@ -1150,11 +1106,25 @@ public class PropertyPanel extends VBox {
                 icon.setIconSize(12);
                 icons.put(k, icon);
 
-                // "0.50s - Pos X, Scale Y" ("All" for a keyframe that holds every property)
-                Label timeLbl = new Label(String.format("%.2fs  -  %s", k.getLocalTime(), k.channelSummary()));
+                // "0.50s" with the properties it holds under it ("All", or e.g. "Pos X, Scale Y")
+                Label timeLbl = new Label(String.format("%.2fs", k.getLocalTime()));
                 timeLbl.setStyle("-fx-font-size: 11px;");
+                Label channelsLbl = new Label(k.channelSummary());
+                channelsLbl.setStyle("-fx-font-size: 10px;");
+                channelsLbl.getStyleClass().add("text-muted");
+                channelsLbl.setMaxWidth(110);
+                VBox labels = new VBox(1, timeLbl, channelsLbl);
 
-                kfRow.getChildren().addAll(icon, timeLbl);
+                Region grow = new Region();
+                HBox.setHgrow(grow, Priority.ALWAYS);
+
+                // The easing of the curve that starts at this keyframe: a small graph that opens the grid.
+                EasingChip chip = new EasingChip(k.easing);
+                chip.setOnAction(e -> EasingPicker.show(chip.getScene() != null ? chip.getScene().getWindow() : null,
+                        k.easing, newEasing -> changeEasing(k, newEasing, chips)));
+                chips.put(k, chip);
+
+                kfRow.getChildren().addAll(icon, labels, grow, chip);
                 kfRow.setOnMouseClicked(e -> {
                     context.updateCurrentTime(k.getGlobalTime(clip));
                     context.refreshTimelineUI();
@@ -1165,6 +1135,8 @@ public class PropertyPanel extends VBox {
 
                 kfList.getChildren().add(kfRow);
             }
+            // Undo/redo changes the easing behind the chips' back: keep them showing the real one.
+            context.addPropertyUpdater(() -> chips.forEach((k, chip) -> chip.setEasing(k.easing)));
             // The keyframe the playhead is on is the chosen one (purple); the rest are grey.
             Runnable paintIcons = () -> {
                 float time = context.getTempTime() >= 0 ? context.getTempTime() : context.getCurrentTime();
@@ -1177,6 +1149,23 @@ public class PropertyPanel extends VBox {
         }
 
         return box;
+    }
+
+    /** Sets the easing of the curve that starts at {@code k} (undoable) and refreshes its chip. */
+    private void changeEasing(Keyframe k, EasingType newEasing, java.util.Map<Keyframe, EasingChip> chips) {
+        EasingType oldEasing = k.easing;
+        if (oldEasing == newEasing) return;
+        context.executePropertyChange("Change Keyframe Easing", () -> {
+            k.easing = newEasing;
+            EasingChip chip = chips.get(k);
+            if (chip != null) chip.setEasing(newEasing);
+            context.saveProject();
+        }, () -> {
+            k.easing = oldEasing;
+            EasingChip chip = chips.get(k);
+            if (chip != null) chip.setEasing(oldEasing);
+            context.saveProject();
+        });
     }
 
     private Button buildButton(String text, Consumer<javafx.event.ActionEvent> action, String styleClass) {

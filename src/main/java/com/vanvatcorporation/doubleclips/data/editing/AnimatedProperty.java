@@ -82,7 +82,7 @@ public class AnimatedProperty implements Serializable {
         @Override public float value(int i) { return keyframes.get(i).value.getValue(type); }
         @Override public float ease(int i, float t) {
             EasingType easing = keyframes.get(i).easing;
-            return AnimatedProperty.this.ease(t, easing == null ? EasingType.LINEAR : easing);
+            return AnimatedProperty.ease(t, easing == null ? EasingType.LINEAR : easing);
         }
     }
 
@@ -240,7 +240,8 @@ public class AnimatedProperty implements Serializable {
     }
 
 
-        private float ease(float t, EasingType type) {
+        /** The curve of one easing: 0..1 in, 0..1 out (NONE gives 0 = hold until the next keyframe). Public so the easing graph draws exactly this. */
+        public static float ease(float t, EasingType type) {
             switch (type) {
                 // None
                 case NONE: return 0;
