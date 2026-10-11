@@ -370,14 +370,16 @@ public class ClipNode extends Pane {
 
         for (Keyframe kf : clip.keyframes.keyframes) {
             Rectangle knot = new Rectangle(knotSize, knotSize);
-            knot.setFill(Color.WHITE);
-            knot.setStroke(Color.web("#00D4FF"));
+            styleKnot(knot, kf);
             knot.setStrokeWidth(1.5);
             knot.setArcWidth(0);
             knot.setArcHeight(0);
             knot.setRotate(45);
             knot.setMouseTransparent(false);
             knot.getStyleClass().add("keyframe-knot");
+            // Which properties this keyframe belongs to ("All", or e.g. "Pos X, Scale Y").
+            javafx.scene.control.Tooltip.install(knot, new javafx.scene.control.Tooltip(
+                    String.format("Keyframe at %.2fs - %s", kf.getLocalTime(), kf.channelSummary())));
 
             // Tag so we can identify and remove these later
             knot.setUserData(kf);
@@ -448,6 +450,25 @@ public class ClipNode extends Pane {
             });
 
             getChildren().add(knot);
+        }
+    }
+
+    /** The knot colour of a keyframe the playhead is on ("chosen": the properties panel edits it) vs the others. */
+    public static final Color KNOT_ACTIVE = Color.web("#4A5FFF");
+    private static final Color KNOT_IDLE_STROKE = Color.web("#00D4FF");
+
+    private void styleKnot(Rectangle knot, Keyframe kf) {
+        boolean active = context != null && Math.abs(kf.getGlobalTime(clip) - context.getCurrentTime())
+                <= com.vanvatcorporation.doubleclips.constants.Constants.TRACK_CLIPS_MINIMUM_KEYFRAME_SPACE_SECONDS;
+        knot.setFill(active ? KNOT_ACTIVE : Color.WHITE);
+        knot.setStroke(active ? KNOT_ACTIVE : KNOT_IDLE_STROKE);
+    }
+
+    /** Recolours the knots for the current playhead (cheap; EditorWindow calls it whenever the time moves). */
+    public void refreshKeyframeHighlight() {
+        if (clip.keyframes == null || clip.keyframes.keyframes == null || clip.keyframes.keyframes.isEmpty()) return;
+        for (javafx.scene.Node n : getChildren()) {
+            if (n instanceof Rectangle r && r.getUserData() instanceof Keyframe kf) styleKnot(r, kf);
         }
     }
 

@@ -5,6 +5,7 @@ import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.ClipType;
 import com.vanvatcorporation.doubleclips.data.editing.EasingType;
 import com.vanvatcorporation.doubleclips.data.editing.Keyframe;
+import com.vanvatcorporation.doubleclips.data.editing.KeyframesSnapshot;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.Track;
 import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
@@ -105,7 +106,7 @@ public final class PreviewGizmo {
     private VideoProperties live;            // the values currently shown
     private int keyIndex = -1;               // keyframe being edited, or -1
     private boolean keyframeInserted = false;
-    private Snapshot before;                 // everything the gesture can touch, as it was at press
+    private KeyframesSnapshot before;                 // everything the gesture can touch, as it was at press
     private Point2D pressCanvas;
     private int draggedHandle = -1;
     private double[] startQuad;
@@ -435,21 +436,18 @@ public final class PreviewGizmo {
         collectSnapLines(clip);
         this.changed = false;
         this.keyframeInserted = false;
-        this.before = Snapshot.of(clip);
+        this.before = KeyframesSnapshot.of(clip);
 
         float time = host.currentTime();
         VideoProperties resolved = resolve(clip, time);
+        // The gesture starts from the clip's full look at the playhead. Transform properties that are animated
+        // are edited in a keyframe of their own at the playhead (found here, or inserted on the first real
+        // change); the others are plain values.
+        basis = new VideoProperties(resolved);
         keyIndex = -1;
-        if (!clip.keyframes.keyframes.isEmpty()) {
+        if (hasAnimatedTransform(clip)) {
             Keyframe at = clip.keyframes.getKeyframeAtTime(clip, time);
-            if (at != null) {
-                keyIndex = clip.keyframes.keyframes.indexOf(at);
-                basis = new VideoProperties(at.value);
-            } else {
-                basis = resolved; // a keyframe is inserted from this look on the first real change
-            }
-        } else {
-            basis = new VideoProperties(clip.videoProperties);
+            if (at != null && holdsAnimatedTransform(clip, at)) keyIndex = clip.keyframes.keyframes.indexOf(at);
         }
         live = new VideoProperties(basis);
 
@@ -470,31 +468,43 @@ public final class PreviewGizmo {
         }
         if (!changed) {
             changed = true;
-            if (!target.keyframes.keyframes.isEmpty() && keyIndex < 0) insertKeyframe();
+            if (keyIndex < 0 && hasAnimatedTransform(target)) insertKeyframe();
         }
         live = v;
         renderer.showLiveProperties(target, v, keyIndex, host.currentTime());
         refresh();
     }
 
-    /** Adds a keyframe at the playhead from the current interpolated look (gesture-owned; undo removes it). */
+    /** The properties a gesture moves, scales or rotates; each is animated on its own. */
+    private static final ValueType[] TRANSFORM = {
+            ValueType.PosX, ValueType.PosY, ValueType.Rot, ValueType.ScaleX, ValueType.ScaleY, ValueType.PivotX, ValueType.PivotY
+    };
+
+    private static boolean hasAnimatedTransform(Clip clip) {
+        for (ValueType t : TRANSFORM) if (clip.keyframes.isAnimated(t)) return true;
+        return false;
+    }
+
+    /** Does the keyframe hold every transform property that is animated (so the gesture can edit it alone)? */
+    private static boolean holdsAnimatedTransform(Clip clip, Keyframe k) {
+        for (ValueType t : TRANSFORM) if (clip.keyframes.isAnimated(t) && !k.holds(t)) return false;
+        return true;
+    }
+
+    /**
+     * Keys the animated transform properties at the playhead from the gesture's starting look (gesture-owned;
+     * undo removes it): the keyframe already there takes over the ones it lacks, otherwise a new one is added.
+     */
     private void insertKeyframe() {
         Clip clip = target;
-        float localTime = Math.max(0f, Math.min(host.currentTime() - clip.startTime, clip.duration));
-        List<Keyframe> list = clip.keyframes.keyframes;
-        // Keep the curve the new keyframe splits: it takes the easing of the keyframe before it.
-        EasingType easing = EasingType.LINEAR;
-        for (Keyframe k : list) {
-            if (k.getLocalTime() <= localTime) easing = k.easing;
+        float time = host.currentTime();
+        for (ValueType t : TRANSFORM) {
+            if (clip.keyframes.isAnimated(t)) clip.keyframes.setKey(clip, time, t, basis.getValue(t), settings.frameRate);
         }
-        Keyframe kf = new Keyframe(localTime, new VideoProperties(basis), easing);
-        list.add(kf);
-        clip.keyframes.sortKeyframe();
-        clip.keyframes.reassignKeyframes(settings.frameRate);
-        keyIndex = list.indexOf(kf);
+        keyIndex = clip.keyframes.keyframes.indexOf(clip.keyframes.getKeyframeAtTime(clip, time));
         keyframeInserted = true;
         // The worker has to see the new keyframe before any live patch addresses it by index.
-        renderer.syncWorker(host.currentTime());
+        renderer.syncWorker(time);
         host.clipChanged(clip);
     }
 
@@ -504,7 +514,7 @@ public final class PreviewGizmo {
             return;
         }
         Clip clip = target;
-        Snapshot start = before;
+        KeyframesSnapshot start = before;
         VideoProperties finalValues = live;
         boolean wasChanged = changed;
         int finalKey = keyIndex;
@@ -521,7 +531,7 @@ public final class PreviewGizmo {
 
         // Make the clip hold the final values, then capture them as the "after" state.
         TimelineRenderer.writeProperties(clip, finalValues, finalKey);
-        Snapshot end = Snapshot.of(clip);
+        KeyframesSnapshot end = KeyframesSnapshot.of(clip);
         start.restore(clip);                       // commit() runs redo, which puts "end" back
         host.commit("Move/Transform: " + clip.getClipName(), () -> {
             end.restore(clip);
@@ -537,7 +547,7 @@ public final class PreviewGizmo {
     public void cancel() {
         if (mode == Mode.NONE || target == null) return;
         Clip clip = target;
-        Snapshot start = before;
+        KeyframesSnapshot start = before;
         mode = Mode.NONE;
         target = null;
         live = null;
@@ -651,14 +661,7 @@ public final class PreviewGizmo {
      * copied from this, and must not reset opacity, colour and the rest to their static values.
      */
     private static VideoProperties resolve(Clip clip, float t) {
-        VideoProperties p = new VideoProperties(clip.videoProperties);
-        if (clip.keyframes != null && !clip.keyframes.keyframes.isEmpty()) {
-            for (ValueType type : ValueType.values()) {
-                if (type == ValueType.RotInRadians) continue; // derived from Rot
-                p.setValue(clip.keyframes.getValueAtTime(clip, t, type), type);
-            }
-        }
-        return p;
+        return clip.keyframes != null ? clip.keyframes.resolve(clip, t) : new VideoProperties(clip.videoProperties);
     }
 
     /** Canvas-pixel corners TL, TR, BR, BL as x0,y0,x1,y1,..., or null when the clip has no box. */
@@ -936,38 +939,5 @@ public final class PreviewGizmo {
 
     private Point2D toOverlay(double canvasX, double canvasY) {
         return overlay.sceneToLocal(renderPane.localToScene(canvasX, canvasY));
-    }
-
-    // ── undo snapshot ────────────────────────────────────────────────────
-
-    /**
-     * Everything a gesture can touch on one clip: its static properties and its keyframe list with
-     * each keyframe's value (copied, so later edits can't leak in). Keyframe objects keep their
-     * identity - the timeline's knot UI holds references to them.
-     */
-    private static final class Snapshot {
-        final VideoProperties statics;
-        final List<Keyframe> keys;
-        final List<VideoProperties> values;
-
-        private Snapshot(VideoProperties statics, List<Keyframe> keys, List<VideoProperties> values) {
-            this.statics = statics;
-            this.keys = keys;
-            this.values = values;
-        }
-
-        static Snapshot of(Clip clip) {
-            List<Keyframe> keys = new ArrayList<>(clip.keyframes.keyframes);
-            List<VideoProperties> values = new ArrayList<>();
-            for (Keyframe k : keys) values.add(new VideoProperties(k.value));
-            return new Snapshot(new VideoProperties(clip.videoProperties), keys, values);
-        }
-
-        void restore(Clip clip) {
-            clip.videoProperties = new VideoProperties(statics);
-            clip.keyframes.keyframes.clear();
-            clip.keyframes.keyframes.addAll(keys);
-            for (int i = 0; i < keys.size(); i++) keys.get(i).value = new VideoProperties(values.get(i));
-        }
     }
 }

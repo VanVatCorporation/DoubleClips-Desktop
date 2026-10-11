@@ -29,7 +29,16 @@ public class PropertyPanel extends VBox {
 
         Clip selectedClip = context.getSelectedClip();
         if (selectedClip == null) {
-            Label placeholder = new Label("Select a clip to view properties");
+            // A selected transition (the cube between two clips) has the panel to itself.
+            Clip transitionA = context.getSelectedTransitionSourceClip();
+            if (transitionA != null && transitionA.endTransition != null) {
+                buildTransitionPanel(transitionA);
+                return;
+            }
+        }
+        if (selectedClip == null) {
+            Label placeholder = new Label("Select a clip, or a transition between two clips, to view properties");
+            placeholder.setWrapText(true);
             placeholder.getStyleClass().add("text-muted");
             getChildren().add(placeholder);
             return;
@@ -271,16 +280,44 @@ public class PropertyPanel extends VBox {
             AnimationPackDialog.show(owner, () -> javafx.application.Platform.runLater(context::updatePropertiesPane));
         }, "import-media-button"));
 
+        // The transition at this clip's end is one click away (it used to need a hunt for the small cube on the timeline).
+        if (selectedClip.endTransition != null && context.getTransitionNextClip(selectedClip) != null) {
+            fields.getChildren().add(buildTransitionShortcut(selectedClip));
+        }
+
         getChildren().addAll(sectionTitle, fields);
 
         if (selectedClip.type != ClipType.EFFECT) {
             getChildren().add(buildKeyframesSection(selectedClip));
         }
+    }
 
-        Clip transClip = context.getSelectedTransitionSourceClip();
-        if (transClip != null && transClip.endTransition != null) {
-            getChildren().add(buildTransitionSection(transClip));
-        }
+    // ---- transitions: the panel of a selected transition, and the shortcut on its clip A ---------------------------
+
+    /** The panel of a selected transition: which two clips it joins, then its type / timing / duration. */
+    private void buildTransitionPanel(Clip clipA) {
+        Label title = new Label("Transition");
+        title.getStyleClass().add("text-bold");
+        title.setStyle("-fx-font-size: 16px;");
+        Clip clipB = context.getTransitionNextClip(clipA);
+        Label between = new Label(clipA.getClipName() + "  \u2192  " + (clipB != null ? clipB.getClipName() : "?"));
+        between.getStyleClass().add("text-muted");
+        between.setWrapText(true);
+        getChildren().addAll(title, between, buildTransitionSection(clipA));
+    }
+
+    /** On clip A: "Into <B>" and a button showing the transition's summary that selects it. */
+    private VBox buildTransitionShortcut(Clip clipA) {
+        VBox box = new VBox(4);
+        box.getChildren().add(buildSectionDivider("Transition"));
+        Clip clipB = context.getTransitionNextClip(clipA);
+        Label into = new Label("Into \"" + (clipB != null ? clipB.getClipName() : "?") + "\"");
+        into.getStyleClass().add("text-muted");
+        into.setStyle("-fx-font-size: 11px;");
+        Button open = buildButton(com.vanvatcorporation.doubleclips.TransitionSummary.of(clipA.endTransition) + "   \u203A", e -> context.selectTransition(clipA), "tool-button");
+        open.setMaxWidth(Double.MAX_VALUE);
+        box.getChildren().addAll(into, open);
+        return box;
     }
 
     // ---- effect clips: which effect, and how strong ---------------------------------------------------------
@@ -996,20 +1033,35 @@ public class PropertyPanel extends VBox {
         }));
     }
 
+    /** Is the playhead inside the clip (a keyframe can only be set there)? */
+    private boolean playheadInside(Clip clip, float time) {
+        return time >= clip.startTime - 0.001f && time <= clip.startTime + clip.duration + 0.001f;
+    }
+
+    /**
+     * A property row. A property with keyframes shows and edits its value AT THE PLAYHEAD: a new value keys that
+     * property there (updating the keyframe that is there, or adding one); a property without keyframes is
+     * edited as a plain value.
+     */
     private void addKeyframeableField(VBox parent, String label, float currentVal, VideoProperties.ValueType type, Clip clip) {
-        parent.getChildren().add(buildKeyframeablePropertyField(label, String.valueOf(currentVal), newValue -> {
+        // Show the value at the playhead (an animated property's static value is not what is on screen).
+        float shown = clip.keyframes != null ? clip.keyframes.getValueAtTime(clip, context.getCurrentTime(), type) : currentVal;
+        parent.getChildren().add(buildKeyframeablePropertyField(label, String.valueOf(shown), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
-                float oldVal = clip.videoProperties.getValue(type);
+                float time = context.getCurrentTime();
+                float oldVal = clip.keyframes.getValueAtTime(clip, time, type);
                 if (val == oldVal) return;
+                if (clip.keyframes.isAnimated(type) && !playheadInside(clip, time)) return; // nowhere to put a keyframe
+                KeyframesSnapshot before = KeyframesSnapshot.of(clip);
+                int frameRate = context.getVideoSettings().frameRate;
                 context.executePropertyChange("Change " + label, () -> {
-                    clip.videoProperties.setValue(val, type);
-                    updateKeyframeValueIfPresent(clip, type, val);
+                    if (clip.keyframes.isAnimated(type)) clip.keyframes.setKey(clip, time, type, val, frameRate);
+                    else clip.videoProperties.setValue(val, type);
                     context.refreshTimelineUI();
                     context.saveProject();
                 }, () -> {
-                    clip.videoProperties.setValue(oldVal, type);
-                    updateKeyframeValueIfPresent(clip, type, oldVal);
+                    before.restore(clip);
                     context.refreshTimelineUI();
                     context.saveProject();
                 });
@@ -1031,7 +1083,7 @@ public class PropertyPanel extends VBox {
         HBox btnRow = new HBox(6);
         btnRow.setAlignment(Pos.CENTER_LEFT);
 
-        Button addBtn = buildButton("+ Add at Playhead", e -> context.handleAddKeyframe(), "import-media-button");
+        Button addBtn = buildButton("+ Key All at Playhead", e -> context.handleAddKeyframe(), "import-media-button");
         Button clearBtn = buildButton("Clear All", e -> context.handleClearKeyframes(), "tool-button");
         Button importBtn = buildButton("Import", e -> context.handleImportKeyframes(), "tool-button");
         Button exportBtn = buildButton("Export", e -> context.handleExportKeyframes(), "tool-button");
@@ -1087,6 +1139,7 @@ public class PropertyPanel extends VBox {
 
         if (count > 0) {
             VBox kfList = new VBox(4);
+            java.util.Map<Keyframe, FontIcon> icons = new java.util.LinkedHashMap<>();
             for (Keyframe k : clip.keyframes.keyframes) {
                 HBox kfRow = new HBox(8);
                 kfRow.setAlignment(Pos.CENTER_LEFT);
@@ -1094,10 +1147,11 @@ public class PropertyPanel extends VBox {
                 kfRow.setStyle("-fx-background-color: transparent; -fx-background-radius: 4px; -fx-cursor: hand;");
 
                 FontIcon icon = new FontIcon(MaterialDesignR.RHOMBUS);
-                icon.setIconColor(Color.valueOf("#4A90E2"));
                 icon.setIconSize(12);
+                icons.put(k, icon);
 
-                Label timeLbl = new Label(String.format("Keyframe at %.2fs", k.getLocalTime()));
+                // "0.50s - Pos X, Scale Y" ("All" for a keyframe that holds every property)
+                Label timeLbl = new Label(String.format("%.2fs  -  %s", k.getLocalTime(), k.channelSummary()));
                 timeLbl.setStyle("-fx-font-size: 11px;");
 
                 kfRow.getChildren().addAll(icon, timeLbl);
@@ -1111,6 +1165,14 @@ public class PropertyPanel extends VBox {
 
                 kfList.getChildren().add(kfRow);
             }
+            // The keyframe the playhead is on is the chosen one (purple); the rest are grey.
+            Runnable paintIcons = () -> {
+                float time = context.getTempTime() >= 0 ? context.getTempTime() : context.getCurrentTime();
+                Keyframe chosen = clip.keyframes.getKeyframeAtTime(clip, time);
+                icons.forEach((k, icon) -> icon.setIconColor(k == chosen ? ClipNode.KNOT_ACTIVE : Color.valueOf("#888888")));
+            };
+            paintIcons.run();
+            context.addPropertyUpdater(paintIcons);
             box.getChildren().add(kfList);
         }
 
@@ -1208,7 +1270,7 @@ public class PropertyPanel extends VBox {
         });
         durBox.getChildren().addAll(durLabel, durSpinner);
 
-        box.getChildren().addAll(buildSectionDivider("Transition"), typePicker, modePicker, durBox);
+        box.getChildren().addAll(typePicker, modePicker, durBox);
         return box;
     }
 
@@ -1268,53 +1330,50 @@ public class PropertyPanel extends VBox {
         HBox.setHgrow(fieldBox, Priority.ALWAYS);
         TextField tf = (TextField) fieldBox.getUserData();
 
+        // The diamond: hollow = not animated, half = animated but no keyframe at the playhead,
+        // filled purple = this property has a keyframe at the playhead.
         Button kfBtn = new Button();
         kfBtn.getStyleClass().add("tool-button");
         kfBtn.setPadding(new Insets(4));
         kfBtn.setMaxHeight(Double.MAX_VALUE);
-        
-        boolean hasKf = clip.keyframes != null && clip.keyframes.getKeyframeAtTime(clip, context.getCurrentTime()) != null;
-        FontIcon diamondIcon = new FontIcon(hasKf ? MaterialDesignR.RHOMBUS : MaterialDesignR.RHOMBUS_OUTLINE);
-        diamondIcon.setIconSize(14);
-        diamondIcon.setIconColor(hasKf ? Color.valueOf("#4A90E2") : Color.valueOf("#888888"));
-        kfBtn.setGraphic(diamondIcon);
+
+        KeyDiamond diamond = new KeyDiamond();
+        diamond.setState(clip.keyframes.stateAt(clip, context.getCurrentTime(), vType));
+        kfBtn.setGraphic(diamond);
+        kfBtn.setDisable(!playheadInside(clip, context.getCurrentTime()));
 
         context.addPropertyUpdater(() -> {
             float time = context.getTempTime() >= 0 ? context.getTempTime() : context.getCurrentTime();
             if (clip.keyframes != null && !tf.isFocused()) {
                 float interpolated = clip.keyframes.getValueAtTime(clip, time, vType);
-                String displayStr = (interpolated == (long) interpolated) 
-                    ? String.format("%d", (long) interpolated) 
+                String displayStr = (interpolated == (long) interpolated)
+                    ? String.format("%d", (long) interpolated)
                     : String.format("%.2f", interpolated).replaceAll("0*$", "").replaceAll("\\.$", "");
                 tf.setText(displayStr);
             }
-            boolean currentHasKf = clip.keyframes != null && clip.keyframes.getKeyframeAtTime(clip, time) != null;
-            diamondIcon.setIconColor(currentHasKf ? Color.valueOf("#4A90E2") : Color.valueOf("#888888"));
-            diamondIcon.setIconCode(currentHasKf ? MaterialDesignR.RHOMBUS : MaterialDesignR.RHOMBUS_OUTLINE);
+            diamond.setState(clip.keyframes.stateAt(clip, time, vType));
+            kfBtn.setDisable(!playheadInside(clip, time));
         });
 
         kfBtn.setOnAction(e -> {
-            if (clip.keyframes == null) clip.keyframes = new AnimatedProperty();
-            Keyframe k = clip.keyframes.getKeyframeAtTime(clip, context.getCurrentTime());
-            if (k != null) {
-                clip.keyframes.keyframes.remove(k);
-            } else {
-                clip.keyframes.keyframes.add(new Keyframe(context.getCurrentTime() - clip.startTime, new VideoProperties(clip.videoProperties), EasingType.LINEAR));
-                clip.keyframes.sortKeyframe();
-            }
-            context.refreshTimelineUI();
-            context.saveProject();
-            context.updatePropertiesPane();
+            float time = context.getCurrentTime();
+            if (!playheadInside(clip, time)) return;
+            KeyframesSnapshot before = KeyframesSnapshot.of(clip);
+            int frameRate = context.getVideoSettings().frameRate;
+            context.executePropertyChange("Keyframe " + label, () -> {
+                clip.keyframes.toggleKey(clip, time, vType, frameRate);
+                context.refreshTimelineUI();
+                context.saveProject();
+                context.updatePropertiesPane();
+            }, () -> {
+                before.restore(clip);
+                context.refreshTimelineUI();
+                context.saveProject();
+                context.updatePropertiesPane();
+            });
         });
 
         return new HBox(8, fieldBox, kfBtn);
-    }
-
-    private void updateKeyframeValueIfPresent(Clip clip, VideoProperties.ValueType type, float val) {
-        if (clip.keyframes != null) {
-            Keyframe k = clip.keyframes.getKeyframeAtTime(clip, context.getCurrentTime());
-            if (k != null) k.value.setValue(val, type);
-        }
     }
 
     private HBox buildTogglePropertyField(String label, boolean isSelected, Consumer<Boolean> onUpdate) {

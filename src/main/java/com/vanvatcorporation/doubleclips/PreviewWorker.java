@@ -316,8 +316,9 @@ public final class PreviewWorker {
         Track track = tl.tracks.get(trackIndex);
         if (clipIndex < 0 || clipIndex >= track.clips.size()) return;
         Clip clip = track.clips.get(clipIndex);
-        if (keyIndex >= 0 && clip.keyframes != null && keyIndex < clip.keyframes.keyframes.size()) {
-            clip.keyframes.keyframes.get(keyIndex).value = props;
+        if (clip.keyframes != null) {
+            // Each property goes into that keyframe when it holds it, else into the static values.
+            clip.keyframes.writeLook(clip, props, keyIndex);
         } else {
             clip.videoProperties = props;
         }

@@ -663,6 +663,8 @@ public class FFmpegEdit {
                             .append("trim=duration=").append(clip.duration).append(",")
                             .append("setpts=PTS-STARTPTS+").append(clip.startTime).append("/TB").append(transparentLabel).append(";\n");
 
+                    // A property held by a single keyframe is just that value; fold it in before the static fallback below.
+                    clip.mergingVideoPropertiesFromSingleKeyframe();
                     String textXExpr = clip.hasAnimatedProperties() ?
                             getKeyframeFFmpegExpr(clip.keyframes.keyframes, clip, 0, VideoProperties.ValueType.PosX) :
                             String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.PosX));
@@ -987,6 +989,35 @@ public class FFmpegEdit {
      */
     public static String getKeyframeFFmpegExpr(List<Keyframe> keyframes, Clip clip, int startIndex, VideoProperties.ValueType valueType)
     {
+        // Per-property keyframes: this property only follows the keyframes that hold it.
+        List<Keyframe> holders = new ArrayList<>();
+        for (Keyframe k : keyframes) if (k.holds(valueType)) holders.add(k);
+        // No keyframe holds it: it is just the clip's static value.
+        if (holders.isEmpty()) return String.valueOf(clip.videoProperties.getValue(valueType));
+
+        String expr = keyframeExprFrom(holders, clip, startIndex, valueType);
+
+        // The segments below only cover first..last keyframe; before the first one the property holds
+        // that keyframe's value (the preview does the same). Keyframes at 0 need no extra branch.
+        Keyframe first = holders.get(0);
+        if (startIndex == 0 && holders.size() > 1 && first.getLocalTime() > 0.0005f) {
+            String unit = keyframeTimeUnit(valueType);
+            expr = "if(lt(" + unit + "," + getTimeInTimebase(unit, valueType, first, clip) + "),"
+                    + first.value.getValue(valueType) + "," + expr + ")";
+        }
+        return expr;
+    }
+
+    /** The time variable a property's expression is written in (see {@link #keyframeExprFrom}). */
+    private static String keyframeTimeUnit(VideoProperties.ValueType valueType) {
+        if (valueType == VideoProperties.ValueType.Speed || valueType == VideoProperties.ValueType.Opacity) return "T";
+        if (valueType == VideoProperties.ValueType.Brightness) return "n";
+        return "t";
+    }
+
+    /** The recursive part of {@link #getKeyframeFFmpegExpr}: {@code keyframes} are already only the ones holding the property. */
+    private static String keyframeExprFrom(List<Keyframe> keyframes, Clip clip, int startIndex, VideoProperties.ValueType valueType)
+    {
         StringBuilder keyframeExprString = new StringBuilder();
 
         // TODO: Add a 1.0 or fallback clip.videoProperties (reset properties) keyframe right after the clip duration, as it will filter out the keyframe 'else' ffmpeg.
@@ -1048,7 +1079,7 @@ public class FFmpegEdit {
                 // insert the expr here
                 // previous: nextKeyframe.value.getValue(valueType)
                 .append(generateEasing(prevKeyframe, nextKeyframe, clip, valueType, evalTimeUnit)).append(",")
-                .append(getKeyframeFFmpegExpr(keyframes, clip, nextIndex, valueType))
+                .append(keyframeExprFrom(keyframes, clip, nextIndex, valueType))
                 .append(")");
 
 

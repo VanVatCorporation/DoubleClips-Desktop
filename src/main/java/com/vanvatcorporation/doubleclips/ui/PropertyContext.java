@@ -7,7 +7,15 @@ import com.vanvatcorporation.doubleclips.data.editing.Track;
 public interface PropertyContext {
     Clip getSelectedClip();
     Track getSelectedTrack();
+    /**
+     * The clip A of the selected transition (the cube between two touching clips), or null. A transition and a clip are
+     * never selected together, and a transition whose clips were deleted or moved apart is no longer selected.
+     */
     Clip getSelectedTransitionSourceClip();
+    /** Select the transition that ends this clip (clears the clip selection); no-op when no clip touches its end. */
+    void selectTransition(Clip clipA);
+    /** The clip B of the transition that ends {@code clipA} - the clip touching its end on the same track - or null. */
+    Clip getTransitionNextClip(Clip clipA);
     float getCurrentTime();
     float getTempTime();
     

@@ -99,6 +99,55 @@ public class VideoProperties implements Serializable {
     }
 
     public enum ValueType {
-        PosX, PosY, Rot, RotInRadians, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature
+        PosX, PosY, Rot, RotInRadians, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature;
+
+        /** The properties a keyframe can hold one by one, in the order of {@link KeyframeChannels#ALL}
+         *  (RotInRadians is only Rot expressed in radians, so it is not a property of its own). */
+        public static final ValueType[] CHANNELS = {
+                PosX, PosY, Rot, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature
+        };
+
+        /** The name this property goes by in a keyframe's {@code channels} list - iOS's raw value ("posX", "scaleY"...). */
+        public String channelName() {
+            switch (this) {
+                case PosX: return "posX";
+                case PosY: return "posY";
+                case Rot:
+                case RotInRadians: return "rot";
+                case ScaleX: return "scaleX";
+                case ScaleY: return "scaleY";
+                case PivotX: return "pivotX";
+                case PivotY: return "pivotY";
+                case Opacity: return "opacity";
+                case Speed: return "speed";
+                case Volume: return "volume";
+                case Hue: return "hue";
+                case Saturation: return "saturation";
+                case Brightness: return "brightness";
+                case Temperature: return "temperature";
+                default: return name();
+            }
+        }
+
+        /** The property for a channel name, or null for a name this build doesn't know (e.g. an iOS-only one). */
+        public static ValueType fromChannelName(String channel) {
+            for (ValueType t : CHANNELS) if (t.channelName().equals(channel)) return t;
+            return null;
+        }
+
+        /** Short label for lists ("Pos X", "Scale Y"...). */
+        public String channelLabel() {
+            switch (this) {
+                case PosX: return "Pos X";
+                case PosY: return "Pos Y";
+                case Rot:
+                case RotInRadians: return "Rotation";
+                case ScaleX: return "Scale X";
+                case ScaleY: return "Scale Y";
+                case PivotX: return "Pivot X";
+                case PivotY: return "Pivot Y";
+                default: return name();
+            }
+        }
     }
 }

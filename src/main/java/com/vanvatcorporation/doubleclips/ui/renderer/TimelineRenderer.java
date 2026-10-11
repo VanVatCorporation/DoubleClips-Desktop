@@ -182,12 +182,9 @@ public class TimelineRenderer {
 
     /** Puts values straight into the clip (the gizmo's commit, undo/redo and cancel use this). */
     public static void writeProperties(Clip clip, VideoProperties props, int keyIndex) {
-        VideoProperties copy = new VideoProperties(props);
-        if (keyIndex >= 0 && keyIndex < clip.keyframes.keyframes.size()) {
-            clip.keyframes.keyframes.get(keyIndex).value = copy;
-        } else {
-            clip.videoProperties = copy;
-        }
+        // Each property goes where it lives: into that keyframe when it holds it, into the static
+        // properties when it is not animated (see AnimatedProperty#writeLook).
+        clip.keyframes.writeLook(clip, new VideoProperties(props), keyIndex);
     }
 
     /**

@@ -276,7 +276,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
 
         scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
-            if (event.getTarget() instanceof javafx.scene.control.TextInputControl)
+            // While the user types into any text control, every key belongs to that control: Delete / Backspace must edit the
+            // text, Cmd+A / C / V / X / Z must act on the text, and Space must type a space - not run the editor's shortcut.
+            if ((event.getTarget() instanceof javafx.scene.Node && isTextEntry((javafx.scene.Node) event.getTarget()))
+                    || isTextEntry(scene.getFocusOwner()))
                 return;
             // Settings is recording a new shortcut: it needs the raw key press, not the action bound to it.
             if (AppSettings.getInstance().isRecordingKeybind())
@@ -333,7 +336,43 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     @Override public Clip getSelectedClip() { return selectedClip; }
     @Override public Track getSelectedTrack() { return selectedTrack; }
-    @Override public Clip getSelectedTransitionSourceClip() { return selectedTransitionSourceClip; }
+    @Override public Clip getSelectedTransitionSourceClip() {
+        // One rule keeps the transition selection honest without hooking every way of selecting a clip: a transition and a
+        // clip are never selected together, and a transition whose clips were deleted or moved apart is gone.
+        if (selectedTransitionSourceClip != null
+                && (selectedClip != null || getTransitionNextClip(selectedTransitionSourceClip) == null)) {
+            selectedTransitionSourceClip = null;
+        }
+        return selectedTransitionSourceClip;
+    }
+
+    @Override public void selectTransition(Clip clipA) {
+        if (clipA == null || getTransitionNextClip(clipA) == null) return;
+        selectedClips.clear();
+        selectedClip = null;
+        selectedTransitionSourceClip = clipA;
+        refreshSelectionVisuals(); // also restyles the cubes
+        updatePropertiesPane();
+    }
+
+    @Override public Clip getTransitionNextClip(Clip clipA) {
+        if (clipA == null || clipA.trackIndex < 0 || clipA.trackIndex >= timeline.tracks.size()) return null;
+        Track track = timeline.tracks.get(clipA.trackIndex);
+        return track.clips.contains(clipA) ? findTransitionNext(track, clipA) : null;
+    }
+
+    /** The clip that touches the end of {@code clip} on its track (within SNAP_TOLERANCE) - the B of its transition - or null. */
+    private Clip findTransitionNext(Track track, Clip clip) {
+        Clip next = null;
+        for (Clip c : track.clips) {
+            if (c == clip) continue;
+            float gap = c.startTime - (clip.startTime + clip.duration);
+            if (gap >= -SNAP_TOLERANCE && gap <= SNAP_TOLERANCE) {
+                if (next == null || c.startTime < next.startTime) next = c;
+            }
+        }
+        return next;
+    }
     @Override public float getCurrentTime() { return currentTime; }
     @Override public float getTempTime() { return tempTime; }
     @Override public void addPropertyUpdater(Runnable updater) { propertyUpdaters.add(updater); }
@@ -602,6 +641,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             timelineRenderer.updateTime(currentTime, (isPlayingInReverse || !isPlaying || previewSpeed != 1.0f));
         }
         if (previewGizmo != null) previewGizmo.refresh();
+        refreshKeyframeKnotHighlight();
 
 //        // Dynamically update property panel fields
 //        propertyUpdaters.forEach(Runnable::run);
@@ -677,6 +717,20 @@ public class EditorWindow extends Stage implements PropertyContext {
         int s = (int) (seconds % 60);
         int f = (int) ((seconds % 1) * 30); // 30fps assumption for display
         return String.format("%02d:%02d:%02d:%02d", h, m, s, f);
+    }
+
+    /**
+     * True when {@code node} is a text control, or sits inside one: the editable Spinner or ComboBox that owns a text field
+     * (the key event may be targeted at the Spinner itself rather than at its inner editor, which a plain
+     * "target instanceof TextInputControl" test misses - that is how Delete in the Duration box used to delete the selected clip).
+     */
+    private static boolean isTextEntry(javafx.scene.Node node) {
+        for (javafx.scene.Node n = node; n != null; n = n.getParent()) {
+            if (n instanceof javafx.scene.control.TextInputControl) return true;
+            if (n instanceof javafx.scene.control.Spinner && ((javafx.scene.control.Spinner<?>) n).isEditable()) return true;
+            if (n instanceof javafx.scene.control.ComboBox && ((javafx.scene.control.ComboBox<?>) n).isEditable()) return true;
+        }
+        return false;
     }
 
     /** True when {@code event} is the shortcut stored in {@code binding} ("Shortcut+C", "DELETE", "Meta+Shift+Z" ...). */
@@ -2793,14 +2847,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     /** Optimized transition cube rendering that reuses nodes. */
     private void renderTransitionCubeIfNeededStable(Track track, Clip clip, java.util.Set<javafx.scene.Node> activeNodes) {
-        Clip next = null;
-        for (Clip c : track.clips) {
-            if (c == clip) continue;
-            float gap = c.startTime - (clip.startTime + clip.duration);
-            if (gap >= -SNAP_TOLERANCE && gap <= SNAP_TOLERANCE) {
-                if (next == null || c.startTime < next.startTime) next = c;
-            }
-        }
+        Clip next = findTransitionNext(track, clip);
         if (next == null) return;
 
         if (clip.endTransition == null) {
@@ -2826,30 +2873,70 @@ public class EditorWindow extends Stage implements PropertyContext {
             cube.setStrokeWidth(1.5);
             cube.setUserData(clip);
 
-            cube.setOnMouseEntered(e -> ((Rectangle)e.getSource()).setFill(Color.web("#7B85FF")));
-            cube.setOnMouseExited(e -> ((Rectangle)e.getSource()).setFill(Color.web("#5C67FF")));
-
-            Clip finalClip = clip;
-            cube.setOnMouseClicked(e -> {
-                selectedTransitionSourceClip = finalClip;
-                clearClipSelection();
-                updatePropertiesPane();
+            final Rectangle newCube = cube;
+            final Clip finalClip = clip;
+            newCube.setOnMouseEntered(e -> styleTransitionCube(newCube, finalClip == selectedTransitionSourceClip, true));
+            newCube.setOnMouseExited(e -> styleTransitionCube(newCube, finalClip == selectedTransitionSourceClip, false));
+            newCube.setOnMouseClicked(e -> {
+                selectTransition(finalClip);
                 e.consume();
             });
-            tracksPane.getChildren().add(cube);
-            transitionCubes.put(clip, cube);
+            // What it is, on hover. Read when it is shown, so a change made in the panel is always current.
+            javafx.scene.control.Tooltip tip = new javafx.scene.control.Tooltip();
+            tip.setOnShowing(e -> tip.setText(com.vanvatcorporation.doubleclips.TransitionSummary.of(finalClip.endTransition) + "\nClick to edit"));
+            javafx.scene.control.Tooltip.install(newCube, tip);
+            tracksPane.getChildren().add(newCube);
+            transitionCubes.put(clip, newCube);
         } else {
             cube.setX(cubeX);
             cube.setY(cubeY);
             cube.toFront();
         }
+        styleTransitionCube(cube, clip == selectedTransitionSourceClip, cube.isHover());
         activeNodes.add(cube);
+    }
+
+    /** Normal / hover / selected look of a transition cube; the selected one is also a little bigger (a bigger target). */
+    private static void styleTransitionCube(Rectangle cube, boolean selected, boolean hover) {
+        if (selected) {
+            cube.setFill(Color.web("#B4BBFF"));
+            cube.setStroke(Color.WHITE);
+            cube.setStrokeWidth(2.5);
+            cube.setScaleX(1.3);
+            cube.setScaleY(1.3);
+        } else {
+            cube.setFill(Color.web(hover ? "#7B85FF" : "#5C67FF"));
+            cube.setStroke(Color.web("#9BA3FF"));
+            cube.setStrokeWidth(1.5);
+            cube.setScaleX(1.0);
+            cube.setScaleY(1.0);
+        }
+    }
+
+    /** Restyle every cube after the selection changed. */
+    private void refreshTransitionCubeVisuals() {
+        Clip selected = getSelectedTransitionSourceClip();
+        for (java.util.Map.Entry<Clip, Rectangle> entry : transitionCubes.entrySet()) {
+            Rectangle cube = entry.getValue();
+            styleTransitionCube(cube, entry.getKey() == selected, cube.isHover());
+        }
     }
 
     // =========================================================================
     // Keyframe helpers
     // =========================================================================
 
+    /** Recolours every clip's keyframe knots for the playhead: the keyframe it sits on is the chosen one. */
+    private void refreshKeyframeKnotHighlight() {
+        if (timeline == null) return;
+        for (Track track : timeline.tracks) {
+            for (Clip clip : track.clips) {
+                if (clip.viewRef instanceof ClipNode cn) cn.refreshKeyframeHighlight();
+            }
+        }
+    }
+
+    /** Toolbar "Keyframe" button: keys every property at the playhead (per-property keys come from each property's own diamond). */
     @Override
     public void handleAddKeyframe() {
         if (selectedClip == null)
@@ -2857,31 +2944,23 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clip clip = selectedClip;
 
         // localTime of playhead within this clip
-        float localTime = currentTime - clip.startTime;
+        float time = currentTime;
+        float localTime = time - clip.startTime;
         if (localTime < 0 || localTime > clip.duration)
             return;
 
-        // Build keyframe snapshot from current clip properties (copy constructor)
-        Keyframe kf = new Keyframe(localTime,
-                new VideoProperties(clip.videoProperties),
-                EasingType.NONE);
-
-        // Prevent duplicate at same time
-        boolean exists = clip.keyframes.keyframes.stream()
-                .anyMatch(k -> Math.abs(k.getLocalTime() - localTime) < 0.001f);
-        if (exists)
-            return;
+        KeyframesSnapshot before = KeyframesSnapshot.of(clip);
+        int frameRate = videoSettings.frameRate;
 
         executePropertyChange("Add Keyframe", () -> {
-            clip.keyframes.keyframes.add(kf);
-            clip.keyframes.sortKeyframe();
+            clip.keyframes.setAllKeys(clip, time, frameRate);
             if (clip.viewRef instanceof ClipNode cn) {
                 cn.updateKeyframes(pixelsPerSecond);
             }
             saveProject();
             updatePropertiesPane();
         }, () -> {
-            clip.keyframes.keyframes.remove(kf);
+            before.restore(clip);
             if (clip.viewRef instanceof ClipNode cn) {
                 cn.updateKeyframes(pixelsPerSecond);
             }
@@ -2895,9 +2974,12 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (selectedClip == null)
             return;
         Clip clip = selectedClip;
-        java.util.List<Keyframe> oldKfs = new java.util.ArrayList<>(clip.keyframes.keyframes);
+        KeyframesSnapshot before = KeyframesSnapshot.of(clip);
+        // The clip keeps the look it has at the playhead instead of jumping back to its static values.
+        VideoProperties lookNow = clip.keyframes.resolve(clip, currentTime);
 
         executePropertyChange("Clear Keyframes", () -> {
+            clip.videoProperties = new VideoProperties(lookNow);
             clip.keyframes.keyframes.clear();
             if (clip.viewRef instanceof ClipNode cn) {
                 cn.clearKeyframeKnots();
@@ -2905,8 +2987,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             saveProject();
             updatePropertiesPane();
         }, () -> {
-            clip.keyframes.keyframes.addAll(oldKfs);
-            clip.keyframes.sortKeyframe();
+            before.restore(clip);
             if (clip.viewRef instanceof ClipNode cn) {
                 cn.updateKeyframes(pixelsPerSecond);
             }
@@ -3188,6 +3269,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             // Starting a fresh marquee drops the old selection right away, like a file manager.
             selectedClips.clear();
             selectedClip = null;
+            selectedTransitionSourceClip = null;
             refreshSelectionVisuals();
         }
     }
@@ -3316,16 +3398,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         updatePropertiesPane();
     }
 
-    /** Clears the clip selection (leaves track / transition selection alone). */
-    private void clearClipSelection() {
-        selectedClips.clear();
-        selectedClip = null;
-        refreshSelectionVisuals();
-    }
-
     private void deselectAll() {
         selectedClips.clear();
         selectedClip = null;
+        selectedTransitionSourceClip = null;
         selectedTrack = null;
         refreshSelectionVisuals();
         updatePropertiesPane();
@@ -3340,6 +3416,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                 }
             }
         }
+        refreshTransitionCubeVisuals();
         if (previewGizmo != null) previewGizmo.refresh();
     }
 
