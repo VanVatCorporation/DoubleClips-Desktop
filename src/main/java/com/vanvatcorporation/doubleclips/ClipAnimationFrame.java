@@ -10,10 +10,7 @@ package com.vanvatcorporation.doubleclips;
  * never chosen by an animation file (see OpenGLEdit.buildDrawCommand):
  *   additive       offsetX, offsetY, rotation, hue, brightness, temperature
  *   multiplicative opacity, scale, saturation
- *   standalone     contrast, exposure, blur, warp.*, motionBlur/blurAngle, edgeFill, edgeSlide(Y),
- *                  squeezeX/squeezeAnchor (the clip itself has no such property)
- * {@link #merged} stacks two frames (a transition style's side on top of the clip's own In / Out
- * animation) with the same rules, so both look right at once.
+ *   standalone     contrast, blur, warp.* (the clip itself has no such property)
  * Plain Java (no Android classes) so the desktop port can use it as-is.
  */
 public final class ClipAnimationFrame {
@@ -67,69 +64,80 @@ public final class ClipAnimationFrame {
     public float warpBottomWidth() { return get(ClipAnimation.Channel.WARP_BOTTOM_WIDTH); }
     /** Height of the squish (top edge fixed), 1 = unchanged. */
     public float warpHeight() { return get(ClipAnimation.Channel.WARP_HEIGHT); }
-
-    // ---- iOS look channels --------------------------------------------------------------
-
-    /** Brightness MULTIPLIER on the colours (alpha untouched), 1 = unchanged, 0.32 = Glitch Blur's dark hit. */
-    public float exposure() { return get(ClipAnimation.Channel.EXPOSURE); }
-    /** Motion blur: TOTAL streak length as a fraction of the canvas WIDTH (0 = none). */
+    /** Motion-blur streak length as a fraction of the canvas WIDTH (0 = none). */
     public float motionBlurWidthFraction() { return get(ClipAnimation.Channel.MOTION_BLUR); }
-    /** Direction of the motion-blur streaks, degrees counter-clockwise from the right (0 = horizontal). */
-    public float blurAngleDegrees() { return get(ClipAnimation.Channel.BLUR_ANGLE); }
-    /** &gt; 0.5 = after placing the picture, its edge pixels are extended over the whole canvas (no black margin). */
-    public float edgeFill() { return get(ClipAnimation.Channel.EDGE_FILL); }
-    /** The picture slides sideways INSIDE its own box (fraction of canvas width, + = right); edge pixels stretch into the gap. */
+    /** Horizontal edge slide as a fraction of the canvas WIDTH (+ = right). */
     public float edgeSlideFraction() { return get(ClipAnimation.Channel.EDGE_SLIDE); }
-    /** Like {@link #edgeSlideFraction()} but vertical (fraction of canvas HEIGHT, + = down). */
+    /** Vertical edge slide as a fraction of the canvas HEIGHT (+ = down). */
     public float edgeSlideYFraction() { return get(ClipAnimation.Channel.EDGE_SLIDE_Y); }
-    /** Horizontal squeeze of the picture toward its anchor, 1 = unchanged; edge pixels smear into the gap. */
+    /** Brightness multiplier, 1 = unchanged. */
+    public float exposure() { return get(ClipAnimation.Channel.EXPOSURE); }
+    /** Motion-blur direction in degrees (0 = horizontal). */
+    public float blurAngleDegrees() { return get(ClipAnimation.Channel.BLUR_ANGLE); }
+    /** Horizontal squeeze factor, 1 = unchanged. */
     public float squeezeX() { return get(ClipAnimation.Channel.SQUEEZE_X); }
-    /** Where the squeeze holds still: 0 = the picture's left edge, 1 = its right edge. */
+    /** Squeeze anchor, 0 = left edge, 1 = right edge. */
     public float squeezeAnchor() { return get(ClipAnimation.Channel.SQUEEZE_ANCHOR); }
-
-    /** True when any of the three warp.* channels is off neutral. */
-    public boolean hasWarp() { return warpTopWidth() != 1f || warpBottomWidth() != 1f || warpHeight() != 1f; }
-
-    // ---- combining two frames -----------------------------------------------------------
+    /** True when the picture's edge pixels should fill the whole canvas. */
+    public boolean edgeFill() { return get(ClipAnimation.Channel.EDGE_FILL) > 0.5f; }
+    /** Red colour cast, 0 = none .. 1 = strong. */
+    public float redTint() { return get(ClipAnimation.Channel.RED_TINT); }
+    /** Wash-out toward white, 0 = none .. 1 = all white. */
+    public float whiteMix() { return get(ClipAnimation.Channel.WHITE_MIX); }
 
     /**
-     * {@code this} combined with {@code other} (null = unchanged), channel by channel with the same
-     * rules the compositor uses for a clip's own properties: offsets, rotation, hue, brightness,
-     * temperature, edge slides, motion blur and blur ADD; opacity, scale, saturation, contrast,
-     * exposure, warp.* and squeezeX MULTIPLY; edgeFill takes the larger; blurAngle follows whichever
-     * frame has the longer motion blur; squeezeAnchor follows whichever squeezes harder. Every result
-     * is clamped to its channel's range. Neither input is modified.
+     * This frame combined with {@code other} (a transition style's side) the way the two combine with a clip's own
+     * properties, same rules as iOS: additive channels add, multiplicative ones multiply (all clamped to their range),
+     * the streak angle follows the longer streak, the squeeze anchor follows the stronger squeeze, edge fill takes
+     * the larger. Returns {@code this} / {@code other} unchanged when the other one is neutral.
      */
     public ClipAnimationFrame merged(ClipAnimationFrame other) {
         if (other == null || other.isNeutral()) return this;
         if (isNeutral()) return other;
-        ClipAnimation.Channel[] all = ClipAnimation.Channel.values();
-        float[] out = new float[all.length];
-        float motionA = motionBlurWidthFraction(), motionB = other.motionBlurWidthFraction();
-        float squeezeA = Math.abs(squeezeX() - 1f), squeezeB = Math.abs(other.squeezeX() - 1f);
-        for (ClipAnimation.Channel ch : all) {
-            int i = ch.ordinal();
-            double a = v[i], b = other.v[i];
-            double combined;
-            switch (ch) {
+        ClipAnimation.Channel[] channels = ClipAnimation.Channel.values();
+        float[] out = new float[channels.length];
+        for (ClipAnimation.Channel c : channels) {
+            double x = get(c), y = other.get(c), r;
+            switch (c) {
                 case OFFSET_X: case OFFSET_Y: case ROTATION: case HUE: case BRIGHTNESS: case TEMPERATURE:
-                case EDGE_SLIDE: case EDGE_SLIDE_Y: case MOTION_BLUR: case BLUR:
-                    combined = a + b;
+                case EDGE_SLIDE: case EDGE_SLIDE_Y: case MOTION_BLUR: case BLUR: case RED_TINT: case WHITE_MIX:
+                    r = x + y;
                     break;
                 case BLUR_ANGLE:
-                    combined = motionA >= motionB ? a : b;
+                    r = motionBlurWidthFraction() >= other.motionBlurWidthFraction() ? x : y;
                     break;
                 case SQUEEZE_ANCHOR:
-                    combined = squeezeA >= squeezeB ? a : b;
+                    r = Math.abs(squeezeX() - 1f) >= Math.abs(other.squeezeX() - 1f) ? x : y;
                     break;
                 case EDGE_FILL:
-                    combined = Math.max(a, b);
+                    r = Math.max(x, y);
                     break;
-                default: // OPACITY, SCALE, SATURATION, CONTRAST, EXPOSURE, WARP_*, SQUEEZE_X
-                    combined = a * b;
+                default: // opacity, scale, saturation, contrast, exposure, warp.*, squeezeX
+                    r = x * y;
                     break;
             }
-            out[i] = (float) Math.min(Math.max(combined, ch.min), ch.max);
+            out[c.ordinal()] = (float) Math.min(Math.max(r, c.min), c.max);
+        }
+        return new ClipAnimationFrame(out);
+    }
+
+    /**
+     * This frame with every channel's distance from its neutral value multiplied by {@code amount} (clamped to the
+     * channel's range): a 12% push becomes 24% at amount 2. This is what an effect's strength slider does. The streak
+     * angle, the squeeze anchor and edge fill are not "amounts", so they stay as they are. Same rule as iOS.
+     */
+    public ClipAnimationFrame scaledDeviation(float amount) {
+        if (isNeutral() || Math.abs(amount - 1f) < 0.0001f) return this;
+        float[] out = new float[v.length];
+        for (ClipAnimation.Channel c : ClipAnimation.Channel.values()) {
+            int i = c.ordinal();
+            if (c == ClipAnimation.Channel.BLUR_ANGLE || c == ClipAnimation.Channel.SQUEEZE_ANCHOR
+                    || c == ClipAnimation.Channel.EDGE_FILL) {
+                out[i] = v[i];
+                continue;
+            }
+            double n = c.neutral;
+            out[i] = (float) Math.min(Math.max(n + (v[i] - n) * amount, c.min), c.max);
         }
         return new ClipAnimationFrame(out);
     }

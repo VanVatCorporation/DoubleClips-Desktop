@@ -1137,32 +1137,37 @@ public class PropertyPanel extends VBox {
         // The duration spinner is created up here because picking a data-driven style resets it to the style's own default.
         final Spinner<Double> durSpinner = new Spinner<>(0.0, 10.0, (double) tc.duration, 0.1);
 
-        ComboBox<String> typeCombo = new ComboBox<>();
-        // Hard-coded blends plus the data-driven styles (animations/transitions/*.json); the latter are labelled [OpenGL].
-        final java.util.Map<String, String> transitionChoices = com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionChoices();
-        transitionChoices.forEach((k, v) -> typeCombo.getItems().add(v));
-
-        String currentStyle = tc.effect != null
-                ? com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.normalizeTransitionStyle(tc.effect.style) : "none";
-        transitionChoices.entrySet().stream()
-                .filter(e -> e.getKey().equals(currentStyle)).findFirst().ifPresent(e -> typeCombo.setValue(e.getValue()));
+        // The picker's entries come from TransitionStyleCatalog: "none", the styles both engines draw, the data-driven
+        // (OpenGL-only) ones, then the FFmpeg-only ones - each badged. A stored style that is in neither list stays
+        // selectable as "[not installed]", so opening the picker and closing it again never overwrites it.
+        final String currentStyle = tc.effect != null ? tc.effect.style : null;
+        final java.util.List<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> styleEntries =
+                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.build(
+                        com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap,
+                        com.vanvatcorporation.doubleclips.OpenGLEdit.SUPPORTED_TRANSITION_STYLES,
+                        com.vanvatcorporation.doubleclips.TransitionStyleLoader.list(),
+                        true,
+                        currentStyle);
+        ComboBox<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> typeCombo = new ComboBox<>();
+        typeCombo.getItems().addAll(styleEntries);
+        int currentIndex = com.vanvatcorporation.doubleclips.TransitionStyleCatalog.indexOf(styleEntries, currentStyle == null ? "none" : currentStyle);
+        if (currentIndex >= 0) typeCombo.setValue(styleEntries.get(currentIndex));
 
         typeCombo.setMaxWidth(Double.MAX_VALUE);
+        // Set up AFTER the initial value, so only a pick the user makes runs this (opening the panel never overwrites a duration).
         typeCombo.setOnAction(e -> {
-            String chosen = typeCombo.getValue();
-            transitionChoices.entrySet().stream()
-                    .filter(entry -> entry.getValue().equals(chosen)).findFirst().ifPresent(entry -> {
-                        if (tc.effect == null) tc.effect = new EffectTemplate(entry.getKey(), tc.duration, tc.startTime);
-                        else tc.effect.style = entry.getKey();
-                        // A data-driven style is authored for a duration (Glitch Blur: 2.3 s); start from it. The spinner's
-                        // listener below copies the value into tc.duration / tc.effect.duration and saves the project.
-                        com.vanvatcorporation.doubleclips.TransitionStyle dataStyle =
-                                com.vanvatcorporation.doubleclips.TransitionStyleLoader.get(entry.getKey());
-                        if (dataStyle != null) {
-                            durSpinner.getValueFactory().setValue((double) Math.round(dataStyle.getDefaultDuration() * 10f) / 10.0);
-                        }
-                        context.saveProject();
-                    });
+            com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry chosen = typeCombo.getValue();
+            if (chosen == null) return;
+            if (tc.effect == null) tc.effect = new EffectTemplate(chosen.id, tc.duration, tc.startTime);
+            else tc.effect.style = chosen.id;
+            // A data-driven style is authored for a duration (Glitch Blur: 2.3 s); start from it. The spinner's
+            // listener below copies the value into tc.duration / tc.effect.duration and saves the project.
+            com.vanvatcorporation.doubleclips.TransitionStyle dataStyle = chosen.dataDriven
+                    ? com.vanvatcorporation.doubleclips.TransitionStyleLoader.get(chosen.id) : null;
+            if (dataStyle != null) {
+                durSpinner.getValueFactory().setValue((double) Math.round(dataStyle.getDefaultDuration() * 10f) / 10.0);
+            }
+            context.saveProject();
         });
         typePicker.getChildren().addAll(typeLabel, typeCombo);
 

@@ -176,7 +176,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     // anchor, then the slide, then a clamp into the picture's own box - that last clamp IS the edge pixels being
     // stretched into whatever gap the squeeze or slide leaves. uExtent is the whole canvas with edge fill, else the
     // picture's box, and nothing is output outside it. All coordinates are canvas uv (v = 0 at the bottom row of
-    // the target, so "up" is +v). uUnpremultiply = 1 when the result is blended straight onto the main canvas.
+    // the target, so "up" is +v). Input and output are PREMULTIPLIED, like every scratch layer (see composite blending below).
     private static final String STREAK_FRAGMENT_SHADER =
             "#version 330 core\n" +
             "in vec2 vUV;\n" +
@@ -188,7 +188,6 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "uniform float uAnchorU;\n" +   // u the squeeze holds still
             "uniform vec2 uHalfStreak;\n" + // half of the motion-blur streak in uv
             "uniform int uTaps;\n" +        // motion-blur taps (1 = none)
-            "uniform float uUnpremultiply;\n" +
             "out vec4 fragColor;\n" +
             "vec2 clampTo(vec2 p, vec4 r) { return clamp(p, r.xy, r.zw); }\n" +
             "vec4 lookAt(vec2 q) {\n" +
@@ -219,9 +218,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "        float t = (uTaps > 1) ? float(i) / float(uTaps - 1) * 2.0 - 1.0 + jitter : 0.0;\n" +
             "        sum += lookAt(clampTo(q + uHalfStreak * t, uExtent));\n" +
             "    }\n" +
-            "    vec4 c = sum / float(uTaps);\n" +
-            "    if (uUnpremultiply > 0.5) c.rgb = (c.a > 0.0001) ? c.rgb / c.a : vec3(0.0);\n" +
-            "    fragColor = c;\n" +
+            "    fragColor = sum / float(uTaps);\n" + // still premultiplied, like the layer it read
             "}\n";
 
     // ---- in-animation blur. Separable Gaussian, applied along uDirection only: call once
@@ -282,8 +279,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private int transitionProgram = 0, blurProgram = 0, streakProgram = 0;
     private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc;
     private int uBlurTexLoc, uBlurDirLoc, uBlurTexelLoc, uBlurSigmaLoc;
-    private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc,
-            uStrUnpremulLoc;
+    private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc;
     // Effect clips: one program for the whole catalog (resources/shaders/effects.frag), built on first use.
     private int effectProgram = 0;
     private boolean effectsUnavailable = false;
@@ -366,7 +362,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_BLEND);
         // Colour blends normally; alpha is kept opaque so the canvas never goes translucent.
-        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        useStraightBlend();
     }
 
     @Override
@@ -494,63 +490,55 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uStrAnchorLoc = glGetUniformLocation(streakProgram, "uAnchorU");
             uStrHalfLoc = glGetUniformLocation(streakProgram, "uHalfStreak");
             uStrTapsLoc = glGetUniformLocation(streakProgram, "uTaps");
-            uStrUnpremulLoc = glGetUniformLocation(streakProgram, "uUnpremultiply");
         }
     }
 
-    /**
-     * The clip's box on the canvas as uv (u0, v0, u1, v1), from the corners of its quad: the bounding box of the
-     * unit quad under the MVP, so a rotated clip gets its rotated bounding box (what iOS calls the picture's extent).
-     */
-    private static float[] canvasBox(float[] mvp) {
-        float u0 = Float.MAX_VALUE, v0 = Float.MAX_VALUE, u1 = -Float.MAX_VALUE, v1 = -Float.MAX_VALUE;
-        for (int c = 0; c < 4; c++) {
-            float px = (c & 1) == 0 ? -1f : 1f, py = (c & 2) == 0 ? -1f : 1f;
-            float x = mvp[0] * px + mvp[4] * py + mvp[12];
-            float y = mvp[1] * px + mvp[5] * py + mvp[13];
-            float u = (x + 1f) * 0.5f, v = (y + 1f) * 0.5f;
-            u0 = Math.min(u0, u); u1 = Math.max(u1, u);
-            v0 = Math.min(v0, v); v1 = Math.max(v1, v);
-        }
-        return new float[]{u0, v0, u1, v1};
+    // ---- compositing convention -------------------------------------------------------------
+    // A clip drawn into a cleared scratch layer with normal alpha blending leaves PREMULTIPLIED colour there (rgb * a, a).
+    // Every pass that reads such a layer (blur, streak) averages premultiplied texels, which is right; the last pass
+    // must then put it on the canvas as premultiplied too (src factor ONE). Compositing it with SRC_ALPHA would apply the
+    // alpha a second time and darken everything that is not fully opaque (a faded clip, a soft edge).
+
+    private static void useStraightBlend() {
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     }
+
+    private static void usePremultipliedBlend() {
+        glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
+    /** One motion-blur tap per this many pixels of streak (jitter hides what is left between taps)... */
+    private static final float STREAK_TAP_SPACING_PIXELS = 3f;
+    /** ...but never more than this many taps: a 1080p Shake Slide streak is ~1700 px long. */
+    private static final int STREAK_MAX_TAPS = 63;
 
     @Override
-    public void streak(int sourceSlot, int destSlot, OpenGLEdit.DrawCommand cmd) {
+    public void streak(int sourceSlot, int destSlot, OpenGLEdit.PostFx fx) {
         ensureStreakProgram();
-        float[] box = canvasBox(cmd.mvpMatrix);
-        float[] extent = cmd.edgeFill ? new float[]{0f, 0f, 1f, 1f} : box;
-        // Sample clamp: half a texel inside the box, so a clamped sample never mixes in the transparent texel outside it.
+        // Output extent: the whole canvas with edge fill, else the picture's own box.
+        float[] extent = fx.edgeFill ? new float[]{0f, 0f, 1f, 1f}
+                : new float[]{fx.boxMinU, fx.boxMinV, fx.boxMaxU, fx.boxMaxV};
+        // Sample clamp: the picture's box, half a texel inside, so a clamped sample never mixes in the transparent texel outside it.
         float hu = 0.5f / width, hv = 0.5f / height;
-        float[] inner = {box[0] + hu, box[1] + hv, box[2] - hu, box[3] - hv};
-        if (inner[2] <= inner[0]) { inner[0] = box[0]; inner[2] = box[2]; }
-        if (inner[3] <= inner[1]) { inner[1] = box[1]; inner[3] = box[3]; }
+        float[] inner = {fx.boxMinU + hu, fx.boxMinV + hv, fx.boxMaxU - hu, fx.boxMaxV - hv};
+        if (inner[2] <= inner[0]) { inner[0] = fx.boxMinU; inner[2] = fx.boxMaxU; }
+        if (inner[3] <= inner[1]) { inner[1] = fx.boxMinV; inner[3] = fx.boxMaxV; }
+        float anchorU = extent[0] + fx.squeezeAnchor * (extent[2] - extent[0]);
 
-        float eps = OpenGLEdit.STREAK_SLIDE_EPSILON;
-        float slideU = Math.abs(cmd.edgeSlideX) > eps ? cmd.edgeSlideX : 0f;
-        float slideV = Math.abs(cmd.edgeSlideY) > eps ? -cmd.edgeSlideY : 0f; // + = down on canvas, and +v is up
-        boolean squeezed = Math.abs(cmd.squeezeX - 1f) > 0.002f;
-        float squeeze = squeezed ? cmd.squeezeX : 1f;
-        float anchorU = extent[0] + cmd.squeezeAnchor * (extent[2] - extent[0]);
-
-        // Motion blur: the streak is motionBlur * canvas width long in total, so the half-length is half that.
+        // Motion blur taps: odd, so one lands on the centre.
+        float streakPx = fx.streakLengthFraction * width;
         int taps = 1;
-        float halfU = 0f, halfV = 0f;
-        float streakPx = cmd.motionBlurWidthFraction * width;
         if (streakPx > 0.5f) {
-            float halfPx = streakPx * 0.5f;
-            taps = (int) Math.min(128, Math.max(9, Math.ceil(halfPx) + 1)) | 1; // odd: one tap lands on the centre
-            double a = Math.toRadians(cmd.blurAngleDegrees);
-            halfU = (float) (Math.cos(a) * halfPx / width);
-            halfV = (float) (Math.sin(a) * halfPx / height);
+            taps = Math.min(STREAK_MAX_TAPS, Math.max(9, (int) Math.ceil(streakPx / STREAK_TAP_SPACING_PIXELS))) | 1;
         }
 
         boolean toMain = destSlot < 0;
         if (toMain) {
             bindMain();
+            usePremultipliedBlend();
         } else {
             bindScratchCleared(destSlot);
-            glDisable(GL_BLEND); // write the layer as it is (premultiplied), not blended over its own clear colour
+            glDisable(GL_BLEND); // write the layer as it is, not blended over its own clear colour
         }
         glUseProgram(streakProgram);
         glBindVertexArray(vao);
@@ -559,14 +547,13 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glUniform1i(uStrTexLoc, 0);
         glUniform4f(uStrBoxLoc, inner[0], inner[1], inner[2], inner[3]);
         glUniform4f(uStrExtentLoc, extent[0], extent[1], extent[2], extent[3]);
-        glUniform2f(uStrSlideLoc, slideU, slideV);
-        glUniform1f(uStrSqueezeLoc, squeeze);
+        glUniform2f(uStrSlideLoc, fx.slideU, fx.slideV);
+        glUniform1f(uStrSqueezeLoc, fx.squeezeX);
         glUniform1f(uStrAnchorLoc, anchorU);
-        glUniform2f(uStrHalfLoc, halfU, halfV);
+        glUniform2f(uStrHalfLoc, fx.streakU, fx.streakV);
         glUniform1i(uStrTapsLoc, taps);
-        glUniform1f(uStrUnpremulLoc, toMain ? 1f : 0f);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        if (!toMain) glEnable(GL_BLEND);
+        if (toMain) useStraightBlend(); else glEnable(GL_BLEND);
         bindMain();
     }
 
@@ -714,17 +701,21 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glUniform2f(uBlurTexelLoc, 1f / width, 1f / height);
         glUniform1f(uBlurSigmaLoc, sigmaPixels);
 
-        // Horizontal pass: source -> temp scratch.
+        // Horizontal pass: source -> temp scratch, written as it is (premultiplied, see "compositing convention").
         bindScratchCleared(tempSlot);
+        glDisable(GL_BLEND);
         glBindTexture(GL_TEXTURE_2D, scratchTarget(sourceSlot).texture);
         glUniform2f(uBlurDirLoc, 1f, 0f);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glEnable(GL_BLEND);
 
         // Vertical pass: temp -> main canvas, blended over what is already there.
         bindMain();
+        usePremultipliedBlend();
         glBindTexture(GL_TEXTURE_2D, scratchTarget(tempSlot).texture);
         glUniform2f(uBlurDirLoc, 0f, 1f);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        useStraightBlend();
     }
 
     @Override

@@ -331,7 +331,7 @@ public final class ClipAnimationLoader {
         }
     }
 
-    static String fmt(double d) {
+    private static String fmt(double d) {
         return d == Math.rint(d) && Math.abs(d) < 1e9 ? Long.toString((long) d) : Double.toString(d);
     }
 

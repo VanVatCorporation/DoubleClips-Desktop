@@ -35,8 +35,6 @@ public final class ClipAnimation {
      * min/max are enforced on load (every knot / gaussian endpoint of a file must lie inside).
      * BLUR is capped at 5% of the canvas width because the blur shader is a fixed 17-tap
      * kernel (taps sigma/3 apart): beyond roughly that it starts to band.
-     * The last eight (EXPOSURE .. SQUEEZE_ANCHOR) are the iOS "look" channels used by data-driven
-     * transition styles and Shake Slide: same names, neutrals and ranges as iOS ClipAnimation.swift.
      */
     public enum Channel {
         OPACITY("opacity", 1, 0, 1),
@@ -53,15 +51,28 @@ public final class ClipAnimation {
         WARP_TOP_WIDTH("warp.topWidth", 1, 0.1, 2),
         WARP_BOTTOM_WIDTH("warp.bottomWidth", 1, 0.1, 2),
         WARP_HEIGHT("warp.height", 1, 0.1, 2),
-        // ---- iOS look channels (see ClipAnimationFrame for what each one does) ----
-        EXPOSURE("exposure", 1, 0, 4),
+        // Added to match iOS (transition styles such as Glitch Blur use them). Same json names and ranges as iOS.
+        // The OpenGL renderer has to implement them; FFmpeg never does (see ClipAnimationFFmpeg.SUPPORTED).
+        /** Streak length as a fraction of the canvas WIDTH. */
         MOTION_BLUR("motionBlur", 0, 0, 1),
-        BLUR_ANGLE("blurAngle", 0, -180, 180),
-        EDGE_FILL("edgeFill", 0, 0, 1),
+        /** Picture slides inside its own box horizontally (fraction of canvas width, + = right); edge pixels fill the gap. */
         EDGE_SLIDE("edgeSlide", 0, -2, 2),
-        EDGE_SLIDE_Y("edgeSlideY", 0, -2, 2),
+        /** Brightness MULTIPLIER (1 = unchanged). */
+        EXPOSURE("exposure", 1, 0, 4),
+        /** Direction of the motion-blur streak in degrees (0 = horizontal). */
+        BLUR_ANGLE("blurAngle", 0, -180, 180),
+        /** Horizontal squeeze toward SQUEEZE_ANCHOR, 1 = unchanged. */
         SQUEEZE_X("squeezeX", 1, 0.02, 2),
-        SQUEEZE_ANCHOR("squeezeAnchor", 0.5, 0, 1);
+        /** Where SQUEEZE_X pulls toward: 0 = left edge, 1 = right edge. */
+        SQUEEZE_ANCHOR("squeezeAnchor", 0.5, 0, 1),
+        /** > 0.5: the picture's edge pixels cover the whole canvas, so shrinking it leaves no margin. */
+        EDGE_FILL("edgeFill", 0, 0, 1),
+        /** Like EDGE_SLIDE, vertical (fraction of canvas height, + = down). */
+        EDGE_SLIDE_Y("edgeSlideY", 0, -2, 2),
+        /** Red colour cast, 0 = none .. 1 = strong (same json name and range as iOS; used by effect styles). */
+        RED_TINT("redTint", 0, 0, 1),
+        /** Wash-out toward white, 0 = none .. 1 = all white (colours lerp toward white, alpha untouched): Fade White. */
+        WHITE_MIX("whiteMix", 0, 0, 1);
 
         public final String json;
         public final double neutral;

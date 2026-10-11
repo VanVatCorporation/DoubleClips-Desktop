@@ -104,12 +104,12 @@ public final class OpenGLTimelineExporter {
 
         /**
          * The "streak" look of one clip that was drawn alone into scratch canvas {@code sourceSlot}: edge fill,
-         * edge slide, squeeze and motion blur, in that order (see {@link OpenGLEdit.DrawCommand#needsStreakPass}),
-         * measured from the clip's own box on the canvas. The result goes to scratch {@code destSlot}, or onto the
-         * main canvas (blended like any clip) when {@code destSlot} is -1. {@code destSlot} must differ from
-         * {@code sourceSlot}. Leaves drawing pointed at the main canvas.
+         * edge slide, squeeze and motion blur, in that order (see {@link OpenGLEdit.PostFx}), measured from the clip's
+         * own box on the canvas. The result goes to scratch {@code destSlot}, or onto the main canvas (blended like
+         * any clip) when {@code destSlot} is -1. {@code destSlot} must differ from {@code sourceSlot}. Leaves drawing
+         * pointed at the main canvas.
          */
-        void streak(int sourceSlot, int destSlot, OpenGLEdit.DrawCommand command);
+        void streak(int sourceSlot, int destSlot, OpenGLEdit.PostFx fx);
 
         /** Reads the finished canvas back: RGBA, rows BOTTOM-first (glReadPixels order). */
         void readFrame(ByteBuffer out);
@@ -137,7 +137,7 @@ public final class OpenGLTimelineExporter {
         for (OpenGLEdit.FrameLayer layer : layers) {
             if (layer.simpleDraw != null) {
                 OpenGLEdit.DrawCommand cmd = layer.simpleDraw;
-                boolean streak = cmd.needsStreakPass();
+                boolean streak = cmd.post != null;
                 if (streak || cmd.blurSigmaPixels > 0f) {
                     // The clip goes into a scratch canvas first. Its streak look (edge fill / slide /
                     // squeeze / motion blur) then runs on that canvas; in-animation blur, if any, comes
@@ -150,10 +150,10 @@ public final class OpenGLTimelineExporter {
                         if (!streak) {
                             compositor.blurOntoMain(0, 1, cmd.blurSigmaPixels * blurScale);
                         } else if (cmd.blurSigmaPixels > 0f) {
-                            compositor.streak(0, 1, cmd);
+                            compositor.streak(0, 1, cmd.post);
                             compositor.blurOntoMain(1, 0, cmd.blurSigmaPixels * blurScale);
                         } else {
-                            compositor.streak(0, -1, cmd);
+                            compositor.streak(0, -1, cmd.post);
                         }
                     }
                 } else {

@@ -102,16 +102,19 @@ public class FXCommandEmitter {
                 break;
 
         }
-        // A data-driven style (animations/transitions/*.json) only exists in the OpenGL export: xfade has no
-        // such transition and would fail the whole export, so FFmpeg plays it as a plain cross fade with the
-        // same timing (FFmpegEdit.getUnsupportedAnimationFeatures tells the user).
-        final TransitionStyle dataStyle = TransitionStyleLoader.get(FXRegistry.normalizeTransitionStyle(transition.effect.style));
-        if(dataStyle != null)
+        // Data-driven styles (TransitionStyleLoader, e.g. Glitch Blur) are OpenGL-only: xfade has no such name and would
+        // make the whole export fail. FFmpeg gets a hard cut at the style's own cut point (no look on either side - these
+        // styles never dissolve), with the same window; the export screen warns about it
+        // (FFmpegEdit.getUnsupportedAnimationFeatures).
+        TransitionStyle dataDriven = TransitionStyleLoader.get(transition.effect.style);
+        if(dataDriven != null)
         {
+            String cutExpression = "if(lt(P," + String.format(java.util.Locale.US, "%.4f", dataDriven.getCut()) + "),A,B)";
             tags.storeTag(mergedClip, outputLabel, fromTag.index);
             return fromTag.tag + toTag.tag +
-                    "xfade=transition=fade:duration=" + transition.duration + ":offset=" +
-                    transitionOffset
+                    "xfade=transition=custom:duration=" + transition.duration + ":offset=" +
+                    transitionOffset +
+                    ":expr='" + cutExpression + "'"
                     + outputLabel + ";\n";
         }
         if(transition.effect.style.contains("custom_"))
@@ -149,9 +152,13 @@ public class FXCommandEmitter {
             }
         }
         else {
+            // A style id that neither xfade nor a style file knows (a project from a build that had more styles) would
+            // make FFmpeg fail on an unknown transition name: cross-fade instead.
+            String xfadeName = FXRegistry.normalizeTransitionStyle(transition.effect.style);
+            if(!FXRegistry.transitionFXMap.containsKey(xfadeName)) xfadeName = "fade";
             tags.storeTag(mergedClip, outputLabel, fromTag.index);
             return fromTag.tag + toTag.tag +
-                    "xfade=transition=" + FXRegistry.normalizeTransitionStyle(transition.effect.style) + ":duration=" + transition.duration + ":offset=" +
+                    "xfade=transition=" + xfadeName + ":duration=" + transition.duration + ":offset=" +
                     transitionOffset
                     + outputLabel + ";\n";
         }
@@ -215,25 +222,6 @@ public class FXCommandEmitter {
             put("custom_massive-effect", "Massive Effect [Custom]");
             put("custom_fake-glass-shatter", "Fake Glass Shatter [Custom]");
         }});
-
-        /**
-         * What the transition picker lists, key -> label: {@link #transitionFXMap} plus the data-driven styles
-         * ({@link TransitionStyleLoader}), which go right after "none" because, like the hard-coded blends the OpenGL
-         * export honours, they come first; their label says they are OpenGL-only (FFmpeg draws a plain cross fade).
-         * Built on each call so a style registered later shows up.
-         */
-        public static Map<String, String> transitionChoices() {
-            Map<String, String> out = new LinkedHashMap<>();
-            for (Map.Entry<String, String> e : transitionFXMap.entrySet()) {
-                out.put(e.getKey(), e.getValue());
-                if ("none".equals(e.getKey())) {
-                    for (TransitionStyle s : TransitionStyleLoader.list()) {
-                        if (!transitionFXMap.containsKey(s.getId())) out.put(s.getId(), s.getName() + " [OpenGL]");
-                    }
-                }
-            }
-            return out;
-        }
 
         /** Projects saved before the key fix may hold "radial " / "circleopen "; use this when reading a style. */
         public static String normalizeTransitionStyle(String style) {

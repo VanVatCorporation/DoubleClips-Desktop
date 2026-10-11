@@ -905,9 +905,9 @@ public class FFmpegEdit {
                 collectUnsupportedAnimation(clip.inAnimation, ClipAnimation.Direction.IN, found);
                 collectUnsupportedAnimation(clip.outAnimation, ClipAnimation.Direction.OUT, found);
                 if (clip.endTransitionEnabled && clip.endTransition != null && clip.endTransition.effect != null) {
-                    TransitionStyle dataStyle = TransitionStyleLoader.get(FXCommandEmitter.FXRegistry.normalizeTransitionStyle(clip.endTransition.effect.style));
-                    if (dataStyle != null) {
-                        found.add("The transition \"" + dataStyle.getName() + "\" is drawn as a plain cross fade (only the OpenGL export plays it)");
+                    TransitionStyle dataDriven = TransitionStyleLoader.get(clip.endTransition.effect.style);
+                    if (dataDriven != null) {
+                        found.add("The '" + dataDriven.getName() + "' transition style (OpenGL only: FFmpeg just cuts from one clip to the next)");
                     }
                 }
                 if (clip.type == ClipType.EFFECT && clip.effect != null && EffectCatalog.find(clip.effect.style) != null) {

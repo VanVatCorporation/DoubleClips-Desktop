@@ -52,14 +52,6 @@ public class OpenGLEdit {
     // and any transition using a mode other than OVERLAP are flagged as
     // unsupported by getUnsupportedFeatures below rather than silently
     // approximated or ignored. Keys must match FXCommandEmitter.FXRegistry.
-    /**
-     * True when the OpenGL path can draw a transition with this style key: one of the hard-coded blends in
-     * {@link #SUPPORTED_TRANSITION_STYLES}, or a data-driven style file ({@link TransitionStyleLoader}).
-     */
-    public static boolean isTransitionStyleSupported(String style) {
-        return style != null && (SUPPORTED_TRANSITION_STYLES.contains(style) || TransitionStyleLoader.get(style) != null);
-    }
-
     public static final Set<String> SUPPORTED_TRANSITION_STYLES = new java.util.HashSet<>(java.util.Arrays.asList(
             "fade", "dissolve", "wipeleft", "wiperight", "slideleft", "slideright", "slideup", "slidedown"
     ));
@@ -165,12 +157,22 @@ public class OpenGLEdit {
                 }
                 if (clip.endTransitionEnabled && clip.endTransition != null
                         && clip.endTransition.effect != null && !"none".equals(clip.endTransition.effect.style)) {
-                    if (clip.endTransition.mode != TransitionClip.TransitionMode.OVERLAP) {
+                    TransitionStyle dataStyle = TransitionStyleLoader.get(clip.endTransition.effect.style);
+                    if (dataStyle != null) {
+                        // Data-driven styles are drawn in every timing mode, but only "cut" ones: layers / mask styles
+                        // (both pictures at once, B revealed through a mask) are not drawn by this renderer yet.
+                        if (dataStyle.getMode() != TransitionStyle.Mode.CUT) {
+                            found.add("The '" + dataStyle.getName() + "' transition style (its \"" + dataStyle.getMode().json
+                                    + "\" mode is not drawn by the OpenGL export yet; it plays as a plain cut)");
+                        }
+                    } else if (clip.endTransition.mode != TransitionClip.TransitionMode.OVERLAP) {
                         found.add("Transitions using End First/Begin Second timing (only Overlap is supported)");
-                    } else if (!isTransitionStyleSupported(clip.endTransition.effect.style)) {
+                    } else if (!SUPPORTED_TRANSITION_STYLES.contains(clip.endTransition.effect.style)) {
                         found.add("Transitions using the '" + clip.endTransition.effect.style + "' effect");
                     }
                 }
+                reportUndrawnAnimationChannels(clip.inAnimation, ClipAnimation.Direction.IN, found);
+                reportUndrawnAnimationChannels(clip.outAnimation, ClipAnimation.Direction.OUT, found);
                 if (!SUPPORTS_REVERSE && clip.isReverse()) found.add("Reversed clips");
                 if (!SUPPORTS_KEYFRAMES && clip.hasAnimatedProperties()) found.add("Keyframe animations");
             }
@@ -178,8 +180,106 @@ public class OpenGLEdit {
         return new ArrayList<>(found);
     }
 
-    /** Half a pixel at 1920 wide, as a canvas fraction: below this a slide / motion blur is ignored. */
-    static final float STREAK_SLIDE_EPSILON = 2.5e-4f;
+    /**
+     * redTint and whiteMix are in the shared channel list (the iOS effect styles use them) but nothing here draws them
+     * yet, so an animation that drives them would silently do nothing: say so instead.
+     */
+    private static void reportUndrawnAnimationChannels(AnimationClip slot, ClipAnimation.Direction direction,
+                                                       java.util.Set<String> found) {
+        ClipAnimation def = animationFor(slot, direction);
+        if (def == null) return;
+        if (def.channels().contains(ClipAnimation.Channel.RED_TINT) || def.channels().contains(ClipAnimation.Channel.WHITE_MIX)) {
+            found.add("The '" + def.getName() + "' animation (its redTint / whiteMix colour channels are not drawn by the OpenGL export yet)");
+        }
+    }
+
+    /** Half a pixel at 1920 wide, as a canvas fraction: a slide or motion blur below this is ignored. */
+    static final float POST_FX_EPSILON = 2.5e-4f;
+
+    /**
+     * The "streak" effects of one frame that need the finished picture as a canvas-sized layer: edge fill, edge slide,
+     * squeeze and motion blur (the data-driven transition channels; same order as iOS's streakStack). Resolved once,
+     * here, into canvas texture space - u to the right, v UP (the offscreen layers are rendered with the canvas top at
+     * v = 1) - so the compositor only has to feed numbers to a shader. Exposure is NOT part of it: it is a colour
+     * multiply, done for free in the clip's own fragment shader (see {@link DrawCommand#exposure}).
+     */
+    public static final class PostFx {
+        /** Half-length of the motion-blur streak as (du, dv); (0,0) = none. Already includes the canvas aspect ratio. */
+        public final float streakU, streakV;
+        /** Streak LENGTH as a fraction of the canvas width (the compositor picks its tap count from it). */
+        public final float streakLengthFraction;
+        /** How far the picture slides inside its box: +u right, +v up, in canvas fractions; 0 = none. */
+        public final float slideU, slideV;
+        /** Horizontal squeeze (1 = none) toward the anchor (0 = left edge of the picture's box, 1 = right edge). */
+        public final float squeezeX, squeezeAnchor;
+        /** The picture's edge pixels cover the whole canvas. */
+        public final boolean edgeFill;
+        /** The picture's own bounding box on the canvas (minU, minV, maxU, maxV): what edge fill extends from. */
+        public final float boxMinU, boxMinV, boxMaxU, boxMaxV;
+
+        private PostFx(float streakU, float streakV, float streakLengthFraction, float slideU, float slideV,
+                       float squeezeX, float squeezeAnchor, boolean edgeFill,
+                       float boxMinU, float boxMinV, float boxMaxU, float boxMaxV) {
+            this.streakU = streakU;
+            this.streakV = streakV;
+            this.streakLengthFraction = streakLengthFraction;
+            this.slideU = slideU;
+            this.slideV = slideV;
+            this.squeezeX = squeezeX;
+            this.squeezeAnchor = squeezeAnchor;
+            this.edgeFill = edgeFill;
+            this.boxMinU = boxMinU;
+            this.boxMinV = boxMinV;
+            this.boxMaxU = boxMaxU;
+            this.boxMaxV = boxMaxV;
+        }
+
+        /**
+         * The post effects of this frame's animation values, or null when there is nothing to do (the overwhelming
+         * majority of frames, which then pay nothing). Slides under half a pixel, squeezes within 0.2% of 1 and
+         * streaks under half a pixel are treated as none, like iOS's streakStack.
+         */
+        static PostFx from(ClipAnimationFrame anim, float[] mvp, int canvasWidth, int canvasHeight) {
+            float motion = anim.motionBlurWidthFraction();
+            float slideU = anim.edgeSlideFraction();
+            float slideV = -anim.edgeSlideYFraction(); // +Y is down on the canvas, v points up
+            float squeeze = anim.squeezeX();
+            boolean fill = anim.edgeFill();
+            boolean hasStreak = motion > POST_FX_EPSILON;
+            boolean hasSlideU = Math.abs(slideU) > POST_FX_EPSILON;
+            boolean hasSlideV = Math.abs(slideV) > POST_FX_EPSILON;
+            boolean hasSqueeze = Math.abs(squeeze - 1f) > 0.002f;
+            if (!fill && !hasStreak && !hasSlideU && !hasSlideV && !hasSqueeze) return null;
+
+            // The picture's bounding box: where the quad's corners land (mvp maps the unit quad to NDC; NDC +1 = canvas top = v 1).
+            float minU = Float.MAX_VALUE, minV = Float.MAX_VALUE, maxU = -Float.MAX_VALUE, maxV = -Float.MAX_VALUE;
+            for (int i = 0; i < 4; i++) {
+                float qx = (i & 1) == 0 ? -1f : 1f;
+                float qy = (i & 2) == 0 ? -1f : 1f;
+                float nx = mvp[0] * qx + mvp[4] * qy + mvp[12];
+                float ny = mvp[1] * qx + mvp[5] * qy + mvp[13];
+                float u = (nx + 1f) * 0.5f, v = (ny + 1f) * 0.5f;
+                minU = Math.min(minU, u);
+                maxU = Math.max(maxU, u);
+                minV = Math.min(minV, v);
+                maxV = Math.max(maxV, v);
+            }
+
+            // Streak: the half-length is half of motionBlur (iOS MOTION_BLUR_RADIUS_FACTOR), as a fraction of the canvas
+            // WIDTH, along blurAngle (0 = horizontal, counter-clockwise); a y step of the same pixel length is
+            // aspect times bigger in v.
+            double angle = Math.toRadians(anim.blurAngleDegrees());
+            float half = motion * 0.5f;
+            float aspect = canvasHeight > 0 ? canvasWidth / (float) canvasHeight : 1f;
+            return new PostFx(
+                    hasStreak ? (float) Math.cos(angle) * half : 0f,
+                    hasStreak ? (float) Math.sin(angle) * half * aspect : 0f,
+                    hasStreak ? motion : 0f,
+                    hasSlideU ? slideU : 0f, hasSlideV ? slideV : 0f,
+                    hasSqueeze ? squeeze : 1f, anim.squeezeAnchor(), fill,
+                    minU, minV, maxU, maxV);
+        }
+    }
 
     /** One clip's contribution to a single output frame. */
     public static class DrawCommand {
@@ -220,53 +320,29 @@ public class OpenGLEdit {
         public final String textUnitMode;
         /** Index into the units of {@link #textUnitMode}; -1 = the whole text box. */
         public final int textUnitIndex;
-        // ---- iOS "look" channels (see ClipAnimationFrame). All neutral outside an animation that drives them. ----
-        /** Brightness MULTIPLIER on the colours, 1 = none. Applied in the colour stage of the fragment shader. */
+        /** Brightness MULTIPLIER on the colours (the "exposure" channel), 1 = none. Applied in the colour stage of the fragment shader. */
         public final float exposure;
-        /** Motion blur: total streak length as a fraction of the canvas width, 0 = none. */
-        public final float motionBlurWidthFraction;
-        /** Motion-blur direction, degrees counter-clockwise from the right. */
-        public final float blurAngleDegrees;
-        /** Extend the placed picture's edge pixels over the whole canvas. */
-        public final boolean edgeFill;
-        /** Picture slides inside its own box: fraction of canvas width (+ = right) and height (+ = down). */
-        public final float edgeSlideX, edgeSlideY;
-        /** Horizontal squeeze toward the anchor (0 = left edge, 1 = right edge of the picture), 1 = none. */
-        public final float squeezeX, squeezeAnchor;
+        /**
+         * Effects that need the finished picture as a canvas-sized layer (edge fill / slide, squeeze, motion blur: the
+         * data-driven transition channels), or null for the overwhelming majority of frames. The caller draws the command
+         * into a scratch layer first, runs {@link Compositor#streak} over it, then (when blurSigmaPixels &gt; 0) the
+         * Gaussian blur, exactly like the in-animation blur path.
+         */
+        public final PostFx post;
 
         public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
                             float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
                             float unfoldTopWidth, float unfoldBottomWidth, float unfoldHeight, float contrast) {
             this(clip, localSourceTimeSeconds, mvpMatrix, opacity, hueDegrees, saturation, brightness, temperatureKelvin,
-                    blurSigmaPixels, unfoldTopWidth, unfoldBottomWidth, unfoldHeight, contrast, null, -1);
+                    blurSigmaPixels, unfoldTopWidth, unfoldBottomWidth, unfoldHeight, contrast, null, -1, 1f, null);
         }
 
         public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
                             float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
                             float unfoldTopWidth, float unfoldBottomWidth, float unfoldHeight, float contrast,
-                            String textUnitMode, int textUnitIndex) {
-            this(clip, localSourceTimeSeconds, mvpMatrix, opacity, hueDegrees, saturation, brightness, temperatureKelvin,
-                    blurSigmaPixels, unfoldTopWidth, unfoldBottomWidth, unfoldHeight, contrast,
-                    textUnitMode, textUnitIndex, ClipAnimationFrame.NEUTRAL, false);
-        }
-
-        /**
-         * Full constructor. {@code look} supplies the iOS look channels (exposure always; the streak group -
-         * edge fill / edge slide / squeeze / motion blur - only when {@code withStreak}, which per-unit text
-         * commands leave off, as on iOS where text units get colour and warp only).
-         */
-        public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
-                            float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
-                            float unfoldTopWidth, float unfoldBottomWidth, float unfoldHeight, float contrast,
-                            String textUnitMode, int textUnitIndex, ClipAnimationFrame look, boolean withStreak) {
-            this.exposure = look.exposure();
-            this.motionBlurWidthFraction = withStreak ? look.motionBlurWidthFraction() : 0f;
-            this.blurAngleDegrees = look.blurAngleDegrees();
-            this.edgeFill = withStreak && look.edgeFill() > 0.5f;
-            this.edgeSlideX = withStreak ? look.edgeSlideFraction() : 0f;
-            this.edgeSlideY = withStreak ? look.edgeSlideYFraction() : 0f;
-            this.squeezeX = withStreak ? look.squeezeX() : 1f;
-            this.squeezeAnchor = look.squeezeAnchor();
+                            String textUnitMode, int textUnitIndex, float exposure, PostFx post) {
+            this.exposure = exposure;
+            this.post = post;
             this.textUnitMode = textUnitMode;
             this.textUnitIndex = textUnitIndex;
             this.clip = clip;
@@ -282,19 +358,6 @@ public class OpenGLEdit {
             this.unfoldBottomWidth = unfoldBottomWidth;
             this.unfoldHeight = unfoldHeight;
             this.contrast = contrast;
-        }
-
-        /**
-         * True when this clip must go through the streak pass (edge fill, edge slide, squeeze or motion blur) -
-         * the same thresholds as iOS's streakStack: slides under half a pixel and squeezes within 0.2% of 1 are
-         * ignored. Frames outside an animation that drives these channels are false, so they pay nothing.
-         */
-        public boolean needsStreakPass() {
-            return edgeFill
-                    || Math.abs(edgeSlideX) > STREAK_SLIDE_EPSILON
-                    || Math.abs(edgeSlideY) > STREAK_SLIDE_EPSILON
-                    || Math.abs(squeezeX - 1f) > 0.002f
-                    || motionBlurWidthFraction > STREAK_SLIDE_EPSILON;
         }
     }
 
@@ -385,20 +448,28 @@ public class OpenGLEdit {
         for (Track track : timeline.tracks) {
             if (track == null || track.clips == null) continue;
 
-            TransitionWindow window = findActiveTransition(track, outputTimeSeconds);
-            if (window != null && window.dataStyle != null) {
-                // Data-driven style (iOS TransitionStyleLoader): no blend. One picture at a time - A before the
-                // style's cut, B after it - drawn like any clip, with that side's look (exposure, motion blur,
-                // edge fill, warp, ...) stacked on the clip's own properties and In / Out animation.
-                Clip drawn = window.dataStyle.showsFrom(window.progress) ? window.clipA : window.clipB;
-                ClipAnimationFrame look = window.dataStyle.frameAt(window.progress);
-                DrawCommand styled = buildDrawCommand(drawn, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection, look);
+            // Data-driven transitions (animations/transitions/*.json) that can matter at this t: computed ONCE per track per
+            // frame, and null (no allocation, no registry lookup) for the usual track that has none near the playhead.
+            DataWindow[] dataWindows = dataWindows(track, outputTimeSeconds);
+            DataWindow dataHit = dataWindows == null ? null : dataWindowAt(dataWindows, outputTimeSeconds);
+            if (dataHit != null) {
+                // No blend: ONE picture at a time - A before the style's cut, B after it - drawn like any clip, with
+                // that side's look (exposure, motion blur, edge fill, warp, ...) stacked on the clip's own properties
+                // and its In / Out animation. A's out animation runs over the whole window, like iOS.
+                float p = dataHit.window.progressAt(outputTimeSeconds);
+                boolean showA = dataHit.style.showsFrom(p);
+                DrawCommand styled = buildDrawCommand(showA ? dataHit.clipA : dataHit.clipB, outputTimeSeconds,
+                        canvasWidth, canvasHeight, stretchToFull, projection,
+                        dataHit.style.frameAt(p), showA ? dataHit.window : null);
                 if (styled != null) {
                     layers.add(FrameLayer.of(styled));
                     continue;
                 }
                 // An unsupported clip type (e.g. 3D): fall through to normal single-clip handling below.
-            } else if (window != null) {
+            }
+
+            TransitionWindow window = findActiveTransition(track, outputTimeSeconds);
+            if (window != null) {
                 DrawCommand cmdA = buildDrawCommand(window.clipA, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
                 DrawCommand cmdB = buildDrawCommand(window.clipB, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
                 if (cmdA != null && cmdB != null) {
@@ -410,8 +481,9 @@ public class OpenGLEdit {
                 // dropping the track entirely.
             }
 
-            Clip activeClip = findActiveClip(track, outputTimeSeconds);
-            if (activeClip == null) continue;
+            int activeIndex = activeClipIndex(track, outputTimeSeconds, dataWindows);
+            if (activeIndex < 0) continue;
+            Clip activeClip = track.clips.get(activeIndex);
             if (activeClip.type == ClipType.EFFECT) {
                 // An effect clip draws nothing itself: it filters the layers listed before it.
                 EffectCommand effect = buildEffectCommand(activeClip, outputTimeSeconds);
@@ -424,22 +496,23 @@ public class OpenGLEdit {
                 for (DrawCommand unit : unitCommands) layers.add(FrameLayer.of(unit));
                 continue;
             }
-            DrawCommand cmd = buildDrawCommand(activeClip, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
+            // A clip that ends in a data-driven transition runs its out animation over the transition's window.
+            DataWindow outgoing = windowOfA(dataWindows, activeIndex);
+            DrawCommand cmd = buildDrawCommand(activeClip, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection,
+                    null, outgoing == null ? null : outgoing.window);
             if (cmd != null) layers.add(FrameLayer.of(cmd));
         }
 
         return layers;
     }
 
-    /** Detects an active OVERLAP-mode, supported-style transition on this track at t, if any. */
+    /** An active OVERLAP-mode, built-in-style (two-sided blend) transition on a track at some t. */
     private static class TransitionWindow {
         final Clip clipA, clipB;
         final String style;
         final float progress;
-        /** Non-null for a data-driven style: one picture is drawn, not a blend of two. */
-        final TransitionStyle dataStyle;
-        TransitionWindow(Clip clipA, Clip clipB, String style, float progress, TransitionStyle dataStyle) {
-            this.clipA = clipA; this.clipB = clipB; this.style = style; this.progress = progress; this.dataStyle = dataStyle;
+        TransitionWindow(Clip clipA, Clip clipB, String style, float progress) {
+            this.clipA = clipA; this.clipB = clipB; this.style = style; this.progress = progress;
         }
     }
 
@@ -459,19 +532,126 @@ public class OpenGLEdit {
             TransitionClip transition = clipA.endTransition;
             if (transition.mode != TransitionClip.TransitionMode.OVERLAP) continue;
             if (transition.effect == null || "none".equals(transition.effect.style)) continue;
-            // A data-driven style (animations/transitions/*.json) wins over a hard-coded blend of the same key.
-            TransitionStyle dataStyle = TransitionStyleLoader.get(transition.effect.style);
-            if (dataStyle == null && !SUPPORTED_TRANSITION_STYLES.contains(transition.effect.style)) continue;
+            if (!SUPPORTED_TRANSITION_STYLES.contains(transition.effect.style)) continue;
 
             float windowEnd = clipA.startTime + clipA.duration;
             float windowStart = windowEnd - transition.duration;
             if (t >= windowStart && t < windowEnd) {
                 Clip clipB = track.clips.get(i + 1);
                 float progress = transition.duration > 0f ? (t - windowStart) / transition.duration : 1f;
-                return new TransitionWindow(clipA, clipB, transition.effect.style, progress, dataStyle);
+                return new TransitionWindow(clipA, clipB, transition.effect.style, progress);
             }
         }
         return null;
+    }
+
+
+    // ---- data-driven transitions (TransitionStyleLoader / TransitionTiming) --------------
+
+    /** A data-driven transition between track.clips[i] (A) and track.clips[i + 1] (B), already placed on the timeline. */
+    private static final class DataWindow {
+        /** Position of clip A in the track's clip list (clip B is the next one). */
+        final int aIndex;
+        final Clip clipA, clipB;
+        final TransitionStyle style;
+        final TransitionTiming.Window window;
+        DataWindow(int aIndex, Clip clipA, Clip clipB, TransitionStyle style, TransitionTiming.Window window) {
+            this.aIndex = aIndex; this.clipA = clipA; this.clipB = clipB; this.style = style; this.window = window;
+        }
+    }
+
+    private static boolean isPicture(Clip clip) {
+        return clip != null && (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE);
+    }
+
+    /**
+     * The data-driven transitions of one track that can matter at time t (entries after the last real one are null), or
+     * null when there are none - the usual case. Everything per-frame that needs a window (which picture to draw, which
+     * clips are visible, the out animation's span) reads this one small array instead of rebuilding windows.
+     *
+     * A transition only matters near t, so every pair is first tested with plain float maths - no style lookup, no
+     * allocation: whatever its mode and duration, the window of a transition after clip A lies inside
+     * [A.end - 2d, A.end + d], and the only other thing it changes is whether A (until the window's end) and B (from
+     * the window's start) are visible, which also happens inside [A.start, A.end + d]. So a pair outside
+     * [A.start - 2d, A.end + d] cannot affect this frame, and a project with a transition on every one of 400 clips
+     * builds one or two windows per frame, not 400.
+     */
+    private static DataWindow[] dataWindows(Track track, float t) {
+        List<Clip> clips = track.clips;
+        DataWindow[] out = null;
+        int count = 0;
+        for (int i = 0; i < clips.size() - 1; i++) {
+            Clip a = clips.get(i);
+            if (a == null || !a.endTransitionEnabled || a.endTransition == null) continue;
+            float d = a.endTransition.duration;
+            if (t < a.startTime - 2f * d || t >= a.startTime + a.duration + d) continue;
+            DataWindow w = dataWindowAt(i, a, clips.get(i + 1));
+            if (w == null) continue;
+            if (out == null) out = new DataWindow[2];
+            else if (count == out.length) out = java.util.Arrays.copyOf(out, count * 2);
+            out[count++] = w;
+        }
+        return out;
+    }
+
+    /**
+     * The data-driven transition at the end of clip {@code a} (track.clips[i]), or null: there is none, its style is not
+     * data-driven, its style is not a "cut" one (layers / mask are not drawn yet), one side is not a picture
+     * (video / image), B does not start where A ends (within {@link TransitionTiming#ADJACENT_TOLERANCE_SECONDS}), or it is
+     * too short to draw once limited to what fits.
+     */
+    private static DataWindow dataWindowAt(int i, Clip a, Clip b) {
+        if (b == null || a.endTransition.effect == null) return null;
+        TransitionClip transition = a.endTransition;
+        TransitionStyle style = TransitionStyleLoader.get(transition.effect.style);
+        if (style == null || style.getMode() != TransitionStyle.Mode.CUT) return null;
+        if (!isPicture(a) || !isPicture(b) || a.duration <= 0f || b.duration <= 0f) return null;
+        if (Math.abs(b.startTime - (a.startTime + a.duration)) > TransitionTiming.ADJACENT_TOLERANCE_SECONDS) return null;
+        TransitionTiming.Mode mode = transition.mode == null ? TransitionTiming.Mode.OVERLAP
+                : TransitionTiming.Mode.valueOf(transition.mode.name());
+        TransitionTiming.Window window = TransitionTiming.window(mode, a.startTime, a.duration, b.duration, transition.duration);
+        return window == null ? null : new DataWindow(i, a, b, style, window);
+    }
+
+    /** The window of {@code windows} that is open at t, or null. */
+    private static DataWindow dataWindowAt(DataWindow[] windows, float t) {
+        for (DataWindow w : windows) {
+            if (w != null && w.window.contains(t)) return w;
+        }
+        return null;
+    }
+
+    /** The transition that ends track.clips[aIndex] (that clip is its A), or null. */
+    private static DataWindow windowOfA(DataWindow[] windows, int aIndex) {
+        if (windows == null) return null;
+        for (DataWindow w : windows) {
+            if (w != null && w.aIndex == aIndex) return w;
+        }
+        return null;
+    }
+
+    /**
+     * The index of the clip drawn on this track at t when no transition window is open, or -1. A clip is visible from
+     * its own start to its own end, EXCEPT next to a data-driven transition: the outgoing clip A is visible only until
+     * the window's end (END_FIRST: gone before the cut; BEGIN_SECOND: it plays on past the cut) and the incoming clip B
+     * from the window's start (before its own start: the pre-roll). First match in list order.
+     */
+    private static int activeClipIndex(Track track, float t, DataWindow[] windows) {
+        List<Clip> clips = track.clips;
+        for (int i = 0; i < clips.size(); i++) {
+            Clip clip = clips.get(i);
+            if (clip == null) continue;
+            float visibleStart = clip.startTime;
+            float visibleEnd = clip.startTime + clip.duration;
+            if (windows != null) {
+                DataWindow incoming = windowOfA(windows, i - 1);
+                if (incoming != null) visibleStart = incoming.window.start;
+                DataWindow outgoing = windowOfA(windows, i);
+                if (outgoing != null) visibleEnd = outgoing.window.end;
+            }
+            if (t >= visibleStart && t < visibleEnd) return i;
+        }
+        return -1;
     }
 
     // ---- clip in / out animations ---------------------------------------------------
@@ -502,6 +682,15 @@ public class OpenGLEdit {
      * nominal end (the outgoing clip of a transition keeps drawing there).
      */
     private ClipAnimationFrame animationFrame(Clip clip, float outputTimeSeconds) {
+        return animationFrame(clip, outputTimeSeconds, null);
+    }
+
+    /**
+     * @param outWindow set while the clip is the outgoing side of a data-driven transition: its out animation then runs
+     *                  over the transition's window (progress 0 at the window's start, 1 at its end) instead of over its
+     *                  own last frames, like iOS. Without a transition (null) the rules above apply.
+     */
+    private ClipAnimationFrame animationFrame(Clip clip, float outputTimeSeconds, TransitionTiming.Window outWindow) {
         ClipAnimation inDef = animationFor(clip.inAnimation, ClipAnimation.Direction.IN);
         ClipAnimation outDef = animationFor(clip.outAnimation, ClipAnimation.Direction.OUT);
         if (inDef == null && outDef == null) return ClipAnimationFrame.NEUTRAL;
@@ -515,8 +704,15 @@ public class OpenGLEdit {
             if (p >= 0f) return inDef.evaluate(p);
         }
         if (outDef != null) {
-            float outDur = ClipAnimation.fitDuration(outRaw, inRaw, clip.duration);
-            float p = ClipAnimation.progressOut(clip.startTime + clip.duration, outputTimeSeconds, outDur);
+            float outDur, clipEnd;
+            if (outWindow != null) {
+                outDur = outWindow.duration();
+                clipEnd = outWindow.end;
+            } else {
+                outDur = ClipAnimation.fitDuration(outRaw, inRaw, clip.duration);
+                clipEnd = clip.startTime + clip.duration;
+            }
+            float p = ClipAnimation.progressOut(clipEnd, outputTimeSeconds, outDur);
             if (p >= 0f) return outDef.evaluate(p);
         }
         return ClipAnimationFrame.NEUTRAL;
@@ -618,7 +814,7 @@ public class OpenGLEdit {
                     tempBase + anim.temperatureKelvin(),
                     0f, // blur is not applied per unit
                     anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast(),
-                    textStyle.unitMode, i, anim, false)); // exposure yes; the streak group is not applied per unit (as on iOS)
+                    textStyle.unitMode, i, anim.exposure(), null)); // exposure yes; the streak group is not applied per unit (as on iOS)
         }
         return out;
     }
@@ -677,16 +873,17 @@ public class OpenGLEdit {
     /** Builds one clip's complete draw info at outputTimeSeconds, or null if its type isn't drawable (audio/text/effect/3D — see getUnsupportedFeatures). */
     private DrawCommand buildDrawCommand(Clip clip, float outputTimeSeconds,
                                           int canvasWidth, int canvasHeight, boolean stretchToFull, float[] projection) {
-        return buildDrawCommand(clip, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection, null);
+        return buildDrawCommand(clip, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection, null, null);
     }
 
     /**
-     * As above, with {@code styleLook}: the channel values of a data-driven transition style's side (null = none),
-     * merged into the clip's own In / Out animation frame ({@link ClipAnimationFrame#merged}) so both apply at once.
+     * @param styleLook the channel values of a data-driven transition style's side (null = none), merged into the clip's
+     *                  own In / Out animation frame ({@link ClipAnimationFrame#merged}) so both apply at once
+     * @param outWindow the window of the data-driven transition this clip is the outgoing side of, or null (see animationFrame)
      */
     private DrawCommand buildDrawCommand(Clip clip, float outputTimeSeconds,
                                           int canvasWidth, int canvasHeight, boolean stretchToFull, float[] projection,
-                                          ClipAnimationFrame styleLook) {
+                                          ClipAnimationFrame styleLook, TransitionTiming.Window outWindow) {
         boolean isText = clip.type == ClipType.TEXT;
         if (clip.type != ClipType.VIDEO && clip.type != ClipType.IMAGE && !isText) {
             return null; // audio has no picture; effects/3D: see getUnsupportedFeatures
@@ -727,7 +924,7 @@ public class OpenGLEdit {
 
         // Every channel is neutral outside the animation window (the shared NEUTRAL frame, no
         // allocation), so the overwhelming majority of frames pay nothing for this.
-        ClipAnimationFrame anim = animationFrame(clip, outputTimeSeconds).merged(styleLook);
+        ClipAnimationFrame anim = animationFrame(clip, outputTimeSeconds, outWindow).merged(styleLook);
 
         float[] mvp = buildClipMvp(clip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull, anim, textBox);
         float opacity = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Opacity)
@@ -744,7 +941,7 @@ public class OpenGLEdit {
 
         return new DrawCommand(clip, localSourceTime, mvp, opacity, hue, saturation, brightness, temperature, blurSigmaPixels,
                 anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast(),
-                null, -1, anim, true);
+                null, -1, anim.exposure(), PostFx.from(anim, mvp, canvasWidth, canvasHeight));
     }
 
     /**
@@ -757,16 +954,6 @@ public class OpenGLEdit {
     private float readAtTime(Clip clip, float outputTimeSeconds, VideoProperties.ValueType valueType) {
         if (clip.keyframes != null) return clip.keyframes.getValueAtTime(clip, outputTimeSeconds, valueType);
         return clip.videoProperties != null ? clip.videoProperties.getValue(valueType) : 0f;
-    }
-
-    private Clip findActiveClip(Track track, float t) {
-        for (Clip clip : track.clips) {
-            if (clip == null) continue;
-            if (t >= clip.startTime && t < clip.startTime + clip.duration) {
-                return clip;
-            }
-        }
-        return null;
     }
 
     /**
