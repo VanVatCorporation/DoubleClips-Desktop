@@ -270,10 +270,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         mainContent.setTop(new VBox(menuBar, buildTopBar()));
         mainContent.setCenter(centerRow);
-        // The timeline's top edge resizes its height (the preview above keeps at least 280).
-        PanelResizeHandle timelineHandle = PanelResizeHandle.verticalAbove(timelineArea, 160, 900,
-                () -> mainContent.getHeight() - 280 - PanelResizeHandle.THICKNESS);
-        mainContent.setBottom(new VBox(timelineHandle, timelineArea));
+        // The timeline is docked into the bottom of mainContent by the DockManager below.
 
         Scene scene = new Scene(root);
         scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
@@ -322,11 +319,12 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         // Media, preview and properties are dockable panels: drag a panel's grip to move it or pop it out into its
         // own window (floating windows get the same shortcuts). Hover a docked panel's edge to resize it.
-        dock = new DockManager(this, centerRow, root, shortcutFilter);
+        dock = new DockManager(this, mainContent, centerRow, root, shortcutFilter);
         dock.addPanel("Media", leftPanel, 320, 240, 720, false, 240);
         dock.addPanel("Preview", previewPanel, 640, 360, 4000, true, 360);
         dock.addPanel("Properties", rightPanel, 280, 220, 720, false, 240);
-        dock.layout();
+        dock.addBottomPanel("Timeline", timelineArea, 280, 160, 900);
+        dock.start(); // applies the layout remembered from last time (floating windows included)
 
         this.setScene(scene);
         this.setOnCloseRequest(e -> {

@@ -76,6 +76,14 @@ public class AppSettings {
     public boolean isRecordingKeybind() { return recordingKeybind; }
     public void setRecordingKeybind(boolean value) { recordingKeybind = value; }
 
+    // The editor's panel layout (docked order, sizes, floating windows) as JSON, written by DockManager.
+    // Empty = the default layout. A java.util.prefs value is limited to 8192 characters; the layout is far smaller.
+    public String getEditorLayout() { return prefs.get("editor_layout", ""); }
+    public void setEditorLayout(String json) {
+        if (json == null || json.isEmpty() || json.length() > Preferences.MAX_VALUE_LENGTH) prefs.remove("editor_layout");
+        else prefs.put("editor_layout", json);
+    }
+
     public String getThemeMode() { return themeMode.get(); }
     public void setThemeMode(String value) { themeMode.set(value); }
     public StringProperty themeModeProperty() { return themeMode; }

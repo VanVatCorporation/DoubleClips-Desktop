@@ -106,7 +106,20 @@ public class SettingsOverlay extends StackPane {
                 cutRow, new Separator(),
                 pasteRow);
 
-        content.getChildren().addAll(generalGroup, shortcutsGroup);
+        // --- EDITOR LAYOUT ---
+        VBox layoutGroup = createGroup("EDITOR LAYOUT");
+        HBox layoutRow = createSettingRow("Restore default layout",
+                "Dock every panel back in its original place and size (the editor you have open updates right away)",
+                new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignR.RESTORE));
+        Button restoreLayoutBtn = new Button("Restore");
+        restoreLayoutBtn.setOnAction(e -> {
+            com.vanvatcorporation.doubleclips.ui.DockManager.resetAllToDefault();
+            restoreLayoutBtn.setText("Restored \u2713");
+        });
+        layoutRow.getChildren().add(restoreLayoutBtn);
+        layoutGroup.getChildren().add(layoutRow);
+
+        content.getChildren().addAll(generalGroup, shortcutsGroup, layoutGroup);
         scrollPane.setContent(content);
 
         settingsCard.getChildren().addAll(header, scrollPane);

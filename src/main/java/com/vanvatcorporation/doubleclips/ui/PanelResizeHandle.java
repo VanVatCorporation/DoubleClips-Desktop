@@ -25,6 +25,7 @@ public final class PanelResizeHandle extends Region {
     private final DoubleSupplier limit;   // the biggest the panel may get right now (the neighbours need room too)
     private double startPos, startSize;
     private boolean dragging;
+    private Runnable onFinished;
 
     private PanelResizeHandle(Region panel, boolean horizontal, int sign, double min, double max, DoubleSupplier limit) {
         this.panel = panel;
@@ -64,8 +65,15 @@ public final class PanelResizeHandle extends Region {
         setOnMouseReleased(e -> {
             dragging = false;
             if (!isHover()) setStyle(IDLE);
+            if (onFinished != null) onFinished.run();
             e.consume();
         });
+    }
+
+    /** Called when a resize drag ends. */
+    public PanelResizeHandle onFinished(Runnable r) {
+        this.onFinished = r;
+        return this;
     }
 
     /** A vertical strip beside {@code panel}: {@code panelOnLeft} = the panel is to the strip's left. */
