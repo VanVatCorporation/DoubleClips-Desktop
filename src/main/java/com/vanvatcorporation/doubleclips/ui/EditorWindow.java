@@ -247,7 +247,13 @@ public class EditorWindow extends Stage implements PropertyContext {
         VBox rightPanel = buildRightPanel();
 
         HBox.setHgrow(previewPanel, Priority.ALWAYS);
-        centerRow.getChildren().addAll(leftPanel, previewPanel, rightPanel);
+        // Hover a panel's edge and drag to resize it; the preview in the middle keeps at least MIN_PREVIEW_WIDTH.
+        final double MIN_PREVIEW_WIDTH = 360;
+        PanelResizeHandle leftHandle = PanelResizeHandle.horizontal(leftPanel, true, 240, 720,
+                () -> centerRow.getWidth() - rightPanel.getWidth() - 2 * PanelResizeHandle.THICKNESS - MIN_PREVIEW_WIDTH);
+        PanelResizeHandle rightHandle = PanelResizeHandle.horizontal(rightPanel, false, 220, 720,
+                () -> centerRow.getWidth() - leftPanel.getWidth() - 2 * PanelResizeHandle.THICKNESS - MIN_PREVIEW_WIDTH);
+        centerRow.getChildren().addAll(leftPanel, leftHandle, previewPanel, rightHandle, rightPanel);
 
         // === Bottom Timeline ===
         VBox timelineArea = buildTimelineArea();
@@ -270,7 +276,10 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         mainContent.setTop(new VBox(menuBar, buildTopBar()));
         mainContent.setCenter(centerRow);
-        mainContent.setBottom(timelineArea);
+        // The timeline's top edge resizes its height (the preview above keeps at least 280).
+        PanelResizeHandle timelineHandle = PanelResizeHandle.verticalAbove(timelineArea, 160, 900,
+                () -> mainContent.getHeight() - 280 - PanelResizeHandle.THICKNESS);
+        mainContent.setBottom(new VBox(timelineHandle, timelineArea));
 
         Scene scene = new Scene(root);
         scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
@@ -1710,6 +1719,13 @@ public class EditorWindow extends Stage implements PropertyContext {
         StackPane canvas = new StackPane();
         canvas.getStyleClass().add("canvas-wrapper");
         VBox.setVgrow(canvas, Priority.ALWAYS);
+        // The canvas is independent of the editing UI around it: it never asks for room (min 0) and nothing the
+        // picture or the gizmo draws may spill over the panels.
+        canvas.setMinSize(0, 0);
+        javafx.scene.shape.Rectangle canvasClip = new javafx.scene.shape.Rectangle();
+        canvasClip.widthProperty().bind(canvas.widthProperty());
+        canvasClip.heightProperty().bind(canvas.heightProperty());
+        canvas.setClip(canvasClip);
 
         // Initialize TimelineRenderer
         timelineRenderer = new TimelineRenderer(project, videoSettings);

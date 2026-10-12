@@ -88,7 +88,15 @@ public final class PreviewGizmo {
     private final TimelineRenderer renderer;
     private final Pane renderPane;
     private final VideoSettings settings;
-    private final Pane overlay = new Pane();
+    // The overlay only draws and takes input over the canvas; it must never ask for room. A plain Pane sizes itself
+    // to its children, and handles dragged far outside the picture used to make the whole preview (and so the side
+    // panels) change size.
+    private final Pane overlay = new Pane() {
+        @Override protected double computePrefWidth(double height) { return 0; }
+        @Override protected double computePrefHeight(double width) { return 0; }
+        @Override protected double computeMinWidth(double height) { return 0; }
+        @Override protected double computeMinHeight(double width) { return 0; }
+    };
 
     private final Polygon outline = new Polygon();
     private final Circle[] corners = new Circle[4];
