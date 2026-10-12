@@ -55,6 +55,7 @@ import com.vanvatcorporation.doubleclips.history.PropertyChangeCommand;
 import com.vanvatcorporation.doubleclips.history.SplitClipCommand;
 
 public class EditorWindow extends Stage implements PropertyContext {
+    private DockManager dock;
 
     private final ProjectData project;
     private Timeline timeline;
@@ -246,14 +247,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         VBox previewPanel = buildPreviewPanel();
         VBox rightPanel = buildRightPanel();
 
-        HBox.setHgrow(previewPanel, Priority.ALWAYS);
-        // Hover a panel's edge and drag to resize it; the preview in the middle keeps at least MIN_PREVIEW_WIDTH.
-        final double MIN_PREVIEW_WIDTH = 360;
-        PanelResizeHandle leftHandle = PanelResizeHandle.horizontal(leftPanel, true, 240, 720,
-                () -> centerRow.getWidth() - rightPanel.getWidth() - 2 * PanelResizeHandle.THICKNESS - MIN_PREVIEW_WIDTH);
-        PanelResizeHandle rightHandle = PanelResizeHandle.horizontal(rightPanel, false, 220, 720,
-                () -> centerRow.getWidth() - leftPanel.getWidth() - 2 * PanelResizeHandle.THICKNESS - MIN_PREVIEW_WIDTH);
-        centerRow.getChildren().addAll(leftPanel, leftHandle, previewPanel, rightHandle, rightPanel);
+        // leftPanel / previewPanel / rightPanel are docked into centerRow by the DockManager below.
 
         // === Bottom Timeline ===
         VBox timelineArea = buildTimelineArea();
@@ -284,7 +278,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         Scene scene = new Scene(root);
         scene.getStylesheets().add(DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
 
-        scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
+        javafx.event.EventHandler<javafx.scene.input.KeyEvent> shortcutFilter = event -> {
             // While the user types into any text control, every key belongs to that control: Delete / Backspace must edit the
             // text, Cmd+A / C / V / X / Z must act on the text, and Space must type a space - not run the editor's shortcut.
             if ((event.getTarget() instanceof javafx.scene.Node && isTextEntry((javafx.scene.Node) event.getTarget()))
@@ -323,7 +317,16 @@ public class EditorWindow extends Stage implements PropertyContext {
                 handlePaste();
                 event.consume();
             }
-        });
+        };
+        scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, shortcutFilter);
+
+        // Media, preview and properties are dockable panels: drag a panel's grip to move it or pop it out into its
+        // own window (floating windows get the same shortcuts). Hover a docked panel's edge to resize it.
+        dock = new DockManager(this, centerRow, root, shortcutFilter);
+        dock.addPanel("Media", leftPanel, 320, 240, 720, false, 240);
+        dock.addPanel("Preview", previewPanel, 640, 360, 4000, true, 360);
+        dock.addPanel("Properties", rightPanel, 280, 220, 720, false, 240);
+        dock.layout();
 
         this.setScene(scene);
         this.setOnCloseRequest(e -> {
@@ -759,6 +762,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     private void closeWindow() {
+        if (dock != null) dock.shutdown();
         stopPlayback();
         saveProject();
         if (timelineRenderer != null) timelineRenderer.shutdown();
