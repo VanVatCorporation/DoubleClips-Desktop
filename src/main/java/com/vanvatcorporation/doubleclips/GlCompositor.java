@@ -33,6 +33,116 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         }
     }
 
+    // ---- clip masks (ClipMask / iOS EditingView+Mask.swift) --------------------------------------------
+    // Drawn in the shader from signed distances, so there is no mask bitmap or blur pass: vQuadPos (-1..1) is the
+    // clip's OWN scaled, still unrotated box, exactly where iOS applies the mask. Per mask: A = (centre x, y,
+    // half width, half height) in box pixels, B = (cos, sin of the rotation, feather sigma px, corner radius px),
+    // C = (shape, invert, mode). Shape ids follow ClipMask.Shape's order, mode ids ClipMask.Mode's.
+    // A feather is a soft edge about 2 sigma each side of the outline (a Gaussian-blurred edge, as on iOS).
+    // Masks combine in order: the first defines the area, later ones add (max), subtract or intersect.
+    private static final int HEART_POINTS = 64;
+
+    private static String heartPointsGlsl() {
+        // The same curve iOS fills (x = 16 sin^3 t, y = 13cos t - 5cos 2t - 2cos 3t - cos 4t), in -1..1 units of the half extents.
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < HEART_POINTS; i++) {
+            double t = (double) i / HEART_POINTS * 2 * Math.PI;
+            double x = 16 * Math.pow(Math.sin(t), 3);
+            double y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+            if (i > 0) sb.append(", ");
+            sb.append(String.format(java.util.Locale.ROOT, "vec2(%.5f, %.5f)", x / 16.0, -(y + 2.6) / 14.4));
+        }
+        return sb.toString();
+    }
+
+    private static String starPointsGlsl() {
+        StringBuilder sb = new StringBuilder();
+        for (int k = 0; k < 10; k++) {
+            double angle = -Math.PI / 2 + k * Math.PI / 5;
+            double r = k % 2 == 0 ? 1.0 : 0.42;
+            if (k > 0) sb.append(", ");
+            sb.append(String.format(java.util.Locale.ROOT, "vec2(%.5f, %.5f)", Math.cos(angle) * r, Math.sin(angle) * r));
+        }
+        return sb.toString();
+    }
+
+    private static final String MASK_DECLS =
+            "#define MAX_MASKS " + com.vanvatcorporation.doubleclips.data.editing.ClipMask.MAX_MASKS + "\n" +
+            "uniform int uMaskCount;\n" +
+            "uniform vec2 uBoxSize;\n" +
+            "uniform vec4 uMaskA[MAX_MASKS];\n" +
+            "uniform vec4 uMaskB[MAX_MASKS];\n" +
+            "uniform ivec3 uMaskC[MAX_MASKS];\n" +
+            "const vec2 HEART[" + HEART_POINTS + "] = vec2[" + HEART_POINTS + "](" + heartPointsGlsl() + ");\n" +
+            "const vec2 STAR[10] = vec2[10](" + starPointsGlsl() + ");\n" +
+            // signed distance (negative inside) to a closed polygon scaled by s
+            "float sdHeart(vec2 p, vec2 s) {\n" +
+            "    vec2 v0 = HEART[0] * s;\n" +
+            "    float d = dot(p - v0, p - v0);\n" +
+            "    float sgn = 1.0;\n" +
+            "    for (int i = 0, j = " + (HEART_POINTS - 1) + "; i < " + HEART_POINTS + "; j = i, i++) {\n" +
+            "        vec2 vi = HEART[i] * s, vj = HEART[j] * s;\n" +
+            "        vec2 e = vj - vi, w = p - vi;\n" +
+            "        vec2 b = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);\n" +
+            "        d = min(d, dot(b, b));\n" +
+            "        bvec3 c = bvec3(p.y >= vi.y, p.y < vj.y, e.x * w.y > e.y * w.x);\n" +
+            "        if (all(c) || all(not(c))) sgn = -sgn;\n" +
+            "    }\n" +
+            "    return sgn * sqrt(d);\n" +
+            "}\n" +
+            "float sdStar(vec2 p, vec2 s) {\n" +
+            "    vec2 v0 = STAR[0] * s;\n" +
+            "    float d = dot(p - v0, p - v0);\n" +
+            "    float sgn = 1.0;\n" +
+            "    for (int i = 0, j = 9; i < 10; j = i, i++) {\n" +
+            "        vec2 vi = STAR[i] * s, vj = STAR[j] * s;\n" +
+            "        vec2 e = vj - vi, w = p - vi;\n" +
+            "        vec2 b = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);\n" +
+            "        d = min(d, dot(b, b));\n" +
+            "        bvec3 c = bvec3(p.y >= vi.y, p.y < vj.y, e.x * w.y > e.y * w.x);\n" +
+            "        if (all(c) || all(not(c))) sgn = -sgn;\n" +
+            "    }\n" +
+            "    return sgn * sqrt(d);\n" +
+            "}\n" +
+            "float maskCoverage(vec2 p) {\n" +
+            "    float aa = max(0.75 * length(fwidth(p)), 0.25);\n" +
+            "    float result = 1.0;\n" +
+            "    for (int i = 0; i < uMaskCount; i++) {\n" +
+            "        vec4 a = uMaskA[i];\n" +
+            "        vec4 b = uMaskB[i];\n" +
+            "        ivec3 c = uMaskC[i];\n" +
+            "        vec2 d = p - a.xy;\n" +
+            // into the mask's own frame (the shape's rotation undone; y is down, + is clockwise)
+            "        vec2 l = vec2(d.x * b.x + d.y * b.y, -d.x * b.y + d.y * b.x);\n" +
+            "        vec2 h = a.zw;\n" +
+            "        float sd;\n" +
+            "        if (c.x == 0) {\n" +                       // linear: the side the shape's \"up\" points to is kept
+            "            sd = l.y;\n" +
+            "        } else if (c.x == 1) {\n" +                // mirror: a band through the centre
+            "            sd = abs(l.y) - h.y;\n" +
+            "        } else if (c.x == 2) {\n" +                // circle / ellipse (first-order distance estimate)
+            "            float k0 = length(l / h);\n" +
+            "            float k1 = max(length(l / (h * h)), 1e-4);\n" +
+            "            sd = k0 * (k0 - 1.0) / k1;\n" +
+            "        } else if (c.x == 3) {\n" +                // rectangle with rounded corners
+            "            vec2 q = abs(l) - (h - vec2(b.w));\n" +
+            "            sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - b.w;\n" +
+            "        } else if (c.x == 4) {\n" +
+            "            sd = sdHeart(l, h);\n" +
+            "        } else {\n" +
+            "            sd = sdStar(l, h);\n" +
+            "        }\n" +
+            "        float s = max(2.0 * b.z, aa);\n" +
+            "        float cov = 1.0 - smoothstep(-s, s, sd);\n" +
+            "        if (c.y == 1) cov = 1.0 - cov;\n" +
+            "        if (i == 0) result = cov;\n" +
+            "        else if (c.z == 0) result = max(result, cov);\n" +
+            "        else if (c.z == 1) result = result * (1.0 - cov);\n" +
+            "        else result = result * cov;\n" +
+            "    }\n" +
+            "    return result;\n" +
+            "}\n";
+
     private static final String VERTEX_SHADER =
             "#version 330 core\n" +
             "layout(location=0) in vec2 aPos;\n" +
@@ -60,6 +170,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "#version 330 core\n" +
             "in vec2 vUV;\n" +
             "in vec2 vQuadPos;\n" +
+            MASK_DECLS +
             "uniform sampler2D uTex;\n" +
             "uniform float uOpacity;\n" +
             "uniform float uHueDegrees;\n" +
@@ -107,7 +218,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "    rgb.r *= (1.0 + tempNorm * 0.3);\n" +
             "    rgb.b *= (1.0 - tempNorm * 0.3);\n" +
             "    rgb *= uExposure;\n" +
-            "    fragColor = vec4(clamp(rgb, 0.0, 1.0), color.a * uOpacity);\n" +
+            "    float maskAlpha = uMaskCount > 0 ? maskCoverage((vQuadPos * 0.5 + 0.5) * uBoxSize) : 1.0;\n" +
+            "    fragColor = vec4(clamp(rgb, 0.0, 1.0), color.a * uOpacity * maskAlpha);\n" +
             "}\n";
 
     // ---- transition blend: combines two full-canvas layers (no MVP - both inputs are
@@ -265,7 +377,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private final int fbo, colorTex;
     private final int program;
     private final int uMvpLoc, uOpacityLoc, uTexLoc, uHueLoc, uSaturationLoc, uBrightnessLoc, uTemperatureLoc;
-    private final int uUnfoldActiveLoc, uUnfoldTopXLoc, uUnfoldBottomXLoc, uUnfoldHeightLoc, uContrastLoc, uExposureLoc;
+    private final int uUnfoldActiveLoc, uUnfoldTopXLoc, uUnfoldBottomXLoc, uUnfoldHeightLoc, uContrastLoc, uExposureLoc,
+            uMaskCountLoc, uBoxSizeLoc, uMaskALoc, uMaskBLoc, uMaskCLoc;
     private final int vao, vbo;
 
     /** A canvas-sized offscreen colour target (FBO + texture). */
@@ -319,6 +432,11 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         uUnfoldHeightLoc = glGetUniformLocation(program, "uUnfoldHeight");
         uContrastLoc = glGetUniformLocation(program, "uContrast");
         uExposureLoc = glGetUniformLocation(program, "uExposure");
+        uMaskCountLoc = glGetUniformLocation(program, "uMaskCount");
+        uBoxSizeLoc = glGetUniformLocation(program, "uBoxSize");
+        uMaskALoc = glGetUniformLocation(program, "uMaskA");
+        uMaskBLoc = glGetUniformLocation(program, "uMaskB");
+        uMaskCLoc = glGetUniformLocation(program, "uMaskC");
 
         vao = glGenVertexArrays();
         glBindVertexArray(vao);
@@ -394,6 +512,16 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glUniform1f(uUnfoldHeightLoc, cmd.unfoldHeight);
         glUniform1f(uContrastLoc, cmd.contrast);
         glUniform1f(uExposureLoc, cmd.exposure); // like the warp uniforms: every draw sets it (GL defaults it to 0 = black)
+        // Clip masks: count 0 = the shader skips them (and every draw must say so, the program is shared by all clips).
+        if (cmd.masks != null && cmd.masks.count > 0) {
+            glUniform1i(uMaskCountLoc, cmd.masks.count);
+            glUniform2f(uBoxSizeLoc, cmd.masks.boxW, cmd.masks.boxH);
+            glUniform4fv(uMaskALoc, cmd.masks.a);
+            glUniform4fv(uMaskBLoc, cmd.masks.b);
+            glUniform3iv(uMaskCLoc, cmd.masks.c);
+        } else {
+            glUniform1i(uMaskCountLoc, 0);
+        }
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }

@@ -17,10 +17,12 @@ import java.util.function.Consumer;
 public class PropertyPanel extends VBox {
 
     private final PropertyContext context;
+    private final MaskSection maskSection;
 
     public PropertyPanel(PropertyContext context) {
         super(15);
         this.context = context;
+        this.maskSection = new MaskSection(context);
         this.setPadding(new Insets(16));
     }
 
@@ -208,6 +210,12 @@ public class PropertyPanel extends VBox {
             addKeyframeableField(fields, "Saturation", selectedClip.videoProperties.valueSaturation, VideoProperties.ValueType.Saturation, selectedClip);
             addKeyframeableField(fields, "Brightness", selectedClip.videoProperties.valueBrightness, VideoProperties.ValueType.Brightness, selectedClip);
             addKeyframeableField(fields, "Temperature", selectedClip.videoProperties.valueTemperature, VideoProperties.ValueType.Temperature, selectedClip);
+
+            // Masks limit where the picture shows (video, image, text).
+            if (selectedClip.type == ClipType.VIDEO || selectedClip.type == ClipType.IMAGE || selectedClip.type == ClipType.TEXT) {
+                fields.getChildren().add(buildSectionDivider("Mask"));
+                fields.getChildren().add(maskSection.build(selectedClip));
+            }
         }
 
         fields.getChildren().add(buildSectionDivider("Toggles"));

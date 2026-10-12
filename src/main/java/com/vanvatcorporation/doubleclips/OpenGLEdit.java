@@ -329,6 +329,12 @@ public class OpenGLEdit {
          * Gaussian blur, exactly like the in-animation blur path.
          */
         public final PostFx post;
+        /**
+         * The clip's masks at this frame, packed for the fragment shader (clip-box pixels), or null for the
+         * overwhelming majority of draws. Set by buildDrawCommand after construction; per-unit text draws and
+         * effect clips never carry one.
+         */
+        public com.vanvatcorporation.doubleclips.data.editing.ClipMask.Packed masks;
 
         public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
                             float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
@@ -926,7 +932,8 @@ public class OpenGLEdit {
         // allocation), so the overwhelming majority of frames pay nothing for this.
         ClipAnimationFrame anim = animationFrame(clip, outputTimeSeconds, outWindow).merged(styleLook);
 
-        float[] mvp = buildClipMvp(clip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull, anim, textBox);
+        float[] box = new float[2];
+        float[] mvp = buildClipMvp(clip, outputTimeSeconds, projection, canvasWidth, canvasHeight, stretchToFull, anim, textBox, box);
         float opacity = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Opacity)
                 * anim.opacity();
         float hue = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.Hue)
@@ -939,9 +946,15 @@ public class OpenGLEdit {
                 + anim.temperatureKelvin();
         float blurSigmaPixels = anim.blurWidthFraction() * canvasWidth;
 
-        return new DrawCommand(clip, localSourceTime, mvp, opacity, hue, saturation, brightness, temperature, blurSigmaPixels,
+        DrawCommand command = new DrawCommand(clip, localSourceTime, mvp, opacity, hue, saturation, brightness, temperature, blurSigmaPixels,
                 anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast(),
                 null, -1, anim.exposure(), PostFx.from(anim, mvp, canvasWidth, canvasHeight));
+        if (clip.hasMasks()) {
+            // The masks work in the clip's own scaled, still unrotated box (box = scaledW x scaledH from the MVP maths).
+            command.masks = com.vanvatcorporation.doubleclips.data.editing.ClipMask.pack(
+                    clip.resolvedMasks(outputTimeSeconds - clip.startTime), box[0], box[1]);
+        }
+        return command;
     }
 
     /**
@@ -971,7 +984,7 @@ public class OpenGLEdit {
      */
     private float[] buildClipMvp(Clip clip, float outputTimeSeconds, float[] projection,
                                   int canvasWidth, int canvasHeight, boolean stretchToFull, ClipAnimationFrame anim,
-                                  float[] textBox) {
+                                  float[] textBox, float[] boxOut) {
         // The in-animation's scale multiplies the clip's own (about its pivot), its offset is a
         // fraction of the canvas size added to PosX/PosY, its rotation is added to RotInRadians.
         float scaleX = readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.ScaleX) * anim.scale();
@@ -999,6 +1012,7 @@ public class OpenGLEdit {
         }
         float scaledW = baseW * scaleX;
         float scaledH = baseH * scaleY;
+        if (boxOut != null) { boxOut[0] = Math.abs(scaledW); boxOut[1] = Math.abs(scaledH); }
 
         float cos = (float) Math.cos(rotRadians);
         float sin = (float) Math.sin(rotRadians);
