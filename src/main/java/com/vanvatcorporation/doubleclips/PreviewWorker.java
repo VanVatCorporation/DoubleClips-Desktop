@@ -44,6 +44,8 @@ import static org.lwjgl.system.MemoryUtil.NULL;
  *   {"cmd":"live","track":i,"clip":j,"key":k,"props":{VideoProperties}}  (gesture in flight: patches ONE clip's
  *                                                                         static properties, or keyframe k's value
  *                                                                         when k >= 0, in the worker's copy only)
+ *   {"cmd":"livemasks","track":i,"clip":j,"masks":[ClipMask]}           (mask gesture in flight: replaces ONE clip's whole
+ *                                                                         mask list, in the worker's copy only)
  *   {"cmd":"render","seq":n,"t":seconds,"playing":bool}                (only the newest is ever rendered)
  *   {"cmd":"proxy","on":bool}
  *   {"cmd":"hwaccel","on":bool}                                        (hardware decoding for streams opened from now on)
@@ -279,6 +281,13 @@ public final class PreviewWorker {
                             log("Ignoring an unusable live edit: " + e);
                         }
                         break;
+                    case "livemasks":
+                        try {
+                            applyLiveMasks(cmd);
+                        } catch (RuntimeException e) {
+                            log("Ignoring an unusable live mask edit: " + e);
+                        }
+                        break;
                     case "proxy":
                         proxyChange.set(cmd.get("on").getAsBoolean());
                         break;
@@ -322,6 +331,26 @@ public final class PreviewWorker {
         } else {
             clip.videoProperties = props;
         }
+    }
+
+    /** Like {@link #applyLive}, for a mask gesture: the clip's whole mask list is replaced in the worker's copy. */
+    private static void applyLiveMasks(JsonObject cmd) {
+        Timeline tl = timeline;
+        if (tl == null) return;
+        int trackIndex = cmd.get("track").getAsInt();
+        int clipIndex = cmd.get("clip").getAsInt();
+        if (trackIndex < 0 || trackIndex >= tl.tracks.size()) return;
+        Track track = tl.tracks.get(trackIndex);
+        if (clipIndex < 0 || clipIndex >= track.clips.size()) return;
+        com.vanvatcorporation.doubleclips.data.editing.ClipMask[] parsed =
+                GSON.fromJson(cmd.get("masks"), com.vanvatcorporation.doubleclips.data.editing.ClipMask[].class);
+        java.util.List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> list = new java.util.ArrayList<>();
+        if (parsed != null) for (com.vanvatcorporation.doubleclips.data.editing.ClipMask m : parsed) {
+            if (m == null) continue;
+            m.normalizeAfterLoad();
+            list.add(m);
+        }
+        track.clips.get(clipIndex).masks = list.isEmpty() ? null : list;
     }
 
     private static void requestQuit() {

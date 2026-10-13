@@ -66,6 +66,8 @@ public final class PreviewGizmo {
         void clipChanged(Clip clip);
         /** The project's Fonts folder (imported fonts), so a text clip's box is measured with the font the preview draws. */
         String fontsDirectory();
+        /** Which clip mask the canvas is editing (set by the Mask panel); while one is, {@link MaskGizmo} owns the canvas. */
+        com.vanvatcorporation.doubleclips.ui.MaskEditState maskEdit();
     }
 
     private static final double HANDLE_RADIUS = 5.5;
@@ -106,6 +108,8 @@ public final class PreviewGizmo {
     private final Circle rotateHandle = new Circle(HANDLE_RADIUS + 1);
     private final Line rotateStem = new Line();
     private final Label info = new Label();
+    /** Shape + handles of the clip mask being edited (see MaskEditState); replaces the clip's own box while it is up. */
+    private final MaskGizmo maskGizmo;
 
     // ── gesture state ────────────────────────────────────────────────────
     private Mode mode = Mode.NONE;
@@ -181,6 +185,9 @@ public final class PreviewGizmo {
         overlay.getChildren().addAll(corners);
         overlay.getChildren().add(info);
         setShapesVisible(false);
+        maskGizmo = new MaskGizmo(overlay, host, renderer, settings,
+                c -> quadFor(c, resolve(c, host.currentTime())),
+                this::toOverlay, this::canvasPoint, this::screenScale);
 
         overlay.addEventHandler(MouseEvent.MOUSE_PRESSED, this::onPressed);
         overlay.addEventHandler(MouseEvent.MOUSE_DRAGGED, this::onDragged);
@@ -196,7 +203,7 @@ public final class PreviewGizmo {
         });
         overlay.setFocusTraversable(true);
         overlay.addEventHandler(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() == KeyCode.ESCAPE && mode != Mode.NONE) {
+            if (e.getCode() == KeyCode.ESCAPE && (mode != Mode.NONE || maskGizmo.gestureActive())) {
                 pinching = false;
                 cancel();
                 e.consume();
@@ -215,8 +222,16 @@ public final class PreviewGizmo {
         Clip clip = mode != Mode.NONE ? target : host.primarySelectedClip();
         if (clip == null || !isVisual(clip) || !isActive(clip, host.currentTime())) {
             setShapesVisible(false);
+            maskGizmo.hide();
             return;
         }
+        // A mask is being edited: its shape and handles take the canvas instead of the clip's own box.
+        if (mode == Mode.NONE && maskGizmo.editing(clip)) {
+            setShapesVisible(false);
+            maskGizmo.refresh(clip);
+            return;
+        }
+        maskGizmo.hide();
         VideoProperties p = (mode != Mode.NONE && live != null) ? live : resolve(clip, host.currentTime());
         double[] quad = quadFor(clip, p);
         if (quad == null) {
@@ -327,7 +342,10 @@ public final class PreviewGizmo {
     private void onMoved(MouseEvent e) {
         if (mode != Mode.NONE || host.isPlaying()) return;
         Clip sel = host.primarySelectedClip();
-        if (sel != null && isVisual(sel) && isActive(sel, host.currentTime())) {
+        if (sel != null && isVisual(sel) && isActive(sel, host.currentTime()) && maskGizmo.editing(sel)) {
+            Cursor c = maskGizmo.cursorAt(sel, e);
+            if (c != Cursor.DEFAULT) { overlay.setCursor(c); return; }
+        } else if (sel != null && isVisual(sel) && isActive(sel, host.currentTime())) {
             int handle = handleAt(sel, e.getX(), e.getY());
             if (handle == HANDLE_ROTATE) {
                 overlay.setCursor(Cursor.HAND);
@@ -348,11 +366,18 @@ public final class PreviewGizmo {
         Point2D canvasPoint = canvasPoint(e);
 
         Clip sel = host.primarySelectedClip();
+        // Mask editing: a press on the mask's handles or inside the clip belongs to the mask.
+        if (sel != null && isVisual(sel) && isActive(sel, time) && maskGizmo.editing(sel) && maskGizmo.onPressed(sel, e)) {
+            overlay.requestFocus();
+            e.consume();
+            return;
+        }
         Mode startMode = Mode.NONE;
         int handleHit = -1;
         Clip chosen = null;
 
-        if (sel != null && isVisual(sel) && isActive(sel, time) && (sel.type != ClipType.TEXT || gpuText(sel))) {
+        if (sel != null && isVisual(sel) && isActive(sel, time) && (sel.type != ClipType.TEXT || gpuText(sel))
+                && !maskGizmo.editing(sel)) {
             int handle = handleAt(sel, e.getX(), e.getY());
             if (handle == HANDLE_ROTATE) {
                 startMode = Mode.ROTATE;
@@ -378,6 +403,11 @@ public final class PreviewGizmo {
     }
 
     private void onDragged(MouseEvent e) {
+        if (maskGizmo.gestureActive()) {
+            maskGizmo.onDragged(e);
+            e.consume();
+            return;
+        }
         if (mode == Mode.NONE || pinching) return;
         Point2D p = canvasPoint(e);
         switch (mode) {
@@ -410,6 +440,11 @@ public final class PreviewGizmo {
     }
 
     private void onReleased(MouseEvent e) {
+        if (maskGizmo.gestureActive()) {
+            maskGizmo.onReleased();
+            e.consume();
+            return;
+        }
         if (mode == Mode.NONE) return;
         finishGesture();
         e.consume();
@@ -553,6 +588,10 @@ public final class PreviewGizmo {
 
     /** Escape: drop the gesture and put everything back. */
     public void cancel() {
+        if (maskGizmo.gestureActive()) {
+            maskGizmo.cancel();
+            return;
+        }
         if (mode == Mode.NONE || target == null) return;
         Clip clip = target;
         KeyframesSnapshot start = before;

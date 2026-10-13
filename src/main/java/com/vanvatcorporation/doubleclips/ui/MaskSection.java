@@ -46,18 +46,24 @@ final class MaskSection {
     private Clip lastClip;
     /** Which of the clip's masks the shape tiles and rows edit. */
     private int selected;
+    /** Whether the canvas shows the selected mask's shape and handles (instead of the clip's own box). */
+    private boolean canvasEdit;
 
     MaskSection(PropertyContext context) {
         this.context = context;
     }
 
     VBox build(Clip clip) {
-        if (clip != lastClip) { lastClip = clip; selected = 0; }
+        if (clip != lastClip) { lastClip = clip; selected = 0; canvasEdit = false; }
         List<ClipMask> masks = clip.masks == null ? new ArrayList<>() : clip.masks;
         if (selected >= masks.size()) selected = Math.max(0, masks.size() - 1);
+        context.maskEditState().set(clip, selected, canvasEdit && !masks.isEmpty());
 
         VBox box = new VBox(10);
-        if (!masks.isEmpty()) box.getChildren().add(buildTabs(clip, masks));
+        if (!masks.isEmpty()) {
+            box.getChildren().add(buildTabs(clip, masks));
+            box.getChildren().add(buildCanvasToggle());
+        }
         box.getChildren().add(buildShapeTiles(clip, masks));
         if (!masks.isEmpty()) box.getChildren().add(buildSettings(clip, masks.get(selected)));
         return box;
@@ -72,7 +78,7 @@ final class MaskSection {
             ToggleButton tab = new ToggleButton("Mask" + (i + 1) + " " + masks.get(i).shape.title);
             tab.setSelected(i == selected);
             styleChip(tab, i == selected);
-            tab.setOnAction(e -> { selected = index; context.updatePropertiesPane(); });
+            tab.setOnAction(e -> { selected = index; canvasEdit = true; context.updatePropertiesPane(); });
             row.getChildren().add(tab);
         }
         Button add = new Button("+");
@@ -86,9 +92,29 @@ final class MaskSection {
                 list.add(m);
             });
             selected = newIndex;
+            canvasEdit = true;
             context.updatePropertiesPane();
         });
         row.getChildren().add(add);
+        return row;
+    }
+
+    /** "Edit on canvas": the preview shows the mask's shape and handles; off gives the clip's own move / scale / rotate box back. */
+    private Node buildCanvasToggle() {
+        Label lbl = new Label("Edit on canvas");
+        lbl.getStyleClass().add("text-muted");
+        lbl.setStyle("-fx-font-size: 11px;");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        ToggleButton toggle = new ToggleButton();
+        toggle.getStyleClass().add("pill-toggle");
+        toggle.setSelected(canvasEdit);
+        toggle.setOnAction(e -> {
+            canvasEdit = toggle.isSelected();
+            context.updatePropertiesPane();
+        });
+        HBox row = new HBox(8, lbl, spacer, toggle);
+        row.setAlignment(Pos.CENTER_LEFT);
         return row;
     }
 
@@ -114,6 +140,7 @@ final class MaskSection {
                 if (masks.isEmpty()) {
                     edit(clip, "Add Mask", list -> list.add(new ClipMask(shape)));
                     selected = 0;
+                    canvasEdit = true;
                 } else {
                     final int index = selected;
                     edit(clip, "Change Mask Shape", list -> list.get(index).changeShape(shape));

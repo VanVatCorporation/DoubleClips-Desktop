@@ -64,6 +64,10 @@ public class EditorWindow extends Stage implements PropertyContext {
     private TimelineRenderer timelineRenderer;
     private com.vanvatcorporation.doubleclips.ui.renderer.PreviewGizmo previewGizmo;
     private final HistoryManager historyManager = new HistoryManager();
+    private final MaskEditState maskEditState = new MaskEditState();
+
+    @Override
+    public MaskEditState maskEditState() { return maskEditState; }
 
     // Editor State
     private float currentTime = 0f;
@@ -1750,6 +1754,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             @Override public void selectClip(Clip clip) { EditorWindow.this.selectClip(clip); }
             @Override public void commit(String name, Runnable redo, Runnable undo) { executePropertyChange(name, redo, undo); }
             @Override public String fontsDirectory() { return com.vanvatcorporation.doubleclips.TextStyle.fontsDirOf(project); }
+            @Override public MaskEditState maskEdit() { return maskEditState; }
             @Override public void clipChanged(Clip clip) {
                 if (clip.viewRef instanceof ClipNode cn) {
                     cn.updateKeyframes(pixelsPerSecond);
@@ -1761,6 +1766,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
         }, timelineRenderer, videoSettings);
         canvas.getChildren().add(previewGizmo.getNode());
+        maskEditState.setOnChange(() -> { if (previewGizmo != null) previewGizmo.refresh(); });
 
         canvas.layoutBoundsProperty().addListener((obs, oldBounds, newBounds) -> {
             double w = newBounds.getWidth() - 32;

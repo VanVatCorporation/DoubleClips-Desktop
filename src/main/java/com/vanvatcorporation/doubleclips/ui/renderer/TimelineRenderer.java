@@ -180,6 +180,22 @@ public class TimelineRenderer {
         }
     }
 
+    /**
+     * Shows an in-progress mask edit for a clip WITHOUT committing it: {@code masks} is the clip's whole mask list as
+     * the gesture would commit it. Under the GPU preview it is streamed to the worker (the real clip is untouched
+     * until the gesture ends); the legacy preview cannot draw masks at all, so there it is only stored in the clip.
+     */
+    public void showLiveMasks(Clip clip, java.util.List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> masks, float time) {
+        lastTime = time;
+        if (streamsLiveToWorker(clip)) {
+            int clipIndex = timeline.tracks.get(clip.trackIndex).clips.indexOf(clip);
+            client.requestLiveMasks(clip.trackIndex, clipIndex, masks, time);
+        } else {
+            clip.masks = masks == null || masks.isEmpty() ? null : masks;
+            updateTime(time, true);
+        }
+    }
+
     /** Puts values straight into the clip (the gizmo's commit, undo/redo and cancel use this). */
     public static void writeProperties(Clip clip, VideoProperties props, int keyIndex) {
         // Each property goes where it lives: into that keyframe when it holds it, into the static

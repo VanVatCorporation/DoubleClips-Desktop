@@ -247,6 +247,21 @@ public final class PreviewClient {
                 + ",\"playing\":false}");
     }
 
+    /**
+     * Mask gesture in flight: streams one clip's WHOLE mask list as the gesture would commit it (see PreviewWorker
+     * "livemasks"; keyframes included, so the worker resolves them itself) and asks for a frame.
+     */
+    public void requestLiveMasks(int trackIndex, int clipIndex,
+                                 java.util.List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> masks, float timeSeconds) {
+        if (failed || closing) return;
+        lastTimelineJson = null; // the worker's copy is about to differ from the editor's
+        send("{\"cmd\":\"livemasks\",\"track\":" + trackIndex + ",\"clip\":" + clipIndex
+                + ",\"masks\":" + GSON.toJson(masks == null ? new java.util.ArrayList<>() : masks) + "}");
+        lastRenderNanos = System.nanoTime();
+        send("{\"cmd\":\"render\",\"seq\":" + seq.incrementAndGet() + ",\"t\":" + timeSeconds
+                + ",\"playing\":false}");
+    }
+
     // ── plumbing ─────────────────────────────────────────────────────────
 
     /** Lines go out in order on one thread, so a big timeline never blocks the FX thread on the pipe. */

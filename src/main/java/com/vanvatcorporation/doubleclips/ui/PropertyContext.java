@@ -33,4 +33,6 @@ public interface PropertyContext {
     void updatePropertiesPane();
     com.vanvatcorporation.doubleclips.data.editing.VideoSettings getVideoSettings();
     com.vanvatcorporation.doubleclips.data.ProjectData getProject();
+    /** Which clip mask the canvas is editing (shared by the Mask panel and the preview gizmo). */
+    MaskEditState maskEditState();
 }
