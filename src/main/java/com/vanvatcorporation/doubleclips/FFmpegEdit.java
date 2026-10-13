@@ -893,7 +893,7 @@ public class FFmpegEdit {
     /**
      * Human-readable list of clip animations (or parts of them) the FFmpeg export will NOT reproduce:
      * an animation id that isn't installed, or channels FFmpeg can't express (see
-     * ClipAnimationFFmpeg.SUPPORTED). Empty = the FFmpeg export plays every animation in full.
+     * ClipAnimationFFmpeg.SUPPORTED), plus clip masks (OpenGL only). Empty = the FFmpeg export plays every animation in full.
      * The OpenGL export supports every channel (see OpenGLEdit.animationFrame).
      */
     public static List<String> getUnsupportedAnimationFeatures(Timeline timeline) {
@@ -915,6 +915,10 @@ public class FFmpegEdit {
                 if (clip.type == ClipType.EFFECT && clip.effect != null && EffectCatalog.find(clip.effect.style) != null) {
                     // The FFmpeg filter graph never draws effect clips; only the OpenGL export does (as an adjustment layer).
                     found.add("The effect \"" + EffectCatalog.find(clip.effect.style).title + "\" is skipped (only the OpenGL export draws effect clips)");
+                }
+                if (clip.hasMasks()) {
+                    // Masks are drawn by the OpenGL shader (GlCompositor); the FFmpeg filter graph has no counterpart yet.
+                    found.add("Clip masks are skipped (only the OpenGL export draws them; FFmpeg shows those clips unmasked)");
                 }
                 if (OpenGLEdit.animatesPerUnit(clip) && (isRealAnimation(clip.inAnimation) || isRealAnimation(clip.outAnimation))) {
                     found.add("Text animated per " + clip.effectiveTextStyle().unitMode.toLowerCase(java.util.Locale.ROOT)
