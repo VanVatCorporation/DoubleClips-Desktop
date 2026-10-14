@@ -18,11 +18,13 @@ public class PropertyPanel extends VBox {
 
     private final PropertyContext context;
     private final MaskSection maskSection;
+    private final BlendSection blendSection;
 
     public PropertyPanel(PropertyContext context) {
         super(15);
         this.context = context;
         this.maskSection = new MaskSection(context);
+        this.blendSection = new BlendSection(context);
         this.setPadding(new Insets(16));
     }
 
@@ -213,6 +215,8 @@ public class PropertyPanel extends VBox {
 
             // Masks limit where the picture shows (video, image, text).
             if (selectedClip.type == ClipType.VIDEO || selectedClip.type == ClipType.IMAGE || selectedClip.type == ClipType.TEXT) {
+                fields.getChildren().add(buildSectionDivider("Blend"));
+                fields.getChildren().add(blendSection.build(selectedClip));
                 fields.getChildren().add(buildSectionDivider("Mask"));
                 fields.getChildren().add(maskSection.build(selectedClip));
             }

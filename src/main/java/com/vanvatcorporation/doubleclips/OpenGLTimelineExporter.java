@@ -77,6 +77,19 @@ public final class OpenGLTimelineExporter {
         void beginOffscreen(int slot);
 
         /**
+         * Puts the premultiplied picture in scratch canvas {@code sourceSlot} onto the main canvas with a blend mode
+         * (ClipBlendMode id, not 0) against what the main canvas holds, using scratch canvas {@code backdropSlot} for a
+         * copy of it (so it must differ from {@code sourceSlot}).
+         */
+        void blendOntoMain(int sourceSlot, int backdropSlot, int mode);
+
+        /** {@link #blurOntoMain}'s two passes, but the result is left in scratch canvas {@code destSlot} (premultiplied) instead of the main canvas. */
+        void blurToSlot(int sourceSlot, int tempSlot, int destSlot, float sigmaPixels);
+
+        /** {@link #blendTransition}, but the result is left in scratch canvas {@code destSlot} (premultiplied) instead of the main canvas. */
+        void blendTransitionToSlot(int slotA, int slotB, float progress, String style, int destSlot);
+
+        /**
          * Filters everything drawn onto the main canvas so far through the effect {@code style} (an
          * {@link EffectCatalog} key), in place: an adjustment layer. {@code time} is the timeline time,
          * {@code progress} 0..1 through the effect clip and {@code elapsed} seconds since it began.
@@ -130,6 +143,9 @@ public final class OpenGLTimelineExporter {
     public static void drawFrameLayers(Compositor compositor, List<OpenGLEdit.FrameLayer> layers,
                                        float outputTimeSeconds, float blurScale, ClipDrawer drawer) {
         compositor.beginFrame();
+        // Whether anything has been drawn yet: a clip with nothing below it is drawn normally whatever its blend mode
+        // (blending with the empty black canvas would only turn Multiply / Overlay clips black; same rule as iOS).
+        boolean backdrop = false;
 
         // Draw in EXACT layer order: it is the track stacking order, and plain,
         // blurred and transitioning layers must interleave correctly rather than
@@ -138,6 +154,24 @@ public final class OpenGLTimelineExporter {
             if (layer.simpleDraw != null) {
                 OpenGLEdit.DrawCommand cmd = layer.simpleDraw;
                 boolean streak = cmd.post != null;
+                if (cmd.blendMode != 0 && backdrop) {
+                    // Blended: the finished clip (streak look and blur included) is built in a scratch canvas, then mixed
+                    // with the main canvas by the mode. Slots: 0 = the clip, 1 = streak result, 2 = blur result.
+                    compositor.beginOffscreen(0);
+                    boolean drew = drawer.draw(cmd, outputTimeSeconds);
+                    compositor.endOffscreen();
+                    if (drew) {
+                        int slot = 0;
+                        if (streak) { compositor.streak(0, 1, cmd.post); slot = 1; }
+                        if (cmd.blurSigmaPixels > 0f) {
+                            int temp = slot == 0 ? 1 : 0;
+                            compositor.blurToSlot(slot, temp, 2, cmd.blurSigmaPixels * blurScale);
+                            slot = 2;
+                        }
+                        compositor.blendOntoMain(slot, slot == 0 ? 1 : 0, cmd.blendMode);
+                    }
+                    continue;
+                }
                 if (streak || cmd.blurSigmaPixels > 0f) {
                     // The clip goes into a scratch canvas first. Its streak look (edge fill / slide /
                     // squeeze / motion blur) then runs on that canvas; in-animation blur, if any, comes
@@ -146,6 +180,7 @@ public final class OpenGLTimelineExporter {
                     compositor.beginOffscreen(0);
                     boolean drew = drawer.draw(cmd, outputTimeSeconds);
                     compositor.endOffscreen();
+                    backdrop |= drew;
                     if (drew) {
                         if (!streak) {
                             compositor.blurOntoMain(0, 1, cmd.blurSigmaPixels * blurScale);
@@ -157,7 +192,7 @@ public final class OpenGLTimelineExporter {
                         }
                     }
                 } else {
-                    drawer.draw(cmd, outputTimeSeconds);
+                    backdrop |= drawer.draw(cmd, outputTimeSeconds);
                 }
                 continue;
             }
@@ -176,7 +211,14 @@ public final class OpenGLTimelineExporter {
             compositor.beginOffscreen(1);
             drawer.draw(transition.clipBCommand, outputTimeSeconds);
             compositor.endOffscreen();
-            compositor.blendTransition(0, 1, transition.progress, transition.style);
+            int mode = transition.blendMode();
+            if (mode != 0 && backdrop) {
+                compositor.blendTransitionToSlot(0, 1, transition.progress, transition.style, 2);
+                compositor.blendOntoMain(2, 0, mode);
+            } else {
+                compositor.blendTransition(0, 1, transition.progress, transition.style);
+            }
+            backdrop = true;
         }
     }
 

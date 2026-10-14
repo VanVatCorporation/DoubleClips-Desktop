@@ -916,6 +916,9 @@ public class FFmpegEdit {
                     // The FFmpeg filter graph never draws effect clips; only the OpenGL export does (as an adjustment layer).
                     found.add("The effect \"" + EffectCatalog.find(clip.effect.style).title + "\" is skipped (only the OpenGL export draws effect clips)");
                 }
+                if (clip.blendMode != null && clip.blendMode != com.vanvatcorporation.doubleclips.data.editing.ClipBlendMode.NORMAL) {
+                    found.add("Clip blend modes are skipped (only the OpenGL export draws them; FFmpeg draws those clips normally)");
+                }
                 if (clip.hasMasks()) {
                     // Masks are drawn by the OpenGL shader (GlCompositor); the FFmpeg filter graph has no counterpart yet.
                     found.add("Clip masks are skipped (only the OpenGL export draws them; FFmpeg shows those clips unmasked)");

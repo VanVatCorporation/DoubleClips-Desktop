@@ -335,6 +335,8 @@ public class OpenGLEdit {
          * effect clips never carry one.
          */
         public com.vanvatcorporation.doubleclips.data.editing.ClipMask.Packed masks;
+        /** The clip's blend mode as the shader's id ({@link com.vanvatcorporation.doubleclips.data.editing.ClipBlendMode#glId}); 0 = normal "over". */
+        public int blendMode;
 
         public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
                             float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
@@ -382,6 +384,14 @@ public class OpenGLEdit {
         public final String style;
         /** 0 at the start of the transition window, 1 at the end. */
         public final float progress;
+
+        /**
+         * The blend mode the transition's result is drawn with: that of the clip which is more on screen (the
+         * outgoing one before the middle of the window, the incoming one after), as on iOS. 0 = normal.
+         */
+        public int blendMode() {
+            return progress < 0.5f ? clipACommand.blendMode : clipBCommand.blendMode;
+        }
 
         public TransitionCommand(DrawCommand clipACommand, DrawCommand clipBCommand, String style, float progress) {
             this.clipACommand = clipACommand;
@@ -949,6 +959,7 @@ public class OpenGLEdit {
         DrawCommand command = new DrawCommand(clip, localSourceTime, mvp, opacity, hue, saturation, brightness, temperature, blurSigmaPixels,
                 anim.warpTopWidth(), anim.warpBottomWidth(), anim.warpHeight(), anim.contrast(),
                 null, -1, anim.exposure(), PostFx.from(anim, mvp, canvasWidth, canvasHeight));
+        command.blendMode = com.vanvatcorporation.doubleclips.data.editing.ClipBlendMode.glId(clip.blendMode);
         if (clip.hasMasks()) {
             // The masks work in the clip's own scaled, still unrotated box (box = scaledW x scaledH from the MVP maths).
             command.masks = com.vanvatcorporation.doubleclips.data.editing.ClipMask.pack(

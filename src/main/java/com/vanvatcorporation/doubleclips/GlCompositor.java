@@ -252,6 +252,78 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "    vUV = aUV;\n" +
             "}\n";
 
+    // ---- clip blend modes (ClipBlendMode / iOS EditingView+Blend.swift) -----------------------------------------
+    // One fullscreen pass: the finished clip (a premultiplied scratch layer) is mixed with a copy of the main canvas.
+    // The maths is ClipBlendMode.blend (the W3C compositing formulas); ids are ClipBlendMode's order:
+    // 0 normal, 1 multiply, 2 screen, 3 overlay, 4 darken, 5 lighten, 6 colorDodge, 7 colorBurn, 8 softLight,
+    // 9 hardLight, 10 difference, 11 exclusion, 12 add, 13 hue, 14 saturation, 15 color, 16 luminosity.
+    // The canvas is opaque, so the result is too: (1 - a) * backdrop + a * blend(backdrop, clip colour).
+    private static final String BLEND_FRAGMENT_SHADER =
+            "#version 330 core\n" +
+            "in vec2 vUV;\n" +
+            "uniform sampler2D uLayer;\n" +
+            "uniform sampler2D uBackdrop;\n" +
+            "uniform int uMode;\n" +
+            "out vec4 fragColor;\n" +
+            "float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }\n" +
+            "float sat(vec3 c) { return max(max(c.r, c.g), c.b) - min(min(c.r, c.g), c.b); }\n" +
+            "vec3 clipColor(vec3 c) {\n" +
+            "    float l = lum(c);\n" +
+            "    float n = min(min(c.r, c.g), c.b);\n" +
+            "    float x = max(max(c.r, c.g), c.b);\n" +
+            "    if (n < 0.0) c = l + (c - l) * l / (l - n);\n" +
+            "    if (x > 1.0) c = l + (c - l) * (1.0 - l) / (x - l);\n" +
+            "    return c;\n" +
+            "}\n" +
+            "vec3 setLum(vec3 c, float l) { return clipColor(c + (l - lum(c))); }\n" +
+            "vec3 setSat(vec3 c, float s) {\n" +
+            "    float mx = max(max(c.r, c.g), c.b);\n" +
+            "    float mn = min(min(c.r, c.g), c.b);\n" +
+            "    return mx > mn ? (c - mn) * s / (mx - mn) : vec3(0.0);\n" +
+            "}\n" +
+            "float hardLight(float cb, float cs) {\n" +
+            "    return cs <= 0.5 ? cb * 2.0 * cs : cb + (2.0 * cs - 1.0) - cb * (2.0 * cs - 1.0);\n" +
+            "}\n" +
+            "float channel(int mode, float cb, float cs) {\n" +
+            "    if (mode == 1) return cb * cs;\n" +
+            "    if (mode == 2) return cb + cs - cb * cs;\n" +
+            "    if (mode == 3) return hardLight(cs, cb);\n" +
+            "    if (mode == 4) return min(cb, cs);\n" +
+            "    if (mode == 5) return max(cb, cs);\n" +
+            "    if (mode == 6) return cb == 0.0 ? 0.0 : (cs >= 1.0 ? 1.0 : min(1.0, cb / (1.0 - cs)));\n" +
+            "    if (mode == 7) return cb >= 1.0 ? 1.0 : (cs <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - cb) / cs));\n" +
+            "    if (mode == 8) {\n" +
+            "        if (cs <= 0.5) return cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb);\n" +
+            "        float d = cb <= 0.25 ? ((16.0 * cb - 12.0) * cb + 4.0) * cb : sqrt(cb);\n" +
+            "        return cb + (2.0 * cs - 1.0) * (d - cb);\n" +
+            "    }\n" +
+            "    if (mode == 9) return hardLight(cb, cs);\n" +
+            "    if (mode == 10) return abs(cb - cs);\n" +
+            "    if (mode == 11) return cb + cs - 2.0 * cb * cs;\n" +
+            "    return cs;\n" +
+            "}\n" +
+            "void main() {\n" +
+            "    vec4 layer = texture(uLayer, vUV);\n" +      // premultiplied
+            "    vec3 cb = texture(uBackdrop, vUV).rgb;\n" +
+            "    float a = layer.a;\n" +
+            "    if (a <= 0.0) { fragColor = vec4(cb, 1.0); return; }\n" +
+            "    vec3 cs = clamp(layer.rgb / a, 0.0, 1.0);\n" +
+            "    vec3 result;\n" +
+            "    if (uMode == 12) {\n" +
+            "        result = min(cb + layer.rgb, vec3(1.0));\n" +
+            "    } else {\n" +
+            "        vec3 b;\n" +
+            "        if (uMode == 13) b = setLum(setSat(cs, sat(cb)), lum(cb));\n" +
+            "        else if (uMode == 14) b = setLum(setSat(cb, sat(cs)), lum(cb));\n" +
+            "        else if (uMode == 15) b = setLum(cs, lum(cb));\n" +
+            "        else if (uMode == 16) b = setLum(cb, lum(cs));\n" +
+            "        else if (uMode == 0) b = cs;\n" +
+            "        else b = vec3(channel(uMode, cb.r, cs.r), channel(uMode, cb.g, cs.g), channel(uMode, cb.b, cs.b));\n" +
+            "        result = (1.0 - a) * cb + a * b;\n" +
+            "    }\n" +
+            "    fragColor = vec4(result, 1.0);\n" +
+            "}\n";
+
     private static final String TRANSITION_FRAGMENT_SHADER =
             "#version 330 core\n" +
             "in vec2 vUV;\n" +
@@ -389,7 +461,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
 
     // Created lazily on first use, so a project with no transitions or blur pays nothing for them.
     private final GlTarget[] scratch = new GlTarget[3]; // 0 and 1: transitions and blur; effects use all three
-    private int transitionProgram = 0, blurProgram = 0, streakProgram = 0;
+    private int transitionProgram = 0, blurProgram = 0, streakProgram = 0, blendProgram = 0;
+    private int uBlendLayerLoc, uBlendBackdropLoc, uBlendModeLoc;
     private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc;
     private int uBlurTexLoc, uBlurDirLoc, uBlurTexelLoc, uBlurSigmaLoc;
     private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc;
@@ -575,6 +648,16 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
 
     @Override
     public void blendTransition(int slotA, int slotB, float progress, String style) {
+        transitionPass(slotA, slotB, progress, style, -1);
+    }
+
+    @Override
+    public void blendTransitionToSlot(int slotA, int slotB, float progress, String style, int destSlot) {
+        transitionPass(slotA, slotB, progress, style, destSlot);
+    }
+
+    /** destSlot < 0 = onto the main canvas (blended over it), else into that scratch canvas as it is (premultiplied). */
+    private void transitionPass(int slotA, int slotB, float progress, String style, int destSlot) {
         if (transitionProgram == 0) {
             transitionProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, TRANSITION_FRAGMENT_SHADER);
             uTransALoc = glGetUniformLocation(transitionProgram, "uTextureA");
@@ -582,7 +665,12 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uTransProgressLoc = glGetUniformLocation(transitionProgram, "uProgress");
             uTransStyleLoc = glGetUniformLocation(transitionProgram, "uStyle");
         }
-        bindMain();
+        if (destSlot < 0) {
+            bindMain();
+        } else {
+            bindScratchCleared(destSlot);
+            glDisable(GL_BLEND); // the layer is written as it is, not blended over its own clear colour
+        }
         glUseProgram(transitionProgram);
         glBindVertexArray(vao);
         glActiveTexture(GL_TEXTURE0);
@@ -595,6 +683,61 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glUniform1i(uTransStyleLoc, styleToId(style));
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glActiveTexture(GL_TEXTURE0); // leave unit 0 active: draw() assumes it
+        if (destSlot >= 0) {
+            glEnable(GL_BLEND);
+            bindMain();
+        }
+    }
+
+    @Override
+    public void blendOntoMain(int sourceSlot, int backdropSlot, int mode) {
+        if (blendProgram == 0) {
+            blendProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, BLEND_FRAGMENT_SHADER);
+            uBlendLayerLoc = glGetUniformLocation(blendProgram, "uLayer");
+            uBlendBackdropLoc = glGetUniformLocation(blendProgram, "uBackdrop");
+            uBlendModeLoc = glGetUniformLocation(blendProgram, "uMode");
+        }
+        // Copy what the main canvas holds into the backdrop scratch canvas (the pass below reads it while writing the main one).
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, scratchTarget(backdropSlot).fbo);
+        glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        bindMain();
+        glDisable(GL_BLEND); // the shader writes the finished, opaque pixel
+        glUseProgram(blendProgram);
+        glBindVertexArray(vao);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(sourceSlot).texture);
+        glUniform1i(uBlendLayerLoc, 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(backdropSlot).texture);
+        glUniform1i(uBlendBackdropLoc, 1);
+        glUniform1i(uBlendModeLoc, mode);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glActiveTexture(GL_TEXTURE0); // leave unit 0 active: draw() assumes it
+        glEnable(GL_BLEND);
+        useStraightBlend();
+    }
+
+    @Override
+    public void blurToSlot(int sourceSlot, int tempSlot, int destSlot, float sigmaPixels) {
+        ensureBlurProgram();
+        glUseProgram(blurProgram);
+        glBindVertexArray(vao);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(uBlurTexLoc, 0);
+        glUniform2f(uBlurTexelLoc, 1f / width, 1f / height);
+        glUniform1f(uBlurSigmaLoc, sigmaPixels);
+        glDisable(GL_BLEND); // both passes write the layer as it is (premultiplied)
+        bindScratchCleared(tempSlot);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(sourceSlot).texture);
+        glUniform2f(uBlurDirLoc, 1f, 0f);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        bindScratchCleared(destSlot);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(tempSlot).texture);
+        glUniform2f(uBlurDirLoc, 0f, 1f);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glEnable(GL_BLEND);
+        bindMain();
     }
 
     private void ensureBlurProgram() {
@@ -863,6 +1006,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         if (transitionProgram != 0) glDeleteProgram(transitionProgram);
         if (blurProgram != 0) glDeleteProgram(blurProgram);
         if (streakProgram != 0) glDeleteProgram(streakProgram);
+        if (blendProgram != 0) glDeleteProgram(blendProgram);
         if (effectProgram != 0) glDeleteProgram(effectProgram);
         glDeleteTextures(colorTex);
         glDeleteFramebuffers(fbo);
