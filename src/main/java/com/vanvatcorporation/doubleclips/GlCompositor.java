@@ -227,11 +227,28 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     // must stay in sync with OpenGLEdit.SUPPORTED_TRANSITION_STYLES. Same maths as Android's
     // TransitionBlendShader (a best-effort match to FFmpeg's xfade of the same name).
     private static final int STYLE_FADE = 0, STYLE_WIPE_LEFT = 1, STYLE_WIPE_RIGHT = 2,
-            STYLE_SLIDE_LEFT = 3, STYLE_SLIDE_RIGHT = 4, STYLE_SLIDE_UP = 5, STYLE_SLIDE_DOWN = 6;
+            STYLE_SLIDE_LEFT = 3, STYLE_SLIDE_RIGHT = 4, STYLE_SLIDE_UP = 5, STYLE_SLIDE_DOWN = 6,
+            STYLE_CIRCLE_OPEN = 7, STYLE_CIRCLE_CLOSE = 8, STYLE_DIAG_TL = 9, STYLE_DIAG_BL = 10, STYLE_RADIAL = 11,
+            STYLE_HL_SLICE = 12, STYLE_HR_SLICE = 13, STYLE_VU_SLICE = 14, STYLE_VD_SLICE = 15, STYLE_REVEAL_UP = 16,
+            STYLE_FADE_BLACK = 17, STYLE_FADE_WHITE = 18, STYLE_FADE_GRAYS = 19, STYLE_DISSOLVE = 20;
 
     static int styleToId(String style) {
         switch (style) {
-            case "fade": case "dissolve": return STYLE_FADE; // dissolve approximated as a fade
+            case "fade": return STYLE_FADE;
+            case "dissolve": return STYLE_DISSOLVE;
+            case "circleopen": return STYLE_CIRCLE_OPEN;
+            case "circleclose": return STYLE_CIRCLE_CLOSE;
+            case "diagtl": return STYLE_DIAG_TL;
+            case "diagbl": return STYLE_DIAG_BL;
+            case "radial": return STYLE_RADIAL;
+            case "hlslice": return STYLE_HL_SLICE;
+            case "hrslice": return STYLE_HR_SLICE;
+            case "vuslice": return STYLE_VU_SLICE;
+            case "vdslice": return STYLE_VD_SLICE;
+            case "revealup": return STYLE_REVEAL_UP;
+            case "fadeblack": return STYLE_FADE_BLACK;
+            case "fadewhite": return STYLE_FADE_WHITE;
+            case "fadegrays": return STYLE_FADE_GRAYS;
             case "wipeleft": return STYLE_WIPE_LEFT;
             case "wiperight": return STYLE_WIPE_RIGHT;
             case "slideleft": return STYLE_SLIDE_LEFT;
@@ -324,6 +341,9 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "    fragColor = vec4(result, 1.0);\n" +
             "}\n";
 
+    // Styles 7..20 are the xfade / iOS ones (circleopen ... dissolve), worked out in the picture's own proportions.
+    // Orientation: vUV.y = 0 is the BOTTOM row of the canvas and 1 the top (see QUAD_VERTICES), so "up" is +y.
+    // Edges of the shaped reveals are anti-aliased with fwidth(); slices, radial and dissolve are hard-edged, like xfade.
     private static final String TRANSITION_FRAGMENT_SHADER =
             "#version 330 core\n" +
             "in vec2 vUV;\n" +
@@ -331,24 +351,66 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "uniform sampler2D uTextureB;\n" +
             "uniform float uProgress;\n" +
             "uniform int uStyle;\n" +
+            "uniform float uAspect;\n" +       // canvas width / height
             "out vec4 fragColor;\n" +
+            "float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n" +
+            "vec3 gray(vec3 c, float s) { return mix(vec3(dot(c, vec3(0.299, 0.587, 0.114))), c, s); }\n" +
+            // B shows where the signed value s is below the edge: 1 inside, 0 outside, soft over one pixel
+            "float edge(float s, float limit) { float w = max(fwidth(s), 1e-5); return 1.0 - smoothstep(limit - w, limit + w, s); }\n" +
             "void main() {\n" +
+            "    float p = uProgress;\n" +
+            "    vec4 a = texture(uTextureA, vUV);\n" +
+            "    vec4 b = texture(uTextureB, vUV);\n" +
             "    vec4 result;\n" +
+            "    vec2 c = (vUV - 0.5) * vec2(uAspect, 1.0);\n" +          // centred, height 1: a true circle
+            "    float reach = length(vec2(uAspect, 1.0) * 0.5) * 1.02;\n" + // centre to corner
             "    if (uStyle == 1) {\n" + // wipeleft: B revealed from the right edge moving left
-            "        result = (vUV.x > 1.0 - uProgress) ? texture(uTextureB, vUV) : texture(uTextureA, vUV);\n" +
+            "        result = (vUV.x > 1.0 - p) ? b : a;\n" +
             "    } else if (uStyle == 2) {\n" + // wiperight: B revealed from the left edge moving right
-            "        result = (vUV.x < uProgress) ? texture(uTextureB, vUV) : texture(uTextureA, vUV);\n" +
+            "        result = (vUV.x < p) ? b : a;\n" +
             "    } else if (uStyle >= 3 && uStyle <= 6) {\n" +
             // Push-slide: both layers move together as one strip; whichever offset lands in
             // [0,1] at this pixel is the one shown, the other is skipped entirely (not
-            // clamped), so there is no smeared edge.
-            "        vec2 axis = (uStyle == 3) ? vec2(1.0, 0.0) : (uStyle == 4) ? vec2(-1.0, 0.0) : (uStyle == 5) ? vec2(0.0, 1.0) : vec2(0.0, -1.0);\n" +
-            "        vec2 uvA = vUV + axis * uProgress;\n" +
-            "        vec2 uvB = vUV - axis * (1.0 - uProgress);\n" +
+            // clamped), so there is no smeared edge. axis = the side B comes from (+y is up).
+            "        vec2 axis = (uStyle == 3) ? vec2(1.0, 0.0) : (uStyle == 4) ? vec2(-1.0, 0.0) : (uStyle == 5) ? vec2(0.0, -1.0) : vec2(0.0, 1.0);\n" +
+            "        vec2 uvA = vUV + axis * p;\n" +
+            "        vec2 uvB = vUV - axis * (1.0 - p);\n" +
             "        bool inA = uvA.x >= 0.0 && uvA.x <= 1.0 && uvA.y >= 0.0 && uvA.y <= 1.0;\n" +
             "        result = inA ? texture(uTextureA, uvA) : texture(uTextureB, uvB);\n" +
-            "    } else {\n" + // fade / dissolve
-            "        result = mix(texture(uTextureA, vUV), texture(uTextureB, vUV), uProgress);\n" +
+            "    } else if (uStyle == 7) {\n" + // circleopen: B grows from the centre
+            "        result = mix(a, b, p <= 0.0 ? 0.0 : edge(length(c), p * reach));\n" +
+            "    } else if (uStyle == 8) {\n" + // circleclose: A closes toward the centre, B outside
+            "        result = mix(a, b, p >= 1.0 ? 1.0 : 1.0 - edge(length(c), (1.0 - p) * reach));\n" +
+            "    } else if (uStyle == 9) {\n" + // diagtl: B from the top-left corner along the diagonal
+            "        result = mix(a, b, edge(vUV.x + (1.0 - vUV.y), 2.0 * p));\n" +
+            "    } else if (uStyle == 10) {\n" + // diagbl: B from the bottom-left corner
+            "        result = mix(a, b, edge(vUV.x + vUV.y, 2.0 * p));\n" +
+            "    } else if (uStyle == 11) {\n" + // radial: B swept in clockwise from 12 o'clock
+            "        float t = fract(atan(c.x, c.y) / 6.2831853);\n" +
+            "        result = (t < p) ? b : a;\n" +
+            "    } else if (uStyle == 12) {\n" + // hlslice: ten vertical strips, B grows from each strip's left edge
+            "        result = (fract(vUV.x * 10.0) < p) ? b : a;\n" +
+            "    } else if (uStyle == 13) {\n" + // hrslice: ... from each strip's right edge
+            "        result = (1.0 - fract(vUV.x * 10.0) < p) ? b : a;\n" +
+            "    } else if (uStyle == 14) {\n" + // vuslice: ten horizontal strips, B grows upward from each strip's bottom
+            "        result = (fract(vUV.y * 10.0) < p) ? b : a;\n" +
+            "    } else if (uStyle == 15) {\n" + // vdslice: ... downward from each strip's top
+            "        result = (fract((1.0 - vUV.y) * 10.0) < p) ? b : a;\n" +
+            "    } else if (uStyle == 16) {\n" + // revealup: A slides up and away, B stays underneath
+            "        vec2 uvA = vec2(vUV.x, vUV.y - p);\n" +
+            "        result = uvA.y >= 0.0 ? texture(uTextureA, uvA) : b;\n" +
+            "    } else if (uStyle == 17) {\n" + // fadeblack: A to black, hard cut at the middle, B up from black
+            "        result = p < 0.5 ? vec4(a.rgb * (1.0 - 2.0 * p), a.a) : vec4(b.rgb * (2.0 * p - 1.0), b.a);\n" +
+            "    } else if (uStyle == 18) {\n" + // fadewhite: the same through white
+            "        result = p < 0.5 ? vec4(mix(a.rgb, vec3(1.0), 2.0 * p), a.a) : vec4(mix(vec3(1.0), b.rgb, 2.0 * p - 1.0), b.a);\n" +
+            "    } else if (uStyle == 19) {\n" + // fadegrays: both lose colour toward the middle while B cross fades in
+            "        vec3 ga = gray(a.rgb, 1.0 - min(1.0, 2.0 * p));\n" +
+            "        vec3 gb = gray(b.rgb, max(0.0, 2.0 * p - 1.0));\n" +
+            "        result = vec4(mix(ga, gb, p), mix(a.a, b.a, p));\n" +
+            "    } else if (uStyle == 20) {\n" + // dissolve: every pixel flips from A to B at its own moment
+            "        result = (hash(floor(gl_FragCoord.xy)) < p) ? b : a;\n" +
+            "    } else {\n" + // fade
+            "        result = mix(a, b, p);\n" +
             "    }\n" +
             "    fragColor = result;\n" +
             "}\n";
@@ -463,7 +525,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private final GlTarget[] scratch = new GlTarget[3]; // 0 and 1: transitions and blur; effects use all three
     private int transitionProgram = 0, blurProgram = 0, streakProgram = 0, blendProgram = 0;
     private int uBlendLayerLoc, uBlendBackdropLoc, uBlendModeLoc;
-    private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc;
+    private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc, uTransAspectLoc;
     private int uBlurTexLoc, uBlurDirLoc, uBlurTexelLoc, uBlurSigmaLoc;
     private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc;
     // Effect clips: one program for the whole catalog (resources/shaders/effects.frag), built on first use.
@@ -664,6 +726,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uTransBLoc = glGetUniformLocation(transitionProgram, "uTextureB");
             uTransProgressLoc = glGetUniformLocation(transitionProgram, "uProgress");
             uTransStyleLoc = glGetUniformLocation(transitionProgram, "uStyle");
+            uTransAspectLoc = glGetUniformLocation(transitionProgram, "uAspect");
         }
         if (destSlot < 0) {
             bindMain();
@@ -681,6 +744,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glUniform1i(uTransBLoc, 1);
         glUniform1f(uTransProgressLoc, progress);
         glUniform1i(uTransStyleLoc, styleToId(style));
+        glUniform1f(uTransAspectLoc, (float) width / height);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glActiveTexture(GL_TEXTURE0); // leave unit 0 active: draw() assumes it
         if (destSlot >= 0) {
