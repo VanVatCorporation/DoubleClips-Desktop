@@ -77,6 +77,12 @@ public class ClipMask implements Serializable {
         public final String raw, title;
         public final float min, max;
 
+        /** The parameter with this raw name (as keyframes store them), or null. */
+        public static Param byRaw(String raw) {
+            for (Param p : values()) if (p.raw.equals(raw)) return p;
+            return null;
+        }
+
         Param(String raw, String title, float min, float max) {
             this.raw = raw;
             this.title = title;
@@ -311,6 +317,40 @@ public class ClipMask implements Serializable {
         Float held = at.values.remove(p.raw);
         if (at.values.isEmpty()) keys.remove(at);
         if (held != null && !isAnimated(p)) p.set(this, held);
+    }
+
+    /**
+     * Moves a whole keyframe (all the parameters it holds) to {@code newTime} (snapped to the frame grid, kept inside
+     * 0...{@code clipDuration}). A keyframe already there is merged in: the moved one's values win.
+     */
+    public void moveKeyframe(MaskKeyframe k, float newTime, float clipDuration, int frameRate) {
+        float t = Math.max(0f, Math.min(clipDuration, newTime));
+        if (frameRate > 0) t = Math.round(t * frameRate) / (float) frameRate;
+        for (java.util.Iterator<MaskKeyframe> it = keys.iterator(); it.hasNext(); ) {
+            MaskKeyframe other = it.next();
+            if (other == k || Math.abs(other.time - t) > Constants.TRACK_CLIPS_MINIMUM_KEYFRAME_SPACE_SECONDS) continue;
+            for (Map.Entry<String, Float> e : other.values.entrySet()) k.values.putIfAbsent(e.getKey(), e.getValue());
+            it.remove();
+        }
+        k.time = t;
+        keys.sort((a, b) -> Float.compare(a.time, b.time));
+    }
+
+    /** Removes a whole keyframe; a parameter that had no other keyframe stays at the value it held there. */
+    public void removeKeyframe(MaskKeyframe k) {
+        if (!keys.remove(k)) return;
+        for (Map.Entry<String, Float> e : k.values.entrySet()) {
+            Param p = Param.byRaw(e.getKey());
+            if (p != null && !isAnimated(p)) p.set(this, e.getValue());
+        }
+    }
+
+    /** Deep copy of a mask list (null stays null). */
+    public static List<ClipMask> copyAll(List<ClipMask> src) {
+        if (src == null) return null;
+        List<ClipMask> out = new ArrayList<>();
+        for (ClipMask m : src) out.add(new ClipMask(m));
+        return out;
     }
 
     /** The diamond: keys the parameter at {@code local} with its current value, or removes that key. */

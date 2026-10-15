@@ -58,6 +58,11 @@ public class ClipNode extends Pane {
     private Runnable onKeyframesModified;
     public interface KeyframeMoveHandler { void onKeyframeMoved(Keyframe kf, float oldTime, float newTime); }
     private KeyframeMoveHandler onKeyframeMoved;
+    /** A mask keyframe edited on the timeline (moved or deleted): the clip's masks before and after, for one undo step. */
+    public interface MaskKeysHandler { void edited(Clip clip, List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> before,
+                                                  List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> after); }
+    private MaskKeysHandler onMaskKeysEdited;
+    private java.util.function.Consumer<Float> onMaskKeyframeClicked;   // the keyframe's time on the timeline
 
     public interface TrimHandler {
         void onTrimFinished(Clip clip,
@@ -230,6 +235,8 @@ public class ClipNode extends Pane {
     public void setOnKeyframeClicked(java.util.function.Consumer<Keyframe> handler) { this.onKeyframeClicked = handler; }
     public void setOnKeyframesModified(Runnable handler) { this.onKeyframesModified = handler; }
     public void setOnKeyframeMoved(KeyframeMoveHandler handler) { this.onKeyframeMoved = handler; }
+    public void setOnMaskKeysEdited(MaskKeysHandler handler) { this.onMaskKeysEdited = handler; }
+    public void setOnMaskKeyframeClicked(java.util.function.Consumer<Float> handler) { this.onMaskKeyframeClicked = handler; }
     public void setOnTrimFinished(TrimHandler handler) { this.onTrimFinished = handler; }
 
     public void setupTrimInteractions(double pixelsPerSecond) {
@@ -362,6 +369,7 @@ public class ClipNode extends Pane {
         keyframePps = pixelsPerSecond;
         // Remove existing knots first
         clearKeyframeKnots();
+        buildMaskKnots(pixelsPerSecond);
 
         if (clip.keyframes == null || clip.keyframes.keyframes == null) return;
 
@@ -453,6 +461,122 @@ public class ClipNode extends Pane {
         }
     }
 
+    // ── Mask keyframe knots ──────────────────────────────────────────────────────
+
+    /** Which keyframe of which mask a knot stands for. */
+    private static final class MaskKnot {
+        final int maskIndex;
+        final com.vanvatcorporation.doubleclips.data.editing.ClipMask.MaskKeyframe key;
+
+        MaskKnot(int maskIndex, com.vanvatcorporation.doubleclips.data.editing.ClipMask.MaskKeyframe key) {
+            this.maskIndex = maskIndex;
+            this.key = key;
+        }
+    }
+
+    private static final Color MASK_KNOT = Color.web("#FFD23F");
+
+    /**
+     * One small amber diamond per mask keyframe, on a lower row than the clip's own (white / cyan) keyframes, so the
+     * two kinds never sit on top of each other. Click = playhead there, drag = move it, right-click = delete.
+     */
+    private void buildMaskKnots(float pixelsPerSecond) {
+        if (!clip.hasMasks()) return;
+        double h = getHeight() > 0 ? getHeight() : getPrefHeight();
+        final double size = 8.0;
+        for (int mi = 0; mi < clip.masks.size(); mi++) {
+            final int maskIndex = mi;
+            com.vanvatcorporation.doubleclips.data.editing.ClipMask mask = clip.masks.get(mi);
+            if (mask.keys == null) continue;
+            for (com.vanvatcorporation.doubleclips.data.editing.ClipMask.MaskKeyframe key : mask.keys) {
+                Rectangle knot = new Rectangle(size, size);
+                knot.setRotate(45);
+                knot.setStrokeWidth(1.5);
+                knot.setArcWidth(0);
+                knot.setArcHeight(0);
+                knot.getStyleClass().add("keyframe-knot");
+                knot.setUserData(new MaskKnot(maskIndex, key));
+                styleMaskKnot(knot, key);
+                StringBuilder what = new StringBuilder();
+                for (String raw : key.values.keySet()) {
+                    com.vanvatcorporation.doubleclips.data.editing.ClipMask.Param p =
+                            com.vanvatcorporation.doubleclips.data.editing.ClipMask.Param.byRaw(raw);
+                    if (what.length() > 0) what.append(", ");
+                    what.append(p == null ? raw : p.titleFor(mask.shape));
+                }
+                javafx.scene.control.Tooltip.install(knot, new javafx.scene.control.Tooltip(
+                        String.format("Mask %d keyframe at %.2fs - %s", maskIndex + 1, key.time, what)));
+                knot.setLayoutX(key.time * pixelsPerSecond - size / 2.0);
+                knot.setLayoutY(Math.max(0, h - 14) - size / 2.0);
+
+                knot.setOnMouseClicked(e -> {
+                    if (e.getButton() == javafx.scene.input.MouseButton.PRIMARY && e.isStillSincePress()
+                            && onMaskKeyframeClicked != null) {
+                        onMaskKeyframeClicked.accept(clip.startTime + key.time);
+                        e.consume();
+                    }
+                });
+                final double[] dragStartX = new double[1];
+                final double[] originalX = new double[1];
+                knot.setOnMousePressed(e -> {
+                    dragStartX[0] = e.getSceneX();
+                    originalX[0] = knot.getLayoutX();
+                    e.consume();
+                });
+                knot.setOnMouseDragged(e -> {
+                    if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
+                    // Only the knot moves while dragging; the masks change once, on release (one undo step).
+                    double x = originalX[0] + e.getSceneX() - dragStartX[0];
+                    knot.setLayoutX(Math.max(-size / 2.0, Math.min(getWidth() - size / 2.0, x)));
+                    e.consume();
+                });
+                knot.setOnMouseReleased(e -> {
+                    if (e.getButton() == javafx.scene.input.MouseButton.PRIMARY && !e.isStillSincePress()) {
+                        float newTime = (float) ((knot.getLayoutX() + size / 2.0) / keyframePps);
+                        int fps = context != null && context.getVideoSettings() != null ? context.getVideoSettings().getFrameRate() : 0;
+                        editMaskKeys(maskIndex, key, (m, k) -> m.moveKeyframe(k, newTime, clip.duration, fps));
+                    }
+                    e.consume();
+                });
+                javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu();
+                javafx.scene.control.MenuItem delete = new javafx.scene.control.MenuItem("Delete mask keyframe");
+                delete.setOnAction(e -> editMaskKeys(maskIndex, key, (m, k) -> m.removeKeyframe(k)));
+                menu.getItems().add(delete);
+                knot.setOnContextMenuRequested(e -> {
+                    menu.show(knot, e.getScreenX(), e.getScreenY());
+                    e.consume();
+                });
+                getChildren().add(knot);
+            }
+        }
+    }
+
+    /** Applies an edit of one mask keyframe to a copy of the masks and reports before / after as one undo step. */
+    private void editMaskKeys(int maskIndex, com.vanvatcorporation.doubleclips.data.editing.ClipMask.MaskKeyframe key,
+                              java.util.function.BiConsumer<com.vanvatcorporation.doubleclips.data.editing.ClipMask,
+                                      com.vanvatcorporation.doubleclips.data.editing.ClipMask.MaskKeyframe> edit) {
+        List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> before =
+                com.vanvatcorporation.doubleclips.data.editing.ClipMask.copyAll(clip.masks);
+        List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> after =
+                com.vanvatcorporation.doubleclips.data.editing.ClipMask.copyAll(clip.masks);
+        com.vanvatcorporation.doubleclips.data.editing.ClipMask mask = after.get(maskIndex);
+        int keyIndex = clip.masks.get(maskIndex).keys.indexOf(key);
+        if (keyIndex >= 0) edit.accept(mask, mask.keys.get(keyIndex));
+        if (java.util.Objects.equals(before, after)) {
+            updateKeyframes(keyframePps); // a drag that changed nothing: put the knot back
+            return;
+        }
+        if (onMaskKeysEdited != null) onMaskKeysEdited.edited(clip, before, after);
+    }
+
+    /** A mask knot is solid amber while the playhead is on it, an amber outline otherwise. */
+    private void styleMaskKnot(Rectangle knot, com.vanvatcorporation.doubleclips.data.editing.ClipMask.MaskKeyframe key) {
+        boolean active = context != null && Math.abs(clip.startTime + key.time - context.getCurrentTime())
+                <= com.vanvatcorporation.doubleclips.constants.Constants.TRACK_CLIPS_MINIMUM_KEYFRAME_SPACE_SECONDS;
+        knot.setFill(active ? MASK_KNOT : Color.web("#1e1e22"));
+        knot.setStroke(MASK_KNOT);
+    }
+
     /** The knot colour of a keyframe the playhead is on ("chosen": the properties panel edits it) vs the others. */
     public static final Color KNOT_ACTIVE = Color.web("#4A5FFF");
     private static final Color KNOT_IDLE_STROKE = Color.web("#00D4FF");
@@ -466,9 +590,13 @@ public class ClipNode extends Pane {
 
     /** Recolours the knots for the current playhead (cheap; EditorWindow calls it whenever the time moves). */
     public void refreshKeyframeHighlight() {
-        if (clip.keyframes == null || clip.keyframes.keyframes == null || clip.keyframes.keyframes.isEmpty()) return;
+        boolean clipKeys = clip.keyframes != null && clip.keyframes.keyframes != null && !clip.keyframes.keyframes.isEmpty();
+        if (!clipKeys && !clip.hasMasks()) return;
         for (javafx.scene.Node n : getChildren()) {
-            if (n instanceof Rectangle r && r.getUserData() instanceof Keyframe kf) styleKnot(r, kf);
+            if (n instanceof Rectangle r) {
+                if (r.getUserData() instanceof Keyframe kf) styleKnot(r, kf);
+                else if (r.getUserData() instanceof MaskKnot mk) styleMaskKnot(r, mk.key);
+            }
         }
     }
 
@@ -482,6 +610,8 @@ public class ClipNode extends Pane {
         for (javafx.scene.Node n : getChildren()) {
             if (n instanceof Rectangle r && r.getUserData() instanceof Keyframe kf) {
                 r.setLayoutX(kf.getLocalTime() * pixelsPerSecond - knotSize / 2.0);
+            } else if (n instanceof Rectangle r && r.getUserData() instanceof MaskKnot mk) {
+                r.setLayoutX(mk.key.time * pixelsPerSecond - 8.0 / 2.0);
             }
         }
     }
@@ -490,7 +620,7 @@ public class ClipNode extends Pane {
     public void clearKeyframeKnots() {
         List<javafx.scene.Node> toRemove = new ArrayList<>();
         for (javafx.scene.Node n : getChildren()) {
-            if (n instanceof Rectangle r && r.getUserData() instanceof Keyframe) {
+            if (n instanceof Rectangle r && (r.getUserData() instanceof Keyframe || r.getUserData() instanceof MaskKnot)) {
                 toRemove.add(n);
             }
         }

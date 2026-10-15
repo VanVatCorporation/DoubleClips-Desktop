@@ -2776,6 +2776,32 @@ public class EditorWindow extends Stage implements PropertyContext {
                             saveProject();
                         });
                     });
+                    node.setOnMaskKeyframeClicked(time -> {
+                        updateCurrentTime(time);
+                        refreshTimelineUI();
+                    });
+                    node.setOnMaskKeysEdited((c, before, after) -> {
+                        // One undo step for moving / deleting a mask keyframe on the timeline.
+                        final java.util.List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> redoState =
+                                com.vanvatcorporation.doubleclips.data.editing.ClipMask.copyAll(after);
+                        final java.util.List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> undoState =
+                                com.vanvatcorporation.doubleclips.data.editing.ClipMask.copyAll(before);
+                        executePropertyChange("Edit Mask Keyframes", () -> {
+                            c.masks = com.vanvatcorporation.doubleclips.data.editing.ClipMask.copyAll(redoState);
+                            refreshTimelineUI();
+                            updatePropertiesPane();
+                            timelineRenderer.syncWorker(currentTime);
+                            if (previewGizmo != null) previewGizmo.refresh();
+                            saveProject();
+                        }, () -> {
+                            c.masks = com.vanvatcorporation.doubleclips.data.editing.ClipMask.copyAll(undoState);
+                            refreshTimelineUI();
+                            updatePropertiesPane();
+                            timelineRenderer.syncWorker(currentTime);
+                            if (previewGizmo != null) previewGizmo.refresh();
+                            saveProject();
+                        });
+                    });
                     node.setOnKeyframesModified(() -> {
                         saveProject();
                         refreshTimelineUI();
