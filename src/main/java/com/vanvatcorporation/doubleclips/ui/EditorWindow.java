@@ -65,6 +65,12 @@ public class EditorWindow extends Stage implements PropertyContext {
     private com.vanvatcorporation.doubleclips.ui.renderer.PreviewGizmo previewGizmo;
     private final HistoryManager historyManager = new HistoryManager();
     private final MaskEditState maskEditState = new MaskEditState();
+    private final com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews tilePreviews =
+            new com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews(
+                    () -> this.timelineRenderer == null ? null : this.timelineRenderer.tileClient());
+
+    @Override
+    public com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews tilePreviews() { return tilePreviews; }
 
     @Override
     public MaskEditState maskEditState() { return maskEditState; }
@@ -1845,20 +1851,6 @@ public class EditorWindow extends Stage implements PropertyContext {
         panel.setMaxWidth(360);
         panel.getStyleClass().add("editor-right-panel");
 
-        // Header tabs
-        HBox tabs = new HBox(0);
-        tabs.getStyleClass().add("editor-tab-strip");
-        ToggleGroup tg = new ToggleGroup();
-        for (String t : new String[] { "Project", "Details" }) {
-            ToggleButton tb = new ToggleButton(t);
-            tb.setToggleGroup(tg);
-            tb.getStyleClass().add("editor-tab");
-            HBox.setHgrow(tb, Priority.ALWAYS);
-            tb.setMaxWidth(Double.MAX_VALUE);
-            tabs.getChildren().add(tb);
-        }
-        ((ToggleButton) tabs.getChildren().get(0)).setSelected(true);
-
         // Smart suggestions card
         VBox suggestionsCard = new VBox(10);
         suggestionsCard.setPadding(new Insets(16));
@@ -1903,7 +1895,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         VBox.setVgrow(rightScroll, Priority.ALWAYS);
         rightScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
-        panel.getChildren().addAll(tabs, rightScroll);
+        panel.getChildren().addAll(propertyPanel.getTabStrip(), rightScroll);
 
         // Setup initial properties view
         updatePropertiesPane();
@@ -3550,16 +3542,14 @@ public class EditorWindow extends Stage implements PropertyContext {
     /** Swaps a plain effect tile's star icon for the effect's own looping picture, and adds "@author" and engine badges. */
     private void decorateEffectTile(VBox box, com.vanvatcorporation.doubleclips.EffectCatalog.Style style) {
         final int side = 72;
-        com.vanvatcorporation.doubleclips.EffectCpuRenderer.Frame card = com.vanvatcorporation.doubleclips.EffectPreview.testCard(side);
-        ImageView picture = new ImageView(com.vanvatcorporation.doubleclips.ui.components.FxImages.of(
-                com.vanvatcorporation.doubleclips.EffectPreview.frame(style.key, 1f, card, 0.9).toImage()));
+        // The picture is made by the preview worker's real renderer: a neutral square until its frames are ready.
+        ImageView picture = new ImageView(tilePreviews.effectStill(style.key, 1f));
         picture.setFitWidth(side);
         picture.setFitHeight(side);
         picture.setPreserveRatio(true);
         picture.setMouseTransparent(true); // the whole tile is the drag handle
         if (effectAnimator != null) {
-            effectAnimator.add(picture, () -> com.vanvatcorporation.doubleclips.ui.components.FxImages.of(
-                    com.vanvatcorporation.doubleclips.EffectPreview.loop(style.key, 1f, side)));
+            effectAnimator.add(picture, () -> tilePreviews.effectLoop(style.key, 1f));
         }
         box.getChildren().set(0, picture);
 

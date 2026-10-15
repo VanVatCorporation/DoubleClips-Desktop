@@ -163,6 +163,7 @@ public final class PreviewClient {
     public void close() {
         if (closing) return;
         closing = true;
+        completeAllTiles();
         try {
             send("{\"cmd\":\"quit\"}");
         } catch (RuntimeException ignored) {
@@ -262,6 +263,62 @@ public final class PreviewClient {
                 + ",\"playing\":false}");
     }
 
+    // ── picker tiles (made by the worker's real renderer, see TileRenderer) ──────────────────
+
+    private static final class PendingTile {
+        final java.util.concurrent.CompletableFuture<byte[][]> future = new java.util.concurrent.CompletableFuture<>();
+        final byte[][] frames;
+        int received;
+
+        PendingTile(int count) {
+            frames = new byte[count][];
+        }
+    }
+
+    private final java.util.concurrent.ConcurrentHashMap<Integer, PendingTile> tiles = new java.util.concurrent.ConcurrentHashMap<>();
+    private final AtomicInteger tileCounter = new AtomicInteger();
+
+    /**
+     * Asks the worker for {@code frames} pictures of a transition ({@code kind} "transition", progress 0 to 1) or of an
+     * effect ({@code kind} "effect", spread over its loop), {@code side} pixels square, BGRA with the top row first.
+     * The future gives null when the worker cannot make it (a style the renderer does not draw, no worker, a timeout).
+     * Any thread; do not block the FX thread on it.
+     */
+    public java.util.concurrent.CompletableFuture<byte[][]> requestTile(String kind, String style, float intensity, int side, int frames) {
+        if (!isUsable() || frames < 1 || frames > 200) return java.util.concurrent.CompletableFuture.completedFuture(null);
+        int req = tileCounter.incrementAndGet() & 0x7FFFFF;
+        PendingTile pending = new PendingTile(frames);
+        tiles.put(req, pending);
+        pending.future.orTimeout(30, TimeUnit.SECONDS).whenComplete((r, e) -> tiles.remove(req));
+        send("{\"cmd\":\"tile\",\"req\":" + req + ",\"kind\":" + GSON.toJson(kind) + ",\"style\":" + GSON.toJson(style)
+                + ",\"frames\":" + frames + ",\"side\":" + side + ",\"intensity\":" + intensity + "}");
+        return pending.future.handle((r, e) -> e == null ? r : null);
+    }
+
+    private void completeAllTiles() {
+        for (PendingTile p : tiles.values()) p.future.complete(null);
+        tiles.clear();
+    }
+
+    /** Reader thread: a tile packet (seq <= -2, see PreviewWorker.tileSeq). */
+    private void readTile(DataInputStream in, int frameSeq, int w, int h) throws IOException {
+        int code = -frameSeq - 2;
+        int req = code >> 8, index = code & 0xFF;
+        byte[] data = null;
+        if (w > 0 && h > 0) {
+            data = new byte[w * h * 4];
+            in.readFully(data);
+        }
+        PendingTile pending = tiles.get(req);
+        if (pending == null) return; // timed out, or not ours
+        if (data == null) {
+            pending.future.complete(null); // "cannot be made"
+            return;
+        }
+        if (index < pending.frames.length) pending.frames[index] = data;
+        if (++pending.received >= pending.frames.length) pending.future.complete(pending.frames);
+    }
+
     // ── plumbing ─────────────────────────────────────────────────────────
 
     /** Lines go out in order on one thread, so a big timeline never blocks the FX thread on the pipe. */
@@ -290,8 +347,12 @@ public final class PreviewClient {
                 int w = in.readInt();
                 int h = in.readInt();
                 if (magic != MAGIC) throw new IOException("bad packet header (is something printing to the worker's stdout?)");
-                if (frameSeq < 0) {
+                if (frameSeq == -1) {
                     onWorkerReady(w, h);
+                    continue;
+                }
+                if (frameSeq <= -2) {
+                    readTile(in, frameSeq, w, h);
                     continue;
                 }
                 int length = w * h * 4;
@@ -364,6 +425,7 @@ public final class PreviewClient {
     private void fail(String reason) {
         if (failed || closing) return;
         failed = true;
+        completeAllTiles();
         LoggingManager.LogToPersistentDataPath("GPU preview unavailable, using the legacy preview: " + reason);
         Process p = process;
         if (p != null) p.destroyForcibly();

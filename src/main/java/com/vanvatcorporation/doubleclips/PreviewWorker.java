@@ -46,6 +46,9 @@ import static org.lwjgl.system.MemoryUtil.NULL;
  *                                                                         when k >= 0, in the worker's copy only)
  *   {"cmd":"livemasks","track":i,"clip":j,"masks":[ClipMask]}           (mask gesture in flight: replaces ONE clip's whole
  *                                                                         mask list, in the worker's copy only)
+ *   {"cmd":"tile","req":n,"kind":"transition"|"effect","style":id,"frames":n,"side":px,"intensity":x}
+ *                                                                        (picker tiles, see TileRenderer; answered with
+ *                                                                         `frames` packets whose seq is tileSeq(req, i))
  *   {"cmd":"render","seq":n,"t":seconds,"playing":bool}                (only the newest is ever rendered)
  *   {"cmd":"proxy","on":bool}
  *   {"cmd":"hwaccel","on":bool}                                        (hardware decoding for streams opened from now on)
@@ -77,6 +80,9 @@ public final class PreviewWorker {
     private static Request pending;                 // guarded by LOCK; a newer request replaces an unserved older one
     private static boolean quit;                    // guarded by LOCK
     private static volatile Timeline timeline;      // replaced wholesale, never mutated
+    /** Picker tile requests (see TileRenderer), served on the render thread between frames. */
+    private static final java.util.concurrent.ConcurrentLinkedQueue<JsonObject> tileRequests = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private static final java.util.Map<Integer, TileRenderer> tileRenderers = new java.util.HashMap<>();
     private static final AtomicReference<Boolean> proxyChange = new AtomicReference<>();
     private static final AtomicReference<Boolean> hwChange = new AtomicReference<>();
 
@@ -148,6 +154,7 @@ public final class PreviewWorker {
                             TextStyle.fontsDirOf(projectData));
                 } finally {
                     pool.shutdown();
+                    for (TileRenderer renderer : tileRenderers.values()) renderer.close();
                     compositor.close();
                 }
             } finally {
@@ -175,11 +182,16 @@ public final class PreviewWorker {
         while (true) {
             Request request;
             synchronized (LOCK) {
-                while (pending == null && !quit) LOCK.wait();
+                while (pending == null && tileRequests.isEmpty() && !quit) LOCK.wait();
                 if (quit) return;
                 request = pending;
                 pending = null;
             }
+
+            // Picker tiles are made between frames (one request per turn, so a playing preview is never starved).
+            JsonObject tile = tileRequests.poll();
+            if (tile != null) serveTile(frames, tile);
+            if (request == null) continue;
 
             Boolean proxy = proxyChange.getAndSet(null);
             if (proxy != null) pool.setUseProxy(proxy);
@@ -223,8 +235,45 @@ public final class PreviewWorker {
         }
     }
 
+    /**
+     * The packet number of frame {@code index} of tile request {@code req}: tile packets use seq <= -2 (-1 is the
+     * "worker is ready" packet), so a reader tells them from preview frames by the number alone.
+     * Index 255 with an empty picture means "this tile cannot be made".
+     */
+    static int tileSeq(int req, int index) {
+        return -(2 + ((req << 8) | (index & 0xFF)));
+    }
+
+    private static void serveTile(OutputStream frames, JsonObject cmd) {
+        int req = cmd.get("req").getAsInt();
+        try {
+            int side = Math.max(16, Math.min(256, cmd.get("side").getAsInt()));
+            int count = Math.max(1, Math.min(200, cmd.get("frames").getAsInt()));
+            String kind = str(cmd, "kind");
+            String style = str(cmd, "style");
+            float intensity = cmd.has("intensity") ? cmd.get("intensity").getAsFloat() : 1f;
+            TileRenderer renderer = tileRenderers.computeIfAbsent(side, TileRenderer::new);
+            byte[][] pictures = null;
+            if (style != null) {
+                if ("transition".equals(kind)) pictures = renderer.transition(style, count);
+                else if ("effect".equals(kind)) pictures = renderer.effect(style, intensity, count);
+            }
+            if (pictures == null) {
+                writePacket(frames, tileSeq(req, 255), 0, 0, null);
+                return;
+            }
+            for (int i = 0; i < pictures.length; i++) writePacket(frames, tileSeq(req, i), side, side, pictures[i]);
+        } catch (Exception | LinkageError e) {
+            log("Could not make a tile: " + e);
+            try {
+                writePacket(frames, tileSeq(req, 255), 0, 0, null);
+            } catch (java.io.IOException ignored) {
+            }
+        }
+    }
+
     /** glReadPixels gives RGBA with the BOTTOM row first; JavaFX wants BGRA with the top row first. */
-    private static void toBgraTopFirst(ByteBuffer rgbaBottomFirst, byte[] bgraTopFirst, byte[] row, int w, int h) {
+    static void toBgraTopFirst(ByteBuffer rgbaBottomFirst, byte[] bgraTopFirst, byte[] row, int w, int h) {
         int rowBytes = w * 4;
         for (int y = 0; y < h; y++) {
             rgbaBottomFirst.position((h - 1 - y) * rowBytes);
@@ -279,6 +328,12 @@ public final class PreviewWorker {
                             applyLive(cmd);
                         } catch (RuntimeException e) {
                             log("Ignoring an unusable live edit: " + e);
+                        }
+                        break;
+                    case "tile":
+                        tileRequests.add(cmd);
+                        synchronized (LOCK) {
+                            LOCK.notifyAll();
                         }
                         break;
                     case "livemasks":

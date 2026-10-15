@@ -180,6 +180,12 @@ public class TimelineRenderer {
         }
     }
 
+    /** The GPU preview worker for the picker tiles (they are drawn by the real renderer), or null while there is none. */
+    public PreviewClient tileClient() {
+        PreviewClient c = client;
+        return c != null && c.isUsable() ? c : null;
+    }
+
     /**
      * Shows an in-progress mask edit for a clip WITHOUT committing it: {@code masks} is the clip's whole mask list as
      * the gesture would commit it. Under the GPU preview it is streamed to the worker (the real clip is untouched

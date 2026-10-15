@@ -53,8 +53,13 @@ final class MaskSection {
         this.context = context;
     }
 
+    /** The Mask tab is not showing: the canvas gives the clip's own box back. */
+    void suspend(Clip clip) {
+        context.maskEditState().set(clip, selected, false);
+    }
+
     VBox build(Clip clip) {
-        if (clip != lastClip) { lastClip = clip; selected = 0; canvasEdit = false; }
+        if (clip != lastClip) { lastClip = clip; selected = 0; canvasEdit = true; } // the Mask tab is open: show the handles
         List<ClipMask> masks = clip.masks == null ? new ArrayList<>() : clip.masks;
         if (selected >= masks.size()) selected = Math.max(0, masks.size() - 1);
         context.maskEditState().set(clip, selected, canvasEdit && !masks.isEmpty());

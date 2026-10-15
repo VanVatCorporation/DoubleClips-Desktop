@@ -20,18 +20,77 @@ public class PropertyPanel extends VBox {
     private final MaskSection maskSection;
     private final BlendSection blendSection;
 
+    /** The tabs of a selected clip's panel (CapCut style). Mask and Blend are for video, image and text clips only. */
+    private enum Tab {
+        PROPERTIES("Properties"), MASK("Mask"), BLEND("Blend"), ANIMATION("Animation");
+        final String title;
+        Tab(String title) { this.title = title; }
+    }
+
+    private Tab activeTab = Tab.PROPERTIES;
+    /** Sits above the scrolling panel (EditorWindow adds it); rebuilt by every update(), hidden when no clip is selected. */
+    private final HBox tabStrip = new HBox(0);
+
     public PropertyPanel(PropertyContext context) {
         super(15);
         this.context = context;
         this.maskSection = new MaskSection(context);
         this.blendSection = new BlendSection(context);
         this.setPadding(new Insets(16));
+        tabStrip.getStyleClass().add("editor-tab-strip");
+        tabStrip.setVisible(false);
+        tabStrip.setManaged(false);
+    }
+
+    /** The tab strip to put above this panel (it lives outside the scroll area so it never scrolls away). */
+    public HBox getTabStrip() {
+        return tabStrip;
+    }
+
+    private void hideTabStrip() {
+        tabStrip.getChildren().clear();
+        tabStrip.setVisible(false);
+        tabStrip.setManaged(false);
+    }
+
+    /** Shows the tabs this clip has and marks the active one (falls back to Properties when the clip lacks it). */
+    private void syncTabStrip(Clip clip) {
+        boolean visual = clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE || clip.type == ClipType.TEXT;
+        java.util.List<Tab> available = visual
+                ? java.util.Arrays.asList(Tab.values())
+                : java.util.Arrays.asList(Tab.PROPERTIES, Tab.ANIMATION);
+        if (!available.contains(activeTab)) activeTab = Tab.PROPERTIES;
+        tabStrip.getChildren().clear();
+        ToggleGroup group = new ToggleGroup();
+        for (Tab tab : available) {
+            ToggleButton tb = new ToggleButton(tab.title);
+            tb.setToggleGroup(group);
+            tb.getStyleClass().add("editor-tab");
+            tb.setMinWidth(0);
+            tb.setMaxWidth(Double.MAX_VALUE);
+            tb.setStyle("-fx-font-size: 11px;");
+            HBox.setHgrow(tb, Priority.ALWAYS);
+            tb.setSelected(tab == activeTab);
+            tb.setOnAction(e -> {
+                tb.setSelected(true); // a tab can't be switched off by clicking it again
+                if (tab == activeTab) return;
+                activeTab = tab;
+                context.updatePropertiesPane();
+            });
+            tabStrip.getChildren().add(tb);
+        }
+        tabStrip.setVisible(true);
+        tabStrip.setManaged(true);
     }
 
     public void update() {
         getChildren().clear();
 
         Clip selectedClip = context.getSelectedClip();
+        if (selectedClip == null) {
+            hideTabStrip();
+            context.maskEditState().set(null, -1, false);
+        }
         if (selectedClip == null) {
             // A selected transition (the cube between two clips) has the panel to itself.
             Clip transitionA = context.getSelectedTransitionSourceClip();
@@ -46,6 +105,15 @@ public class PropertyPanel extends VBox {
             placeholder.getStyleClass().add("text-muted");
             getChildren().add(placeholder);
             return;
+        }
+
+        syncTabStrip(selectedClip);
+        if (activeTab != Tab.MASK) maskSection.suspend(selectedClip); // mask handles show on the canvas only on the Mask tab
+        switch (activeTab) {
+            case MASK: buildMaskTab(selectedClip); return;
+            case BLEND: buildBlendTab(selectedClip); return;
+            case ANIMATION: buildAnimationTab(selectedClip); return;
+            default: break;
         }
 
         Label sectionTitle = new Label("Clip Properties");
@@ -212,14 +280,6 @@ public class PropertyPanel extends VBox {
             addKeyframeableField(fields, "Saturation", selectedClip.videoProperties.valueSaturation, VideoProperties.ValueType.Saturation, selectedClip);
             addKeyframeableField(fields, "Brightness", selectedClip.videoProperties.valueBrightness, VideoProperties.ValueType.Brightness, selectedClip);
             addKeyframeableField(fields, "Temperature", selectedClip.videoProperties.valueTemperature, VideoProperties.ValueType.Temperature, selectedClip);
-
-            // Masks limit where the picture shows (video, image, text).
-            if (selectedClip.type == ClipType.VIDEO || selectedClip.type == ClipType.IMAGE || selectedClip.type == ClipType.TEXT) {
-                fields.getChildren().add(buildSectionDivider("Blend"));
-                fields.getChildren().add(blendSection.build(selectedClip));
-                fields.getChildren().add(buildSectionDivider("Mask"));
-                fields.getChildren().add(maskSection.build(selectedClip));
-            }
         }
 
         fields.getChildren().add(buildSectionDivider("Toggles"));
@@ -283,7 +343,33 @@ public class PropertyPanel extends VBox {
             }));
         }
 
-        fields.getChildren().add(buildSectionDivider("Animation"));
+        getChildren().addAll(sectionTitle, fields);
+
+        if (selectedClip.type != ClipType.EFFECT) {
+            getChildren().add(buildKeyframesSection(selectedClip));
+        }
+    }
+
+    // ---- the other tabs ---------------------------------------------------------------------------------
+
+    private Label tabTitle(String text) {
+        Label title = new Label(text);
+        title.getStyleClass().add("text-bold");
+        title.setStyle("-fx-font-size: 16px;");
+        return title;
+    }
+
+    private void buildMaskTab(Clip clip) {
+        getChildren().addAll(tabTitle("Mask"), maskSection.build(clip));
+    }
+
+    private void buildBlendTab(Clip clip) {
+        getChildren().addAll(tabTitle("Blend"), blendSection.build(clip));
+    }
+
+    /** In / out animations, the packs dialog, and the shortcut to the transition at this clip's end. */
+    private void buildAnimationTab(Clip selectedClip) {
+        VBox fields = new VBox(10);
         addAnimationFields(fields, selectedClip, ClipAnimation.Direction.IN);
         addAnimationFields(fields, selectedClip, ClipAnimation.Direction.OUT);
         fields.getChildren().add(buildButton("Animation packs...", e -> {
@@ -296,12 +382,7 @@ public class PropertyPanel extends VBox {
         if (selectedClip.endTransition != null && context.getTransitionNextClip(selectedClip) != null) {
             fields.getChildren().add(buildTransitionShortcut(selectedClip));
         }
-
-        getChildren().addAll(sectionTitle, fields);
-
-        if (selectedClip.type != ClipType.EFFECT) {
-            getChildren().add(buildKeyframesSection(selectedClip));
-        }
+        getChildren().addAll(tabTitle("Animation"), fields);
     }
 
     // ---- transitions: the panel of a selected transition, and the shortcut on its clip A ---------------------------
@@ -425,7 +506,6 @@ public class PropertyPanel extends VBox {
 
     private void showEffectBrowser(Clip clip) {
         java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile> tiles = new java.util.ArrayList<>();
-        final int side = com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.PICTURE_HEIGHT;
         for (com.vanvatcorporation.doubleclips.EffectCatalog.Style st : com.vanvatcorporation.doubleclips.EffectCatalog.styles()) {
             java.util.Set<String> engines = new java.util.LinkedHashSet<>();
             for (String engine : st.engines()) {
@@ -434,12 +514,9 @@ public class PropertyPanel extends VBox {
                         : com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_OPENGL);
             }
             tiles.add(new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile(st.key, st.title, st.author, engines,
-                    () -> com.vanvatcorporation.doubleclips.ui.components.FxImages.of(
-                            com.vanvatcorporation.doubleclips.EffectPreview.frame(st.key, 1f,
-                                    com.vanvatcorporation.doubleclips.EffectPreview.testCard(side), 0.9).toImage()),
+                    () -> context.tilePreviews().effectStill(st.key, 1f),
                     false,
-                    () -> com.vanvatcorporation.doubleclips.ui.components.FxImages.of(
-                            com.vanvatcorporation.doubleclips.EffectPreview.loop(st.key, 1f, side))));
+                    () -> context.tilePreviews().effectLoop(st.key, 1f)));
         }
         java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section> sections = new java.util.ArrayList<>();
         sections.add(new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section("Effects", tiles));
@@ -1211,18 +1288,23 @@ public class PropertyPanel extends VBox {
                         com.vanvatcorporation.doubleclips.TransitionStyleLoader.list(),
                         true,
                         currentStyle);
-        ComboBox<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> typeCombo = new ComboBox<>();
-        typeCombo.getItems().addAll(styleEntries);
+        // The type is picked in a grid of tiles (like the effect browser): each one is the style playing between two
+        // pictures, drawn by the preview worker's real renderer. The button shows the current style and opens the grid.
+        final java.util.function.Function<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry, String> plainTitle =
+                entry -> entry.label.replaceAll("\\s*\\[(FFmpeg only|OpenGL only)[^\\]]*\\]$", "");
+        Button typeButton = new Button();
+        typeButton.getStyleClass().add("tool-button");
+        typeButton.setMaxWidth(Double.MAX_VALUE);
         int currentIndex = com.vanvatcorporation.doubleclips.TransitionStyleCatalog.indexOf(styleEntries, currentStyle == null ? "none" : currentStyle);
-        if (currentIndex >= 0) typeCombo.setValue(styleEntries.get(currentIndex));
+        typeButton.setText(currentIndex >= 0 ? plainTitle.apply(styleEntries.get(currentIndex)) : "None");
+        typeButton.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignV.VIEW_GRID));
+        typeButton.setContentDisplay(ContentDisplay.RIGHT);
 
-        typeCombo.setMaxWidth(Double.MAX_VALUE);
-        // Set up AFTER the initial value, so only a pick the user makes runs this (opening the panel never overwrites a duration).
-        typeCombo.setOnAction(e -> {
-            com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry chosen = typeCombo.getValue();
-            if (chosen == null) return;
+        java.util.function.Consumer<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> pick = chosen -> {
+            if (tc.effect != null && chosen.id.equals(tc.effect.style)) return;
             if (tc.effect == null) tc.effect = new EffectTemplate(chosen.id, tc.duration, tc.startTime);
             else tc.effect.style = chosen.id;
+            typeButton.setText(plainTitle.apply(chosen));
             // A data-driven style is authored for a duration (Glitch Blur: 2.3 s); start from it. The spinner's
             // listener below copies the value into tc.duration / tc.effect.duration and saves the project.
             com.vanvatcorporation.doubleclips.TransitionStyle dataStyle = chosen.dataDriven
@@ -1231,8 +1313,10 @@ public class PropertyPanel extends VBox {
                 durSpinner.getValueFactory().setValue((double) Math.round(dataStyle.getDefaultDuration() * 10f) / 10.0);
             }
             context.saveProject();
-        });
-        typePicker.getChildren().addAll(typeLabel, typeCombo);
+        };
+        typeButton.setOnAction(e -> showTransitionBrowser(styleEntries, plainTitle,
+                tc.effect != null ? tc.effect.style : null, pick));
+        typePicker.getChildren().addAll(typeLabel, typeButton);
 
         VBox modePicker = new VBox(4);
         Label modeLabel = new Label("Mode");
@@ -1273,6 +1357,71 @@ public class PropertyPanel extends VBox {
 
         box.getChildren().addAll(typePicker, modePicker, durBox);
         return box;
+    }
+
+    /** The transition grid: every style as a tile that plays it between two pictures; the worker's real renderer draws them. */
+    private void showTransitionBrowser(java.util.List<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> entries,
+                                       java.util.function.Function<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry, String> plainTitle,
+                                       String currentStyle,
+                                       java.util.function.Consumer<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> onChosen) {
+        final com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews previews = context.tilePreviews();
+        java.util.Map<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine, java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile>> groups =
+                new java.util.EnumMap<>(com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.class);
+        for (com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry entry : entries) {
+            java.util.Set<String> engines = new java.util.LinkedHashSet<>();
+            switch (entry.engine) {
+                case BOTH:
+                    engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_FFMPEG);
+                    engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_OPENGL);
+                    break;
+                case OPENGL_ONLY:
+                    engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_OPENGL);
+                    break;
+                case FFMPEG_ONLY:
+                    engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_FFMPEG);
+                    break;
+                default:
+                    break;
+            }
+            String author = null;
+            com.vanvatcorporation.doubleclips.TransitionStyle dataStyle = entry.dataDriven
+                    ? com.vanvatcorporation.doubleclips.TransitionStyleLoader.get(entry.id) : null;
+            if (dataStyle != null && dataStyle.getAuthor() != null && !dataStyle.getAuthor().isBlank()) author = dataStyle.getAuthor();
+            // Only a style the OpenGL renderer draws has a picture to play; the others stay still tiles.
+            boolean drawn = entry.engine == com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.BOTH
+                    || entry.engine == com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.OPENGL_ONLY;
+            final String id = entry.id;
+            groups.computeIfAbsent(entry.engine, k -> new java.util.ArrayList<>()).add(
+                    new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile(id, plainTitle.apply(entry), author, engines,
+                            () -> previews.transitionStill(id), false,
+                            drawn && !"none".equals(id) ? () -> previews.transitionLoop(id) : null));
+        }
+        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section> sections = new java.util.ArrayList<>();
+        String[] titles = {"Both engines", "OpenGL only", "FFmpeg only", "Not installed"};
+        com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine[] order = {
+                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.BOTH,
+                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.OPENGL_ONLY,
+                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.FFMPEG_ONLY,
+                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.UNKNOWN};
+        for (int i = 0; i < order.length; i++) {
+            java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile> tiles = groups.get(order[i]);
+            if (tiles != null) sections.add(new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section(titles[i], tiles));
+        }
+        javafx.stage.Window owner = getScene() != null ? getScene().getWindow() : null;
+        com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.show(owner, "Transition", sections,
+                currentStyle == null ? "none" : currentStyle,
+                new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Listener() {
+                    @Override
+                    public void onPick(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile tile) {
+                        int index = com.vanvatcorporation.doubleclips.TransitionStyleCatalog.indexOf(entries, tile.id);
+                        if (index >= 0) onChosen.accept(entries.get(index));
+                    }
+
+                    @Override
+                    public boolean onDelete(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile tile) {
+                        return false;
+                    }
+                }, null, null);
     }
 
     private HBox buildSectionDivider(String label) {

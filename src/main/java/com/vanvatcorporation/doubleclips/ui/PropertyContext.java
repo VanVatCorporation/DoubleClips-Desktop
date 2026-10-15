@@ -35,4 +35,6 @@ public interface PropertyContext {
     com.vanvatcorporation.doubleclips.data.ProjectData getProject();
     /** Which clip mask the canvas is editing (shared by the Mask panel and the preview gizmo). */
     MaskEditState maskEditState();
+    /** Picker tile pictures made by the preview worker's real renderer (transitions and effects). */
+    com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews tilePreviews();
 }
