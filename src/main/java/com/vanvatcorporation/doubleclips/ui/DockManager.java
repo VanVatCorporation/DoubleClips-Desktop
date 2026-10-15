@@ -64,6 +64,15 @@ public final class DockManager {
 
     private static final List<DockManager> INSTANCES = new ArrayList<>();
 
+    /**
+     * On macOS a window that has an owner is shown as a CHILD window of it, and a child window lives on its owner's
+     * screen only: with "Displays have separate Spaces" (the default) it is not drawn on another display at all until
+     * the owner itself moves there. So a floating panel dragged to a second monitor vanished. On macOS the floating
+     * windows therefore have no owner, and {@link #followMainWindow()} gives back what the owner did (stay above the
+     * editor, minimise with it). Everywhere else they keep the owner.
+     */
+    private static final boolean MAC = System.getProperty("os.name", "").toLowerCase().contains("mac");
+
     // ---- what is saved ---------------------------------------------------------------------------
 
     private static final class PanelState {
@@ -170,7 +179,22 @@ public final class DockManager {
         highlight.setStyle(HIGHLIGHT_STYLE);
         overlayRoot.getChildren().add(highlight);
         saveDebounce.setOnFinished(e -> saveLayout());
+        if (MAC) followMainWindow();
         INSTANCES.add(this);
+    }
+
+    /** macOS: the floating windows have no owner (see {@link #MAC}); this keeps them behaving like owned ones. */
+    private void followMainWindow() {
+        // Clicking the editor brings its panels back in front of it, as an owned window would stay.
+        mainStage.focusedProperty().addListener((o, was, focused) -> {
+            if (!focused || closed) return;
+            for (DockPanel p : panels) if (p.floating && p.stage != null && !p.stage.isIconified()) p.stage.toFront();
+        });
+        // ... and they minimise / come back with it.
+        mainStage.iconifiedProperty().addListener((o, was, iconified) -> {
+            if (closed) return;
+            for (DockPanel p : panels) if (p.floating && p.stage != null) p.stage.setIconified(iconified);
+        });
     }
 
     /** Adds a middle-row panel, docked at the right end of the row (call {@link #start()} once all are added). */
@@ -308,7 +332,7 @@ public final class DockManager {
         if (!p.getStyleClass().contains("editor-root")) p.getStyleClass().add("editor-root");
 
         Stage st = new Stage(StageStyle.UTILITY);
-        st.initOwner(mainStage);
+        if (!MAC) st.initOwner(mainStage); // on macOS an owner would pin the window to the editor's screen, see MAC
         st.setTitle(p.title);
         Scene sc = new Scene(p, w, h);
         if (mainStage.getScene() != null) sc.getStylesheets().addAll(mainStage.getScene().getStylesheets());
