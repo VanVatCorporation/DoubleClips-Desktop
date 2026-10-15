@@ -266,7 +266,9 @@ final class MaskGizmo {
     }
 
     private ClipMask currentMask(Clip clip, int index) {
-        List<ClipMask> list = gesture != Gesture.NONE && clip == target && live != null ? live : clip.masks;
+        List<ClipMask> list = gesture != Gesture.NONE && clip == target && live != null ? live : null;
+        if (list == null) list = host.maskEdit().liveFor(clip);   // an edit in flight elsewhere (a panel slider)
+        if (list == null) list = clip.masks;
         if (list == null || index < 0 || index >= list.size()) return null;
         float t = clamp(host.currentTime() - clip.startTime, 0f, clip.duration);
         return list.get(index).resolved(t);
@@ -598,6 +600,7 @@ final class MaskGizmo {
         changed = true;
         live = next;
         renderer.showLiveMasks(target, copy(next), host.currentTime());
+        host.maskEdit().setLive(target, copy(next)); // the panel's numbers and sliders follow the drag
         refresh(target);
     }
 
@@ -612,6 +615,7 @@ final class MaskGizmo {
         List<ClipMask> end = live;
         boolean wasChanged = changed;
         reset();
+        host.maskEdit().setLive(null, null);
         if (!wasChanged || end == null) {
             // the worker may hold a patched copy of a gesture that ended where it began
             host.clipChanged(clip);
@@ -635,6 +639,7 @@ final class MaskGizmo {
         Clip clip = target;
         List<ClipMask> start = before;
         reset();
+        host.maskEdit().setLive(null, null);
         clip.masks = copy(start);
         host.clipChanged(clip);
     }

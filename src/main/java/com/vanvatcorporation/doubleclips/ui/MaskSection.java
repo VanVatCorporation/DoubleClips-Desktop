@@ -9,6 +9,7 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.layout.FlowPane;
@@ -49,8 +50,17 @@ final class MaskSection {
     /** Whether the canvas shows the selected mask's shape and handles (instead of the clip's own box). */
     private boolean canvasEdit;
 
+    /** Updates the open Mask tab's rows (number, slider, diamond); cleared and refilled by every build(). */
+    private final List<Runnable> rowRefreshers = new ArrayList<>();
+    /** The clip's masks before a slider drag began; the clip is put back to them before the drag commits as one undo step. */
+    private List<ClipMask> dragOriginal;
+
     MaskSection(PropertyContext context) {
         this.context = context;
+        // An edit in flight elsewhere (a canvas drag) moves the numbers and sliders here too.
+        context.maskEditState().setOnLiveChange(() -> {
+            for (Runnable r : new ArrayList<>(rowRefreshers)) r.run();
+        });
     }
 
     /** The Mask tab is not showing: the canvas gives the clip's own box back. */
@@ -59,6 +69,8 @@ final class MaskSection {
     }
 
     VBox build(Clip clip) {
+        rowRefreshers.clear();
+        dragOriginal = null;
         if (clip != lastClip) { lastClip = clip; selected = 0; canvasEdit = true; } // the Mask tab is open: show the handles
         List<ClipMask> masks = clip.masks == null ? new ArrayList<>() : clip.masks;
         if (selected >= masks.size()) selected = Math.max(0, masks.size() - 1);
@@ -303,49 +315,68 @@ final class MaskSection {
                 : String.format("%.2f", v).replaceAll("0*$", "").replaceAll("\\.$", "");
     }
 
-    /** One parameter: a value field (the value AT THE PLAYHEAD) and its keyframe diamond. */
+    /** The masks to read values from: the edit in flight if there is one, else the clip's own. */
+    private List<ClipMask> shown(Clip clip) {
+        List<ClipMask> live = context.maskEditState().liveFor(clip);
+        return live != null ? live : clip.masks;
+    }
+
+    /**
+     * One parameter: a ruler slider and a value field (both the value AT THE PLAYHEAD) and the keyframe diamond.
+     * Dragging the slider streams to the preview and the canvas handles as it goes and commits ONE undo step on
+     * release; typing commits on Enter / leaving the field.
+     */
     private HBox buildParamRow(Clip clip, int index, ClipMask.Param p, ClipMask.Shape shape) {
         String label = p.titleFor(shape);
         ClipMask mask = clip.masks.get(index);
+        float startLocal = localTime(clip, context.getCurrentTime());
 
         Label lbl = new Label(label);
         lbl.getStyleClass().add("text-muted");
         lbl.setStyle("-fx-font-size: 11px;");
-        TextField tf = new TextField(number(mask.valueAt(p, localTime(clip, context.getCurrentTime()))));
+        TextField tf = new TextField(number(mask.valueAt(p, startLocal)));
         tf.getStyleClass().add("editor-textfield");
-        VBox field = new VBox(4, lbl, tf);
+        tf.setPrefWidth(64);
+        tf.setMinWidth(64);
+        Slider slider = new Slider(p.min, p.max, mask.valueAt(p, startLocal));
+        slider.setShowTickMarks(true);
+        slider.setMajorTickUnit((p.max - p.min) / 4.0);
+        slider.setMinorTickCount(4);
+        HBox.setHgrow(slider, Priority.ALWAYS);
+        HBox control = new HBox(8, slider, tf);
+        control.setAlignment(Pos.CENTER_LEFT);
+        VBox field = new VBox(2, lbl, control);
         HBox.setHgrow(field, Priority.ALWAYS);
 
-        Consumer<String> commit = text -> {
+        // Typed value: one undo step.
+        Consumer<String> commitText = text -> {
             try {
-                float value = Float.parseFloat(text.trim());
-                float time = context.getCurrentTime();
-                float local = localTime(clip, time);
-                ClipMask now = clip.masks.get(index);
-                float old = now.valueAt(p, local);
-                float clamped = Math.max(p.min, Math.min(p.max, value));
-                if (clamped == old) return;
-                if (now.isAnimated(p) && !playheadInside(clip, time)) return; // nowhere to put a keyframe
-                int fps = context.getVideoSettings().frameRate;
-                edit(clip, "Change Mask " + label, list -> {
-                    ClipMask m = list.get(index);
-                    if (m.isAnimated(p)) m.setKey(p, local, clamped, fps);
-                    else p.set(m, clamped);
-                });
-                context.updatePropertiesPane();
-            } catch (Exception ignored) {
+                commitValue(clip, index, p, label, Float.parseFloat(text.trim()));
+            } catch (NumberFormatException ignored) {
                 // not a number: the field is put back on the next refresh
             }
         };
-        tf.setOnAction(e -> commit.accept(tf.getText()));
-        tf.focusedProperty().addListener((obs, was, now) -> { if (!now) commit.accept(tf.getText()); });
+        tf.setOnAction(e -> commitText.accept(tf.getText()));
+        tf.focusedProperty().addListener((obs, was, now) -> { if (!now) commitText.accept(tf.getText()); });
+
+        // Slider: live while dragging, one undo step at the end.
+        final boolean[] fromCode = {false};
+        slider.valueProperty().addListener((obs, old, now) -> {
+            if (fromCode[0]) return;
+            float v = now.floatValue();
+            if (slider.isValueChanging()) liveValue(clip, index, p, v);
+            else commitValue(clip, index, p, label, v); // a click on the track or the keyboard
+        });
+        slider.valueChangingProperty().addListener((obs, was, changing) -> {
+            if (!changing) commitValue(clip, index, p, label, (float) slider.getValue());
+        });
 
         Button keyButton = new Button();
         keyButton.getStyleClass().add("tool-button");
         keyButton.setPadding(new Insets(4));
         keyButton.setMaxHeight(Double.MAX_VALUE);
         KeyDiamond diamond = new KeyDiamond();
-        diamond.setState(mask.stateAt(p, localTime(clip, context.getCurrentTime())));
+        diamond.setState(mask.stateAt(p, startLocal));
         keyButton.setGraphic(diamond);
         keyButton.setDisable(!playheadInside(clip, context.getCurrentTime()));
         keyButton.setOnAction(e -> {
@@ -357,19 +388,79 @@ final class MaskSection {
             context.updatePropertiesPane();
         });
 
-        // Follows the playhead while it moves (scrubbing, playing): the number and the diamond of the moment.
-        context.addPropertyUpdater(() -> {
-            if (clip.masks == null || index >= clip.masks.size()) return;
+        // Follows the playhead (scrubbing, playing) and an edit in flight (a canvas drag): number, slider and diamond.
+        Runnable refresh = () -> {
+            List<ClipMask> masks = shown(clip);
+            if (masks == null || index >= masks.size()) return;
             float time = context.getTempTime() >= 0 ? context.getTempTime() : context.getCurrentTime();
             float local = localTime(clip, time);
-            ClipMask m = clip.masks.get(index);
-            if (!tf.isFocused()) tf.setText(number(m.valueAt(p, local)));
+            ClipMask m = masks.get(index);
+            float value = m.valueAt(p, local);
+            if (!tf.isFocused()) tf.setText(number(value));
+            if (!slider.isValueChanging()) {
+                fromCode[0] = true;
+                slider.setValue(value);
+                fromCode[0] = false;
+            }
             KeyState state = m.stateAt(p, local);
             diamond.setState(state);
             keyButton.setDisable(!playheadInside(clip, time));
-        });
+        };
+        context.addPropertyUpdater(refresh);
+        rowRefreshers.add(refresh);
 
         return new HBox(8, field, keyButton);
+    }
+
+    /** Applies a parameter value to a copy of the clip's masks the way a commit would (a keyframe at the playhead when it is animated). */
+    private List<ClipMask> withValue(Clip clip, int index, ClipMask.Param p, float value, List<ClipMask> base) {
+        float time = context.getCurrentTime();
+        float local = localTime(clip, time);
+        List<ClipMask> next = ClipMask.copyAll(base);
+        ClipMask m = next.get(index);
+        float clamped = Math.max(p.min, Math.min(p.max, value));
+        if (m.isAnimated(p)) {
+            if (!playheadInside(clip, time)) return null; // nowhere to put a keyframe
+            m.setKey(p, local, clamped, context.getVideoSettings().frameRate);
+        } else {
+            p.set(m, clamped);
+        }
+        return next;
+    }
+
+    /** A slider drag in progress: preview + canvas + the other rows follow; the clip is not touched. */
+    private void liveValue(Clip clip, int index, ClipMask.Param p, float value) {
+        if (clip.masks == null || index >= clip.masks.size()) return;
+        if (dragOriginal == null) dragOriginal = ClipMask.copyAll(clip.masks);
+        List<ClipMask> next = withValue(clip, index, p, value, dragOriginal);
+        if (next == null) return;
+        context.maskEditState().setLive(clip, next);
+        context.showLiveMasks(clip, ClipMask.copyAll(next));
+    }
+
+    /** The end of an edit of one parameter: one undo step (or nothing when the value did not change). */
+    private void commitValue(Clip clip, int index, ClipMask.Param p, String label, float value) {
+        if (dragOriginal != null) {
+            // the preview may have written the live masks into the clip (legacy preview): start from what it was
+            clip.masks = ClipMask.copyAll(dragOriginal);
+            dragOriginal = null;
+        }
+        context.maskEditState().setLive(null, null);
+        if (clip.masks == null || index >= clip.masks.size()) return;
+        float time = context.getCurrentTime();
+        float local = localTime(clip, time);
+        float old = clip.masks.get(index).valueAt(p, local);
+        float clamped = Math.max(p.min, Math.min(p.max, value));
+        List<ClipMask> next = clamped == old ? null : withValue(clip, index, p, clamped, clip.masks);
+        if (next == null) {
+            context.syncPreview(); // the worker may still hold the live copy
+            return;
+        }
+        edit(clip, "Change Mask " + label, list -> {
+            list.clear();
+            list.addAll(next);
+        });
+        context.updatePropertiesPane();
     }
 
     // ---- editing: one undo step per change ------------------------------------------------------

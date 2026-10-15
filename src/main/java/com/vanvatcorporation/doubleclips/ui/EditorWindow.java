@@ -75,6 +75,14 @@ public class EditorWindow extends Stage implements PropertyContext {
     @Override
     public MaskEditState maskEditState() { return maskEditState; }
 
+    @Override
+    public void showLiveMasks(Clip clip, java.util.List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> masks) {
+        timelineRenderer.showLiveMasks(clip, masks, currentTime);
+    }
+
+    @Override
+    public void syncPreview() { timelineRenderer.syncWorker(currentTime); }
+
     // Editor State
     private float currentTime = 0f;
     private boolean isPlaying = false;
