@@ -1,6 +1,6 @@
 #version 330 core
 // The timeline effects (EffectCatalog), one fullscreen pass over a copy of the picture drawn so far.
-// A port of EffectCpuRenderer: same formulas, same constants, so a tile in the picker is the real effect.
+// The effects shader. The picker tiles are drawn by this same shader (TileRenderer), so a tile is the real effect.
 // Pictures are opaque; positions are in pixels with y pointing DOWN (row 0 = top), a pixel's centre at +0.5.
 //
 // uStyle is the effect's position in EffectCatalog. "blur" (10) is not drawn here: it is two passes of the

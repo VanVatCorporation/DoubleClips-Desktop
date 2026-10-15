@@ -995,9 +995,9 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             glUniform1f(uFxProgressLoc, progress);
             glUniform1f(uFxTimeLoc, time);
             glUniform1f(uFxElapsedLoc, elapsed);
-            glUniform1f(uFxWanderLoc, EffectCpuRenderer.wander(time));
+            glUniform1f(uFxWanderLoc, EffectRandoms.wander(time));
             glUniform2f(uFxResolutionLoc, width, height);
-            glUniform1fv(uFxRandLoc, EffectCpuRenderer.randoms(style, time));
+            glUniform1fv(uFxRandLoc, EffectRandoms.randoms(style, time));
 
             if (index == EFFECT_GLOW) {
                 float sigma = height * 0.025f * a;
