@@ -230,12 +230,18 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             STYLE_SLIDE_LEFT = 3, STYLE_SLIDE_RIGHT = 4, STYLE_SLIDE_UP = 5, STYLE_SLIDE_DOWN = 6,
             STYLE_CIRCLE_OPEN = 7, STYLE_CIRCLE_CLOSE = 8, STYLE_DIAG_TL = 9, STYLE_DIAG_BL = 10, STYLE_RADIAL = 11,
             STYLE_HL_SLICE = 12, STYLE_HR_SLICE = 13, STYLE_VU_SLICE = 14, STYLE_VD_SLICE = 15, STYLE_REVEAL_UP = 16,
-            STYLE_FADE_BLACK = 17, STYLE_FADE_WHITE = 18, STYLE_FADE_GRAYS = 19, STYLE_DISSOLVE = 20;
+            STYLE_FADE_BLACK = 17, STYLE_FADE_WHITE = 18, STYLE_FADE_GRAYS = 19, STYLE_DISSOLVE = 20,
+            STYLE_CIRCLE_CROP = 21, STYLE_RECT_CROP = 22, STYLE_PIXELIZE = 23, STYLE_HBLUR = 24, STYLE_DISTANCE = 25;
 
     static int styleToId(String style) {
         switch (style) {
             case "fade": return STYLE_FADE;
             case "dissolve": return STYLE_DISSOLVE;
+            case "circlecrop": return STYLE_CIRCLE_CROP;
+            case "rectcrop": return STYLE_RECT_CROP;
+            case "pixelize": return STYLE_PIXELIZE;
+            case "hblur": return STYLE_HBLUR;
+            case "distance": return STYLE_DISTANCE;
             case "circleopen": return STYLE_CIRCLE_OPEN;
             case "circleclose": return STYLE_CIRCLE_CLOSE;
             case "diagtl": return STYLE_DIAG_TL;
@@ -341,7 +347,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "    fragColor = vec4(result, 1.0);\n" +
             "}\n";
 
-    // Styles 7..20 are the xfade / iOS ones (circleopen ... dissolve), worked out in the picture's own proportions.
+    // Styles 7..25 are the xfade / iOS ones (circleopen ... distance), worked out in the picture's own proportions.
     // Orientation: vUV.y = 0 is the BOTTOM row of the canvas and 1 the top (see QUAD_VERTICES), so "up" is +y.
     // Edges of the shaped reveals are anti-aliased with fwidth(); slices, radial and dissolve are hard-edged, like xfade.
     private static final String TRANSITION_FRAGMENT_SHADER =
@@ -352,6 +358,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "uniform float uProgress;\n" +
             "uniform int uStyle;\n" +
             "uniform float uAspect;\n" +       // canvas width / height
+            "uniform vec2 uCanvas;\n" +        // canvas size in pixels
             "out vec4 fragColor;\n" +
             "float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n" +
             "vec3 gray(vec3 c, float s) { return mix(vec3(dot(c, vec3(0.299, 0.587, 0.114))), c, s); }\n" +
@@ -409,6 +416,39 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "        result = vec4(mix(ga, gb, p), mix(a.a, b.a, p));\n" +
             "    } else if (uStyle == 20) {\n" + // dissolve: every pixel flips from A to B at its own moment
             "        result = (hash(floor(gl_FragCoord.xy)) < p) ? b : a;\n" +
+            "    } else if (uStyle == 21) {\n" + // circlecrop: A in a circle shrinking to nothing on black, then B in a growing one
+            "        float r = abs(2.0 * p - 1.0);\n" +
+            "        vec4 pic = (p < 0.5) ? a : b;\n" +
+            "        float k = (r <= 0.0) ? 0.0 : (r >= 1.0) ? 1.0 : edge(length(c), r * reach / 1.02);\n" +
+            "        result = mix(vec4(0.0, 0.0, 0.0, 1.0), pic, k);\n" +
+            "    } else if (uStyle == 22) {\n" + // rectcrop: the same through a centred rectangle, r of the canvas in both directions
+            "        float r = abs(2.0 * p - 1.0);\n" +
+            "        vec4 pic = (p < 0.5) ? a : b;\n" +
+            "        vec2 d = abs(vUV - 0.5) * 2.0;\n" +
+            "        float k = (r <= 0.0) ? 0.0 : (r >= 1.0) ? 1.0 : edge(max(d.x, d.y), r);\n" +
+            "        result = mix(vec4(0.0, 0.0, 0.0, 1.0), pic, k);\n" +
+            "    } else if (uStyle == 23) {\n" + // pixelize: A breaks into growing square blocks (0 -> 7% of the width), hard cut at 0.5, B's blocks shrink back
+            "        float frac = (p < 0.5) ? 0.07 * 2.0 * p : 0.07 * (2.0 - 2.0 * p);\n" +
+            "        float block = frac * uCanvas.x;\n" +
+            "        vec2 uv = vUV;\n" +
+            "        if (block > 1.5) uv = min((floor(vUV * uCanvas / block) + 0.5) * block / uCanvas, vec2(1.0));\n" +
+            "        result = (p < 0.5) ? texture(uTextureA, uv) : texture(uTextureB, uv);\n" +
+            "    } else if (uStyle == 24) {\n" + // hblur: A smears sideways (streak 0 -> 30% of the width, smooth), cut at 0.5, B comes out of the same blur
+            "        float s = (p < 0.5) ? smoothstep(0.0, 1.0, 2.0 * p) : 1.0 - smoothstep(0.0, 1.0, 2.0 * p - 1.0);\n" +
+            "        float halfLen = 0.3 * s * 0.5;\n" +   // half the streak, as a fraction of the width
+            "        const int TAPS = 32;\n" +
+            "        float jitter = (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5) * 2.0 / float(TAPS - 1);\n" +
+            "        vec4 sum = vec4(0.0);\n" +
+            "        for (int i = 0; i < TAPS; i++) {\n" +
+            "            float t = float(i) / float(TAPS - 1) * 2.0 - 1.0 + jitter;\n" +
+            "            vec2 uv = vec2(clamp(vUV.x + halfLen * t, 0.0, 1.0), vUV.y);\n" +
+            "            sum += (p < 0.5) ? texture(uTextureA, uv) : texture(uTextureB, uv);\n" +
+            "        }\n" +
+            "        result = sum / float(TAPS);\n" +
+            "    } else if (uStyle == 25) {\n" + // distance: B takes over first where the two pictures are close in colour (iOS distance mask, softness 0.04)
+            "        float diff = (abs(a.r - b.r) + abs(a.g - b.g) + abs(a.b - b.b)) / 3.0;\n" +
+            "        float m = (p <= 0.0) ? 0.0 : (p >= 1.0) ? 1.0 : clamp((p - diff) / 0.04 + 0.5, 0.0, 1.0);\n" +
+            "        result = mix(a, b, m);\n" +
             "    } else {\n" + // fade
             "        result = mix(a, b, p);\n" +
             "    }\n" +
@@ -525,7 +565,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private final GlTarget[] scratch = new GlTarget[3]; // 0 and 1: transitions and blur; effects use all three
     private int transitionProgram = 0, blurProgram = 0, streakProgram = 0, blendProgram = 0;
     private int uBlendLayerLoc, uBlendBackdropLoc, uBlendModeLoc;
-    private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc, uTransAspectLoc;
+    private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc, uTransAspectLoc, uTransCanvasLoc;
     private int uBlurTexLoc, uBlurDirLoc, uBlurTexelLoc, uBlurSigmaLoc;
     private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc;
     // Effect clips: one program for the whole catalog (resources/shaders/effects.frag), built on first use.
@@ -727,6 +767,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uTransProgressLoc = glGetUniformLocation(transitionProgram, "uProgress");
             uTransStyleLoc = glGetUniformLocation(transitionProgram, "uStyle");
             uTransAspectLoc = glGetUniformLocation(transitionProgram, "uAspect");
+            uTransCanvasLoc = glGetUniformLocation(transitionProgram, "uCanvas");
         }
         if (destSlot < 0) {
             bindMain();
@@ -745,6 +786,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glUniform1f(uTransProgressLoc, progress);
         glUniform1i(uTransStyleLoc, styleToId(style));
         glUniform1f(uTransAspectLoc, (float) width / height);
+        glUniform2f(uTransCanvasLoc, width, height);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glActiveTexture(GL_TEXTURE0); // leave unit 0 active: draw() assumes it
         if (destSlot >= 0) {

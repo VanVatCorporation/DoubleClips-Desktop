@@ -47,15 +47,15 @@ public class OpenGLEdit {
     // matching FFmpeg's xfade of the same name, via a two-pass FBO pipeline
     // (each clip rendered to its own full-canvas offscreen texture first, then
     // blended - see OpenGLEditNative.exportTimeline). Only EFFECT_TEMPLATE
-    // styles in this set are honored; anything else (pixelize, distance, circlecrop,
-    // rectcrop, hblur, custom_*)
+    // styles in this set are honored; anything else (custom_*)
     // and any transition using a mode other than OVERLAP are flagged as
     // unsupported by getUnsupportedFeatures below rather than silently
     // approximated or ignored. Keys must match FXCommandEmitter.FXRegistry.
     public static final Set<String> SUPPORTED_TRANSITION_STYLES = new java.util.HashSet<>(java.util.Arrays.asList(
             "fade", "dissolve", "wipeleft", "wiperight", "slideleft", "slideright", "slideup", "slidedown",
             "circleopen", "circleclose", "diagtl", "diagbl", "radial", "hlslice", "hrslice", "vuslice", "vdslice",
-            "revealup", "fadeblack", "fadewhite", "fadegrays"
+            "revealup", "fadeblack", "fadewhite", "fadegrays",
+            "circlecrop", "rectcrop", "pixelize", "hblur", "distance"
     ));
     public static final boolean SUPPORTS_TRANSITIONS = true;
     public static final boolean SUPPORTS_REVERSE = true;
