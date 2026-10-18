@@ -17,6 +17,7 @@ import com.vanvatcorporation.doubleclips.helper.MediaHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import javafx.scene.Node;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.MouseEvent;
@@ -126,6 +127,9 @@ public class EditorWindow extends Stage implements PropertyContext {
     /** Every selected clip (Ctrl/Cmd+click adds to it). Insertion-ordered. */
     private final java.util.Set<Clip> selectedClips = new java.util.LinkedHashSet<>();
     private Track selectedTrack;
+    /** The track the user selected on purpose (header click / menu): shown highlighted, the target of Delete / Copy / Paste. */
+    private Track explicitTrack;
+    private Track shownTrackSelection;          // what the headers currently show, to rebuild them only on a change
     private Clip selectedTransitionSourceClip; // clip whose endTransition cube was clicked
 
     // Playback engine
@@ -328,7 +332,9 @@ public class EditorWindow extends Stage implements PropertyContext {
                 handleDelete();
                 event.consume();
             } else if (matchesKeybind(settings.getSelectAllKeybind(), event)) {
-                selectAllClips();
+                Track onlyTrack = selectedTrackOnly();
+                if (onlyTrack != null) trackActions.selectAllClips(onlyTrack);   // a track is selected: its clips first
+                else selectAllClips();
                 event.consume();
             } else if (matchesKeybind(settings.getTogglePlayKeybind(), event)) {
                 triggerPlayAction();
@@ -2116,7 +2122,19 @@ public class EditorWindow extends Stage implements PropertyContext {
             if (marqueeActive) endMarquee();
             marqueeArmed = false;
         });
+        // Right-click on an EMPTY part of a track row: select that track and open its menu.
+        tracksPane.setOnContextMenuRequested(e -> {
+            if (e.getTarget() != tracksPane) return;
+            javafx.geometry.Point2D local = tracksPane.sceneToLocal(e.getSceneX(), e.getSceneY());
+            int row = (int) (local.getY() / (TRACK_HEIGHT + TRACK_SPACING));
+            if (row < 0 || row >= this.timeline.tracks.size()) return;
+            Track track = this.timeline.tracks.get(row);
+            selectTrack(track);
+            trackActions.menuFor(track).show(tracksPane, e.getScreenX(), e.getScreenY());
+            e.consume();
+        });
         tracksPane.setOnMouseClicked(e -> {
+            if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;   // a right-click opens the track menu, it must not deselect
             if (activeDrag.dragging || marqueeJustFinished) return;
             if (e.isShortcutDown()) return; // Ctrl/Cmd+click on empty space leaves the selection alone
             deselectAll();
@@ -2915,6 +2933,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         trackBands.values().removeIf(n -> !activeNodes.contains(n));
         transitionCubes.values().removeIf(n -> !activeNodes.contains(n));
+        refreshTrackSelectionVisuals();                       // the selected track's band (bands may be new)
 
         // Rebuild TimelineRenderer
         if (timelineRenderer != null) {
@@ -3414,6 +3433,8 @@ public class EditorWindow extends Stage implements PropertyContext {
         Platform.runLater(() -> marqueeJustFinished = false);
 
         selectedTrack = selectedClip != null ? timeline.tracks.get(selectedClip.trackIndex) : null;
+        explicitTrack = null;
+        refreshTrackSelectionVisuals();
         updatePropertiesPane(); // once, at the end, not on every mouse move
     }
 
@@ -3490,12 +3511,15 @@ public class EditorWindow extends Stage implements PropertyContext {
         selectedClip = null;
         selectedTransitionSourceClip = null;
         selectedTrack = null;
+        explicitTrack = null;
         refreshSelectionVisuals();
         updatePropertiesPane();
     }
 
     /** Push the selection state onto every clip node. Only the primary clip shows trim handles. */
     private void refreshSelectionVisuals() {
+        if (!selectedClips.isEmpty()) explicitTrack = null;       // selecting a clip ends "a track is selected"
+        refreshTrackSelectionVisuals();
         for (Track t : timeline.tracks) {
             for (Clip c : t.clips) {
                 if (c.viewRef instanceof ClipNode cn) {
@@ -3653,6 +3677,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         for (Track t : timeline.tracks) {
             trackHeadersContainer.getChildren().add(buildTrackHeader("Track " + (t.timelineIndex + 1), t.timelineIndex));
         }
+        shownTrackSelection = selectedTrackOnly();
         updateReorderTracksButton();
     }
 
@@ -3739,22 +3764,8 @@ public class EditorWindow extends Stage implements PropertyContext {
                 saveProject();
             }));
             // refreshTimelineUI() has already dropped the deleted clips from the selection.
-        } else if (selectedTrack != null) {
-            Track trackToDelete = selectedTrack;
-            historyManager.execute(new PropertyChangeCommand("Delete Track",
-                    () -> {
-                        timeline.removeTrack(trackToDelete);
-                        selectedTrack = null;
-                        refreshTrackHeaders();
-                        refreshTimelineUI();
-                        saveProject();
-                    },
-                    () -> {
-                        timeline.addTrack(trackToDelete);
-                        refreshTrackHeaders();
-                        refreshTimelineUI();
-                        saveProject();
-                    }));
+        } else if (selectedTrackOnly() != null) {
+            trackActions.delete(selectedTrackOnly());           // one undo step; undo puts it back in place
         }
     }
     private void handleClone()
@@ -3769,21 +3780,8 @@ public class EditorWindow extends Stage implements PropertyContext {
                 refreshTimelineUI();
                 saveProject();
             }));
-        } else if (selectedTrack != null) {
-            Track track = new Track(selectedTrack);
-            executePropertyChange("Add Track", () -> {
-                timeline.addTrack(track);
-                timeline.reloadTrackIndex();
-                refreshTrackHeaders();
-                refreshTimelineUI();
-                saveProject();
-            }, () -> {
-                timeline.removeTrack(track);
-                timeline.reloadTrackIndex();
-                refreshTrackHeaders();
-                refreshTimelineUI();
-                saveProject();
-            });
+        } else if (selectedTrackOnly() != null) {
+            trackActions.duplicate(selectedTrackOnly());        // a real copy of every clip, right below the original
         }
     }
 
@@ -3798,12 +3796,12 @@ public class EditorWindow extends Stage implements PropertyContext {
     private void handleCopy() {
         Clipboard clipboard = Clipboard.getSystemClipboard();
         ClipboardContent content = new ClipboardContent();
-        if (!selectedClips.isEmpty() || selectedTrack != null) cancelPendingCut(); // a new copy replaces the cut
+        if (!selectedClips.isEmpty() || selectedTrackOnly() != null) cancelPendingCut(); // a new copy replaces the cut
         if (!selectedClips.isEmpty()) {
             content.putString(clipboardGson.toJson(orderedSelection().toArray(new Clip[0])));
             clipboard.setContent(content);
-        } else if (selectedTrack != null) {
-            content.putString(new Gson().toJson(selectedTrack));
+        } else if (selectedTrackOnly() != null) {
+            content.putString(clipboardGson.toJson(selectedTrackOnly()));   // same layout as the project file
             clipboard.setContent(content);
         }
     }
@@ -3933,6 +3931,8 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (haveSelection) {
             baseTrack = selMinTrack;
             if (Math.abs(currentTime - selMinStart) < 0.001f) anchorStart = selMaxEnd;
+        } else if (selectedTrackOnly() != null) {
+            baseTrack = selectedTrackOnly().timelineIndex;      // a track is selected, no clip: paste onto that track
         }
         return ClipGroupMath.planPaste(groupMinStart, groupMinTrack, anchorStart, baseTrack);
     }
@@ -4009,28 +4009,92 @@ public class EditorWindow extends Stage implements PropertyContext {
         selectClips(group);
     }
 
+    /** A copied track goes right below the selected track (or at the end); one undo step. */
     private void pasteTrack(String json) {
         Track pasteTrack;
         try {
-            pasteTrack = new Gson().fromJson(json, Track.class);
+            pasteTrack = clipboardLoadGson.fromJson(json, Track.class);
         } catch (JsonSyntaxException e) {
             return;
         }
         if (pasteTrack == null) return;
-        executePropertyChange("Add Track", () -> {
-            timeline.addTrack(pasteTrack);
+        for (Clip c : pasteTrack.clips) c.filterNullAfterLoad();
+        final Track after = selectedTrackOnly();
+        executePropertyChange("Paste Track", () -> {
+            int at = after == null ? timeline.tracks.size() : timeline.tracks.indexOf(after) + 1;
+            if (at <= 0) at = timeline.tracks.size();
+            timeline.tracks.add(Math.min(at, timeline.tracks.size()), pasteTrack);
             timeline.reloadTrackIndex();
-            refreshTrackHeaders();
-            refreshTimelineUI();
-            saveProject();
+            timeline.recalculateDuration();
+            afterTrackEdit();
         }, () -> {
-            timeline.removeTrack(pasteTrack);
+            timeline.tracks.remove(pasteTrack);
             timeline.reloadTrackIndex();
-            refreshTrackHeaders();
-            refreshTimelineUI();
-            saveProject();
+            timeline.recalculateDuration();
+            afterTrackEdit();
         });
     }
+
+    // =========================================================================
+    // Track selection and actions
+    // =========================================================================
+
+    private boolean isTrackSelected(Track t) {
+        return t != null && t == explicitTrack && selectedClips.isEmpty();
+    }
+
+    /** The track selected on purpose, when no clip is selected; else null. */
+    private Track selectedTrackOnly() {
+        return explicitTrack != null && selectedClips.isEmpty() && timeline.tracks.contains(explicitTrack) ? explicitTrack : null;
+    }
+
+    /** Selects a track (clears the clip selection); null clears the track selection. */
+    private void selectTrack(Track t) {
+        selectedClips.clear();
+        selectedClip = null;
+        selectedTransitionSourceClip = null;
+        explicitTrack = t;
+        selectedTrack = t;
+        refreshSelectionVisuals();
+        updatePropertiesPane();
+    }
+
+    /** Header highlight (rebuilt only when the selection changed) and the selected track's band. */
+    private void refreshTrackSelectionVisuals() {
+        if (explicitTrack != null && !timeline.tracks.contains(explicitTrack)) {   // deleted, or its creation undone
+            if (selectedTrack == explicitTrack) selectedTrack = null;
+            explicitTrack = null;
+        }
+        Track now = selectedTrackOnly();
+        if (now != shownTrackSelection && trackHeadersContainer != null) refreshTrackHeaders();
+        for (Track t : timeline.tracks) {
+            Rectangle band = trackBands.get(t.timelineIndex);
+            if (band == null) continue;
+            boolean on = t == now;
+            if (on && !band.getStyleClass().contains("track-band-selected")) band.getStyleClass().add("track-band-selected");
+            else if (!on) band.getStyleClass().remove("track-band-selected");
+        }
+    }
+
+    /** What every track action does after it edited the timeline. */
+    private void afterTrackEdit() {
+        updateCurrentClipEnd();
+        refreshTrackHeaders();
+        refreshTimelineUI();
+        saveProject();
+    }
+
+    private final TrackActions trackActions = new TrackActions(new TrackActions.Host() {
+        @Override public Timeline timeline() { return timeline; }
+        @Override public HistoryManager history() { return historyManager; }
+        @Override public float playhead() { return currentTime; }
+        @Override public void selectTrack(Track track) { EditorWindow.this.selectTrack(track); }
+        @Override public void selectClips(List<Clip> clips) { EditorWindow.this.selectClips(clips); }
+        @Override public void afterEdit() { afterTrackEdit(); }
+        @Override public void copyTrack() { handleCopy(); }
+        @Override public void pasteHere() { handlePaste(); }
+        @Override public void splitHere() { handleSplit(); }
+    });
 
     // =========================================================================
     // Voiceover
@@ -4170,13 +4234,17 @@ public class EditorWindow extends Stage implements PropertyContext {
     };
 
     private HBox buildTrackHeader(String name, int index) {
+        final Track track = index >= 0 && index < timeline.tracks.size() ? timeline.tracks.get(index) : null;
+        final boolean selected = isTrackSelected(track);
         HBox header = new HBox(6);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(0, 8, 0, 8));
         header.setPrefHeight(75);
         header.setMaxHeight(75);
         header.getStyleClass().add("track-header");
+        if (selected) header.getStyleClass().add("track-header-selected");
 
+        final Node[] gripHolder = new Node[1];
         if (reorderingTracks) {
             Label grip = new Label();
             grip.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignD.DRAG));
@@ -4185,11 +4253,13 @@ public class EditorWindow extends Stage implements PropertyContext {
             grip.setOnMousePressed(e -> trackGripPressed(index, e));
             grip.setOnMouseDragged(this::trackGripDragged);
             grip.setOnMouseReleased(this::trackGripReleased);
+            gripHolder[0] = grip;
             header.getChildren().add(grip);
         }
 
         Label lbl = new Label(name);
-        lbl.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");
+        lbl.setStyle("-fx-text-fill: " + (selected ? "-color-accent-fg" : "-color-fg-muted") + "; -fx-font-size: 11px;"
+                + (selected ? " -fx-font-weight: bold;" : ""));
 
         Region hs = new Region();
         HBox.setHgrow(hs, Priority.ALWAYS);
@@ -4199,7 +4269,36 @@ public class EditorWindow extends Stage implements PropertyContext {
         muteBtn.getStyleClass().add("button-transparent");
         muteBtn.setStyle("-fx-padding: 2px;");
 
-        header.getChildren().addAll(lbl, hs, muteBtn);
+        header.getChildren().addAll(lbl, hs);
+        if (selected) {
+            // The track's actions, for anyone who does not think of right-click.
+            Button more = new Button();
+            more.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignD.DOTS_HORIZONTAL));
+            more.getStyleClass().add("button-transparent");
+            more.setStyle("-fx-padding: 2px;");
+            more.setTooltip(new Tooltip("Track actions"));
+            more.setOnAction(e -> trackActions.menuFor(track).show(more, javafx.geometry.Side.BOTTOM, 0, 0));
+            header.getChildren().add(more);
+        }
+        header.getChildren().add(muteBtn);
+
+        if (track != null) {
+            // Click selects the track (click it again to let go); the buttons and the grip keep their own clicks.
+            header.setOnMouseClicked(e -> {
+                if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
+                if (e.getTarget() instanceof Node n) {
+                    for (Node p = n; p != null && p != header; p = p.getParent()) {
+                        if (p instanceof Button || p == gripHolder[0]) return;
+                    }
+                }
+                selectTrack(isTrackSelected(track) ? null : track);
+            });
+            header.setOnContextMenuRequested(e -> {
+                if (!isTrackSelected(track)) selectTrack(track);
+                trackActions.menuFor(track).show(header, e.getScreenX(), e.getScreenY());
+                e.consume();
+            });
+        }
         return header;
     }
 
