@@ -292,6 +292,44 @@ public class Clip implements Serializable, UnknownKeysHolder {
         if (keys != null && keys.isJsonArray() && keys.getAsJsonArray().size() > 0) tree.add("maskKeys", keys);
     }
 
+    // ---- speed: timeline time <-> source time ----------------------------------------------------
+
+    private transient ClipTimeMap timeMapCache;
+    private transient String timeMapSignature;
+
+    /**
+     * The clip's speed over its local time: the static {@code valueSpeed}, or a curve when speed has keyframes. Cached until
+     * the speed, the clip's start or the speed keyframes change, so it is cheap to ask for on every frame.
+     */
+    public ClipTimeMap timeMap() {
+        float base = videoProperties == null ? 1f : videoProperties.valueSpeed;
+        boolean animated = keyframes != null && keyframes.keyframes != null && keyframes.isAnimated(VideoProperties.ValueType.Speed);
+        StringBuilder sig = new StringBuilder();
+        sig.append(animated ? 'c' : 'k').append(base);
+        if (animated) {
+            sig.append('|').append(startTime);
+            for (Keyframe k : keyframes.keyframesHolding(VideoProperties.ValueType.Speed)) {
+                sig.append(';').append(k.getLocalTime()).append(',').append(k.value.getValue(VideoProperties.ValueType.Speed)).append(',').append(k.easing);
+            }
+        }
+        String signature = sig.toString();
+        ClipTimeMap cached = timeMapCache;
+        if (cached != null && signature.equals(timeMapSignature)) return cached;
+        ClipTimeMap map = animated
+                ? ClipTimeMap.curve(t -> keyframes.getValueAtTime(this, startTime + (float) t, VideoProperties.ValueType.Speed))
+                : ClipTimeMap.constant(base);
+        timeMapCache = map;
+        timeMapSignature = signature;
+        return map;
+    }
+
+    /** The timeline length that plays the source between the trims at the clip's speed (what iOS stores as the duration). */
+    public float fittedDuration() {
+        if (originalDuration <= 0) return duration;
+        double sourceLength = Math.max(0, originalDuration - startClipTrim - endClipTrim);
+        return (float) timeMap().localTime(sourceLength);
+    }
+
     /** Folds iOS's single {@code mask} + {@code maskKeys} into {@link #masks} (as the first mask) and repairs what a file left out. */
     private void normalizeMasks() {
         if (mask != null) {

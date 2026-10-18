@@ -919,6 +919,10 @@ public class FFmpegEdit {
                 if (clip.blendMode != null && clip.blendMode != com.vanvatcorporation.doubleclips.data.editing.ClipBlendMode.NORMAL) {
                     found.add("Clip blend modes are skipped (only the OpenGL export draws them; FFmpeg draws those clips normally)");
                 }
+                if (clip.keyframes != null && clip.keyframes.holderCount(VideoProperties.ValueType.Speed) > 1) {
+                    // The OpenGL export integrates the speed curve (Clip.timeMap); the filter graph only has setpts with the speed at each instant.
+                    found.add("Speed curves are approximated (only the OpenGL export follows a changing speed exactly)");
+                }
                 if (clip.hasMasks()) {
                     // Masks are drawn by the OpenGL shader (GlCompositor); the FFmpeg filter graph has no counterpart yet.
                     found.add("Clip masks are skipped (only the OpenGL export draws them; FFmpeg shows those clips unmasked)");
