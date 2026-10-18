@@ -11,7 +11,15 @@ public class HistoryManager {
     private final BooleanProperty canUndo = new SimpleBooleanProperty(false);
     private final BooleanProperty canRedo = new SimpleBooleanProperty(false);
 
+    /** Runs before every execute / undo / redo (the editor ends a running voiceover take with it). May be null. */
+    private Runnable beforeChange;
+
+    public void setBeforeChange(Runnable r) { beforeChange = r; }
+
+    private void fireBeforeChange() { if (beforeChange != null) beforeChange.run(); }
+
     public void execute(Command command) {
+        fireBeforeChange();
         command.execute();
         undoStack.push(command);
         redoStack.clear();
@@ -20,6 +28,7 @@ public class HistoryManager {
 
     public void undo() {
         if (undoStack.isEmpty()) return;
+        fireBeforeChange();
         Command command = undoStack.pop();
         command.undo();
         redoStack.push(command);
@@ -28,6 +37,7 @@ public class HistoryManager {
 
     public void redo() {
         if (redoStack.isEmpty()) return;
+        fireBeforeChange();
         Command command = redoStack.pop();
         command.execute();
         undoStack.push(command);

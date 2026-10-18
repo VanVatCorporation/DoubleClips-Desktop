@@ -51,7 +51,6 @@ final class VoiceoverPanel extends VBox {
     private final ToggleSwitch echoSwitch = new ToggleSwitch();
     private final ToggleSwitch muteSwitch = new ToggleSwitch();
     private final ToggleSwitch enhanceSwitch = new ToggleSwitch();
-    private final Label echoHint = new Label();
 
     private State state = State.IDLE;
     private double level;            // smoothed 0..1 for the meter
@@ -137,17 +136,16 @@ final class VoiceoverPanel extends VBox {
         muteSwitch.setSelected(PREFS.getBoolean("mute", true));        // on by default
         enhanceSwitch.setSelected(PREFS.getBoolean("enhance", false));
         echoSwitch.selectedProperty().addListener((o, a, b) -> PREFS.putBoolean("echo", b));
-        muteSwitch.selectedProperty().addListener((o, a, b) -> { PREFS.putBoolean("mute", b); refreshEchoHint(); });
+        muteSwitch.selectedProperty().addListener((o, a, b) -> PREFS.putBoolean("mute", b));
         enhanceSwitch.selectedProperty().addListener((o, a, b) -> PREFS.putBoolean("enhance", b));
 
-        echoHint.setWrapText(true);
-        echoHint.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");
-        VBox echoRow = switchRow("Echo reduction", echoHint, echoSwitch);
+        VBox echoRow = switchRow("Echo reduction",
+                hint("Removes the project's sound from the recording when it is played through speakers (best effort; headphones are better)."),
+                echoSwitch);
         VBox muteRow = switchRow("Mute project", hint("Sounds in all clips will be turned off while recording."), muteSwitch);
         VBox enhanceRow = switchRow("Enhance voice",
                 hint("Automatically removes background noise, rumble, pops and mouth clicks, and evens out the level."),
                 enhanceSwitch);
-        refreshEchoHint();
 
         deviceBox.valueProperty().addListener((o, a, b) -> {
             if (!loadingDevices && b != null) PREFS.put("device", b.name);
@@ -172,14 +170,6 @@ final class VoiceoverPanel extends VBox {
         HBox head = new HBox(l, spacer, sw);
         head.setAlignment(Pos.CENTER_LEFT);
         return new VBox(2, head, hint);
-    }
-
-    private void refreshEchoHint() {
-        boolean muted = muteSwitch.isSelected();
-        echoSwitch.setDisable(muted);
-        echoHint.setText(muted
-                ? "Not needed while Mute project is on: nothing is played through the speakers."
-                : "Removes the project's sound from the recording when it is played through speakers (best effort; headphones are better).");
     }
 
     // ---- devices ------------------------------------------------------------------------------
@@ -211,7 +201,7 @@ final class VoiceoverPanel extends VBox {
     VoiceRecorder.Device selectedDevice() { return deviceBox.getValue(); }
     double volumeLinear() { return volume.getValue() / 100.0; }
     DoubleProperty volumeProperty() { return volume.valueProperty(); }
-    boolean echoReduction() { return echoSwitch.isSelected() && !muteSwitch.isSelected(); }
+    boolean echoReduction() { return echoSwitch.isSelected(); }
     boolean muteProject() { return muteSwitch.isSelected(); }
     boolean enhanceVoice() { return enhanceSwitch.isSelected(); }
     BooleanProperty muteProjectProperty() { return muteSwitch.selectedProperty(); }
@@ -227,7 +217,7 @@ final class VoiceoverPanel extends VBox {
         recordBtn.setTooltip(new Tooltip(rec ? "Click to end recording" : "Click to start recording"));
         deviceBox.setDisable(s != State.IDLE);
         // The three switches may be changed at any time except that a running take keeps what it started with.
-        echoSwitch.setDisable(s != State.IDLE || muteSwitch.isSelected());
+        echoSwitch.setDisable(s != State.IDLE);
         muteSwitch.setDisable(s != State.IDLE);
         enhanceSwitch.setDisable(s == State.PROCESSING);
         status.setText(statusText);

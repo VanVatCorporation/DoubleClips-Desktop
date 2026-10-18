@@ -190,7 +190,7 @@ final class VoiceoverController {
 
         final float start = startTime;
         final int onTrack = track;
-        final boolean doEcho = echo && !muted, doEnhance = enhance;
+        final boolean doEcho = echo, doEnhance = enhance;
         Thread worker = new Thread(() -> process(take, rate, start, onTrack, doEcho, doEnhance), "VoiceoverProcess");
         worker.setDaemon(true);
         worker.start();
@@ -238,12 +238,23 @@ final class VoiceoverController {
     }
 
     private void finish(String fileName, float start, float duration, int onTrack, String note) {
-        Clip clip = new Clip(fileName, start, duration, onTrack, ClipType.AUDIO, true, 0, 0);
-        clip.trackIndex = onTrack;
-        host.liveHide();
-        host.addClip(clip, onTrack);
-        panel.setState(VoiceoverPanel.State.IDLE, note == null ? "Recording not started" : "Done (" + note + ")");
-        panel.setTimer(0);
+        String error = null;
+        try {
+            Clip clip = new Clip(fileName, start, duration, onTrack, ClipType.AUDIO, true, 0, 0);
+            clip.trackIndex = onTrack;
+            host.liveHide();
+            host.addClip(clip, onTrack);
+        } catch (Throwable t) {
+            error = String.valueOf(t);
+        } finally {
+            // Whatever happened, the panel must not stay in "Processing..." forever.
+            panel.setState(VoiceoverPanel.State.IDLE, note == null ? "Recording not started" : "Done (" + note + ")");
+            panel.setTimer(0);
+        }
+        if (error != null) {
+            host.showError("Voiceover", "The recording was saved as " + fileName + " but adding it to the timeline failed.\n\n" + error
+                    + "\n\nIf this is a NoSuchMethodError, a file of the earlier deliveries is out of date: rebuild everything (clean build).");
+        }
     }
 
     /** "Voiceover1.wav", "Voiceover2.wav", ... the first one not used in the project's clip folder. */

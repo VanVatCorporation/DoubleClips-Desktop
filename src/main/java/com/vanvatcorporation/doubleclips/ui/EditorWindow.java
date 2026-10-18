@@ -64,6 +64,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     private TimelineRenderer timelineRenderer;
     private com.vanvatcorporation.doubleclips.ui.renderer.PreviewGizmo previewGizmo;
     private final HistoryManager historyManager = new HistoryManager();
+    { historyManager.setBeforeChange(this::endTakeFromEditor); }   // an edit / undo / redo ends a running voiceover take
     private final MaskEditState maskEditState = new MaskEditState();
     private final com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews tilePreviews =
             new com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews(
@@ -94,6 +95,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     private int voiceLiveTrack = -1;
     private float voiceLiveStart;
     private boolean recordingPlayback;
+    private boolean clockTick;                // true only while the playback timer itself moves the playhead
     private float savedPreviewSpeed = 1.0f;
     private boolean savedReverse;
     private float pixelsPerSecond = 100f; // 100px = 1s
@@ -429,10 +431,15 @@ public class EditorWindow extends Stage implements PropertyContext {
                 if (lastTimerUpdate > 0) {
                     long deltaNs = now - lastTimerUpdate;
                     float deltaSec = (deltaNs / 1_000_000_000f) * previewSpeed;
-                    if (isPlayingInReverse) {
-                        updateCurrentTime(currentTime - deltaSec);
-                    } else {
-                        updateCurrentTime(currentTime + deltaSec);
+                    clockTick = true;
+                    try {
+                        if (isPlayingInReverse) {
+                            updateCurrentTime(currentTime - deltaSec);
+                        } else {
+                            updateCurrentTime(currentTime + deltaSec);
+                        }
+                    } finally {
+                        clockTick = false;
                     }
                 }
                 lastTimerUpdate = now;
@@ -657,6 +664,11 @@ public class EditorWindow extends Stage implements PropertyContext {
     private void stopPlayback() {
         if (!isPlaying)
             return;
+        if (recordingPlayback) {              // any pause, from anywhere, ends the voiceover take; it calls back here
+            endTakeFromEditor();
+            if (recordingPlayback) recordingPlayback = false;   // no take was running: do not stay stuck
+            if (!isPlaying) return;           // the take's end already stopped the clock
+        }
         isPlaying = false;
         playbackTimer.stop();
         lastTimerUpdate = 0;
@@ -669,6 +681,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     @Override
     public void updateCurrentTime(float newTime) {
+        if (recordingPlayback && !clockTick) endTakeFromEditor();   // scrubbing / seeking during a take ends it
         this.currentTime = Math.max(0, newTime);
         currentTimeLabel.setText(formatTimecode(currentTime));
 
@@ -4023,6 +4036,15 @@ public class EditorWindow extends Stage implements PropertyContext {
     // Voiceover
     // =========================================================================
 
+    /**
+     * The one rule for "the user interfered while a take is running": the take ends (and is kept). Called for a pause
+     * from any path, a seek or scrub, and any edit / undo / redo. Zoom and scrolling do not touch the take.
+     */
+    private void endTakeFromEditor() {
+        if (voiceover != null && voiceover.isRecording()) voiceover.stopFromEditor();
+        else recordingPlayback = false;
+    }
+
     private void openVoiceover() {
         if (voiceover == null) voiceover = new VoiceoverController(voiceoverHost);
         voiceover.open();
@@ -4128,6 +4150,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         @Override public ProjectData project() { return project; }
 
         @Override public void addClip(Clip clip, int trackIndex) {
+            trackIndex = Math.min(trackIndex, timeline.tracks.size());   // an edit may have removed tracks meanwhile
             clip.trackIndex = trackIndex;
             historyManager.execute(new AddClipCommand(timeline, clip, trackIndex, () -> {
                 refreshTrackHeaders();           // the add may have made a track
