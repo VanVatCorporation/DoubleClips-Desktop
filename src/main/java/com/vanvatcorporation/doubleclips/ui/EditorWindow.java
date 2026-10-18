@@ -2430,8 +2430,32 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     /** Generates thumbnails for a clip only if it is near the viewport and what it shows has changed. */
+    /**
+     * A video clip's own audio as a thin band along the bottom of its tiles (the iOS app does the same). Generated
+     * like the audio clips' waveform: only near the viewport, only when what it shows changed, off the FX thread.
+     */
+    private void ensureWaveBand(ClipNode node) {
+        Clip clip = node.getContainerClip();
+        if (clip.type != ClipType.VIDEO || !clip.isClipHasAudio()) return;
+        final String sig = "W|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature()
+                + "|" + clip.getAudioVolume();
+        if (sig.equals(node.getWaveSignature())) return;
+        node.setWaveSignature(sig);
+        final float scale = pixelsPerSecond;
+        thumbnailExecutor.submit(() -> {
+            if (node.getParent() == null || !sig.equals(node.getWaveSignature())) return;     // removed / re-zoomed meanwhile
+            Image band = AudioUtils.generateVideoWaveformBand(clip.getAbsolutePreviewPath(project, ".wav"), clip, scale, 20);
+            javafx.application.Platform.runLater(() -> {
+                if (!sig.equals(node.getWaveSignature())) return;
+                if (band != null) node.setWaveformBand(band);
+                else node.setWaveSignature(null);          // no preview audio yet: a later refresh tries again
+            });
+        });
+    }
+
     private void ensureThumbnails(ClipNode node) {
         if (!isNodeNearViewport(node.getContainerClip())) return; // picked up when scrolled/zoomed near
+        ensureWaveBand(node);
         String signature = thumbnailSignature(node);
         if (signature.equals(node.getThumbSignature())) return;
         node.setThumbSignature(signature);
@@ -2934,6 +2958,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         trackBands.values().removeIf(n -> !activeNodes.contains(n));
         transitionCubes.values().removeIf(n -> !activeNodes.contains(n));
         refreshTrackSelectionVisuals();                       // the selected track's band (bands may be new)
+        applyTrackMuteVisuals();
 
         // Rebuild TimelineRenderer
         if (timelineRenderer != null) {
@@ -4076,6 +4101,15 @@ public class EditorWindow extends Stage implements PropertyContext {
         }
     }
 
+    /** Clips of a muted track show their waveform faded. */
+    private void applyTrackMuteVisuals() {
+        for (Track t : timeline.tracks) {
+            for (Clip c : t.clips) {
+                if (c.viewRef instanceof ClipNode n) n.setAudioMuted(t.muted);
+            }
+        }
+    }
+
     /** What every track action does after it edited the timeline. */
     private void afterTrackEdit() {
         updateCurrentClipEnd();
@@ -4091,6 +4125,11 @@ public class EditorWindow extends Stage implements PropertyContext {
         @Override public void selectTrack(Track track) { EditorWindow.this.selectTrack(track); }
         @Override public void selectClips(List<Clip> clips) { EditorWindow.this.selectClips(clips); }
         @Override public void afterEdit() { afterTrackEdit(); }
+        @Override public void afterMute() {
+            refreshTrackHeaders();
+            applyTrackMuteVisuals();
+            saveProject();
+        }
         @Override public void copyTrack() { handleCopy(); }
         @Override public void pasteHere() { handlePaste(); }
         @Override public void splitHere() { handleSplit(); }
@@ -4264,10 +4303,14 @@ public class EditorWindow extends Stage implements PropertyContext {
         Region hs = new Region();
         HBox.setHgrow(hs, Priority.ALWAYS);
 
+        final boolean muted = track != null && track.muted;
         Button muteBtn = new Button();
-        muteBtn.setGraphic(new FontIcon(MaterialDesignV.VOLUME_HIGH));
+        muteBtn.setGraphic(new FontIcon(muted ? MaterialDesignV.VOLUME_OFF : MaterialDesignV.VOLUME_HIGH));
         muteBtn.getStyleClass().add("button-transparent");
         muteBtn.setStyle("-fx-padding: 2px;");
+        muteBtn.setTooltip(new Tooltip(muted ? "Unmute track (preview only)" : "Mute track (preview only)"));
+        if (track != null) muteBtn.setOnAction(e -> trackActions.toggleMute(track));
+        if (muted) lbl.setOpacity(0.5);
 
         header.getChildren().addAll(lbl, hs);
         if (selected) {

@@ -8,6 +8,7 @@ import com.vanvatcorporation.doubleclips.history.DeleteTrackCommand;
 import com.vanvatcorporation.doubleclips.history.DuplicateTrackCommand;
 import com.vanvatcorporation.doubleclips.history.HistoryManager;
 import com.vanvatcorporation.doubleclips.history.MoveTrackCommand;
+import com.vanvatcorporation.doubleclips.history.MuteTrackCommand;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
@@ -34,6 +35,8 @@ final class TrackActions {
         void selectClips(List<Clip> clips);
         /** After an edit: track headers, timeline, project end, autosave. */
         void afterEdit();
+        /** After a mute change: headers and clip visuals only (no timeline rebuild), and autosave. */
+        void afterMute();
         void copyTrack();
         void pasteHere();
         void splitHere();
@@ -62,10 +65,12 @@ final class TrackActions {
         MenuItem closeGaps = item("Close gaps", track.clips.size() < 2, () -> closeGaps(track));
         MenuItem up = item("Move up", index <= 0, () -> move(track, -1));
         MenuItem down = item("Move down", index < 0 || index >= tl.tracks.size() - 1, () -> move(track, +1));
+        MenuItem mute = item(track.muted ? "Unmute track" : "Mute track", false, () -> toggleMute(track));
         MenuItem delete = item("Delete track", false, () -> delete(track));
 
         ContextMenu menu = new ContextMenu();
         menu.getItems().addAll(selectAll, split, closeGaps,
+                new SeparatorMenuItem(), mute,
                 new SeparatorMenuItem(), copy, paste, duplicate,
                 new SeparatorMenuItem(), up, down,
                 new SeparatorMenuItem(), delete);
@@ -100,6 +105,11 @@ final class TrackActions {
             host.selectTrack(null);
             host.afterEdit();
         }));
+    }
+
+    /** The speaker button on the header, and the menu: sound off / on for this track in the preview. */
+    void toggleMute(Track track) {
+        host.history().execute(new MuteTrackCommand(track, !track.muted, host::afterMute));
     }
 
     void closeGaps(Track track) {

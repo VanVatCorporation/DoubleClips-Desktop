@@ -39,6 +39,10 @@ public class ClipNode extends Pane {
     private final PropertyContext context;
     private final HBox    thumbnailRow;
     private final ImageView singleImageOverlay;
+    /** A video clip's own audio as a thin waveform band along the bottom edge (like the iOS app). */
+    private final ImageView waveBand;
+    private static final double WAVE_BAND_HEIGHT = 20;
+    private volatile String waveSignature;
     private final Label   nameLabel;
     private final Label   timecodeLabel;
     private final Rectangle selBorder;
@@ -141,6 +145,15 @@ public class ClipNode extends Pane {
         singleImageOverlay.fitHeightProperty().bind(heightProperty());
         singleImageOverlay.setVisible(false);
 
+        // ── Audio band over the bottom of a video clip ────────────────────────
+        waveBand = new ImageView();
+        waveBand.setMouseTransparent(true);
+        waveBand.setPreserveRatio(false);
+        waveBand.fitWidthProperty().bind(widthProperty());
+        waveBand.setFitHeight(WAVE_BAND_HEIGHT);
+        waveBand.layoutYProperty().bind(heightProperty().subtract(WAVE_BAND_HEIGHT));
+        waveBand.setVisible(false);
+
         // ── Trim Handles ──────────────────────────────────────────────────────
         double handleWidth = 12.0;
         leftHandle = new Rectangle(handleWidth, 0);
@@ -156,7 +169,7 @@ public class ClipNode extends Pane {
         rightHandle.setCursor(Cursor.H_RESIZE);
         rightHandle.setVisible(false);
 
-        getChildren().addAll(bg, thumbnailRow, singleImageOverlay, scrim, nameLabel, timecodeLabel, selBorder, leftHandle, rightHandle);
+        getChildren().addAll(bg, thumbnailRow, singleImageOverlay, waveBand, scrim, nameLabel, timecodeLabel, selBorder, leftHandle, rightHandle);
 
         // ── Refresh thumbnails when size changes (zoom) ───────────────────────
         widthProperty().addListener((o, ov, nv)  -> { if (nv.doubleValue() > 0) refreshThumbnails(); });
@@ -219,6 +232,22 @@ public class ClipNode extends Pane {
         double h = getPrefHeight() > 0 ? getPrefHeight() : getHeight();
         if (w <= 0 || h <= 0) return 0;
         return (int) Math.ceil(w / (h * THUMB_ASPECT)) + 1;
+    }
+
+    /** The audio band of a video clip; null hides it. */
+    public void setWaveformBand(Image image) {
+        waveBand.setImage(image);
+        waveBand.setVisible(image != null);
+    }
+
+    public String getWaveSignature() { return waveSignature; }
+    public void setWaveSignature(String signature) { this.waveSignature = signature; }
+
+    /** The clip's track is muted: its waveform is shown faded (the picture itself is not touched). */
+    public void setAudioMuted(boolean muted) {
+        double o = muted ? 0.3 : 1.0;
+        waveBand.setOpacity(o);
+        if (clip.type == com.vanvatcorporation.doubleclips.data.editing.ClipType.AUDIO) singleImageOverlay.setOpacity(muted ? 0.4 : 1.0);
     }
 
     public String getThumbSignature() { return thumbSignature; }

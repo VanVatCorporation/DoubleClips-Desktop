@@ -18,6 +18,12 @@ public class Track implements Serializable, UnknownKeysHolder {
     public int timelineIndex;
     @Expose
     public List<Clip> clips = new ArrayList<>();
+    /**
+     * The track's sound is off in the editor's PREVIEW. Desktop-only and preview-only: an export still contains the
+     * track's audio, and the mobile apps ignore this key (they drop it when they save the project again).
+     */
+    @Expose
+    public volatile boolean muted;
 
     public transient Object viewRef;
 
@@ -26,6 +32,7 @@ public class Track implements Serializable, UnknownKeysHolder {
     public Track(Track other) {
         copyUnknownKeysFrom(other);
         timelineIndex = other.timelineIndex;
+        muted = other.muted;
         clips.addAll(other.clips);
     }
 

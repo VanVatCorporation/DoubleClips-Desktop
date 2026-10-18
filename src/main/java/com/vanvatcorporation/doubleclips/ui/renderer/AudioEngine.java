@@ -92,7 +92,9 @@ public final class AudioEngine {
                             || (clip.type == ClipType.VIDEO && clip.isClipHasAudio());
                     if (!audible) continue;
                     Src existing = old.remove(clip);
-                    next.add(existing != null ? existing : new Src(clip, clip.getAbsolutePreviewPath(project, ".wav")));
+                    Src src = existing != null ? existing : new Src(clip, clip.getAbsolutePreviewPath(project, ".wav"));
+                    src.track = track;                       // read live by the mixer: muting a track needs no rebuild
+                    next.add(src);
                 }
             }
         }
@@ -184,6 +186,7 @@ public final class AudioEngine {
         if (timeline != null && timeline.tracks != null) {
             for (Track track : timeline.tracks) {
                 if (track == null || track.clips == null) continue;
+                if (track.muted) continue;                  // not played, so not part of what the microphone could hear
                 for (Clip clip : track.clips) {
                     if (clip == null) continue;
                     boolean audible = clip.type == ClipType.AUDIO
@@ -333,6 +336,7 @@ public final class AudioEngine {
 
         for (Src src : list) {
             Clip clip = src.clip;
+            if (src.track != null && src.track.muted) continue;             // the track's sound is off (preview only)
             if (clip.type == ClipType.VIDEO && (clip.isMute() || !clip.isClipHasAudio())) continue;
             float gain = clip.getAudioVolume();
             if (gain <= 0f) continue;
@@ -385,6 +389,7 @@ public final class AudioEngine {
     private static final class Src {
         final Clip clip;
         final String path;
+        volatile Track track;                                // the track the clip is on (for "mute track")
         private RandomAccessFile raf;
         private boolean failed;
         int channels;

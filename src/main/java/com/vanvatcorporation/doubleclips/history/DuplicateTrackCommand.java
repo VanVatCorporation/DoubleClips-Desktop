@@ -51,6 +51,7 @@ public class DuplicateTrackCommand implements Command {
     static Track deepCopy(Track other) {
         Track t = new Track();
         t.copyUnknownKeysFrom(other);
+        t.muted = other.muted;
         for (Clip original : other.clips) {
             Clip c = new Clip(original);
             c.viewRef = null;                                   // the copy gets its own node

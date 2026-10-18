@@ -152,4 +152,79 @@ public class AudioUtils {
         fxImage.getPixelWriter().setPixels(0, 0, bmpW, bmpH, PixelFormat.getIntArgbInstance(), argb, 0, bmpW);
         return fxImage;
     }
+
+    /**
+     * The audio of a VIDEO clip as a thin band for the bottom of its tiles (the iOS app shows the same). A
+     * translucent dark strip with white mirrored bars, drawn for the part of the source the clip shows (trim, speed
+     * and speed curves included), scaled by the clip's volume. Unlike {@link #generateAudioWaveformImage} the samples are
+     * never collected: the file is streamed once into per-bar sums, so a long video costs a few milliseconds and no
+     * memory. Returns null when the preview WAV is missing or not 16-bit PCM.
+     */
+    public static Image generateVideoWaveformBand(String wavPath, Clip clip, float pixelsPerSecond, int bandHeight) {
+        final int bmpW = (int) Math.max(64, Math.min(4096, clip.duration * pixelsPerSecond));
+        final int bars = bmpW;                                    // one bar per pixel column
+        final double[] sumSq = new double[bars];
+        final int[] count = new int[bars];
+        try {
+            File f = new File(wavPath);
+            if (!f.exists()) return null;
+            final com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap speedMap = clip.timeMapSnapshot();
+            try (AudioInputStream ais = AudioSystem.getAudioInputStream(f)) {
+                javax.sound.sampled.AudioFormat fmt = ais.getFormat();
+                if (fmt.getSampleSizeInBits() != 16 || fmt.isBigEndian()) return null;
+                int frameSize = fmt.getFrameSize();
+                double rate = fmt.getSampleRate();
+                long startFrame = (long) (clip.startClipTrim * rate);
+                long toSkip = startFrame * frameSize, skipped = 0;
+                while (skipped < toSkip) {
+                    long r = ais.skip(toSkip - skipped);
+                    if (r <= 0) break;
+                    skipped += r;
+                }
+                // Source frame (relative to the trim) at which each bar ends.
+                double[] edge = new double[bars];
+                for (int b = 0; b < bars; b++) edge[b] = speedMap.sourceOffset(clip.duration * (b + 1) / (double) bars) * rate;
+                float volume = clip.getAudioVolume();
+                byte[] buf = new byte[frameSize * 2048];
+                long frame = 0;
+                int bar = 0;
+                int read;
+                while (bar < bars && (read = ais.read(buf)) > 0) {
+                    int frames = read / frameSize;
+                    for (int i = 0; i < frames && bar < bars; i++, frame++) {
+                        while (bar < bars - 1 && frame >= edge[bar]) bar++;
+                        int o = i * frameSize;
+                        short s = (short) ((buf[o] & 0xFF) | (buf[o + 1] << 8));   // the first channel is enough for a band
+                        double v = s / 32768.0 * volume;
+                        sumSq[bar] += v * v;
+                        count[bar]++;
+                        if (frame >= edge[bars - 1]) { bar = bars; break; }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            return null;
+        }
+
+        BufferedImage bmp = new BufferedImage(bmpW, bandHeight, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = bmp.createGraphics();
+        g.setColor(new Color(0, 0, 0, 115));                      // a scrim, so the bars read over any picture
+        g.fillRect(0, 0, bmpW, bandHeight);
+        float mid = bandHeight / 2f;
+        g.setColor(new Color(255, 255, 255, 215));
+        for (int b = 0; b < bars; b++) {
+            if (count[b] == 0) continue;
+            double rms = Math.sqrt(sumSq[b] / count[b]);
+            double h = Math.min(1.0, Math.pow(rms * 2.0, 0.7));    // lifted so quiet speech still shows
+            int half = (int) Math.max(1, h * (mid - 1));
+            g.fillRect(b, (int) (mid - half), 1, half * 2);
+        }
+        g.dispose();
+
+        WritableImage fx = new WritableImage(bmpW, bandHeight);
+        int[] argb = new int[bmpW * bandHeight];
+        bmp.getRGB(0, 0, bmpW, bandHeight, argb, 0, bmpW);
+        fx.getPixelWriter().setPixels(0, 0, bmpW, bandHeight, PixelFormat.getIntArgbInstance(), argb, 0, bmpW);
+        return fx;
+    }
 }
