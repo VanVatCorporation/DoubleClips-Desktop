@@ -87,6 +87,15 @@ public class EditorWindow extends Stage implements PropertyContext {
     private float currentTime = 0f;
     private boolean isPlaying = false;
     private boolean isPlayingInReverse = false;
+
+    // Voiceover (see VoiceoverController): while a take is recorded the clock must not stop at the end of the timeline.
+    private VoiceoverController voiceover;
+    private VoiceoverLiveClip voiceLive;      // the growing temporary clip, a view only
+    private int voiceLiveTrack = -1;
+    private float voiceLiveStart;
+    private boolean recordingPlayback;
+    private float savedPreviewSpeed = 1.0f;
+    private boolean savedReverse;
     private float pixelsPerSecond = 100f; // 100px = 1s
 
     // ── Zoom state (see requestZoom / applyPendingZoom) ───────────────────────
@@ -609,6 +618,10 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void triggerPlayAction()
     {
+        if (voiceover != null && voiceover.isRecording()) {   // Space / the play button ends the take
+            voiceover.stopFromEditor();
+            return;
+        }
         if (isPlaying) {
             stopPlayback();
             playBtn.setGraphic(playIcon);
@@ -691,7 +704,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                 }
             }
 
-            if ((currentTime >= timeline.duration) || (currentTime <= 0f && isPlayingInReverse)) {
+            if (!recordingPlayback && ((currentTime >= timeline.duration) || (currentTime <= 0f && isPlayingInReverse))) {
                 currentTime = isPlayingInReverse ? timeline.duration : 0f;
                 stopPlayback();
             }
@@ -778,6 +791,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     private void closeWindow() {
+        if (voiceover != null) voiceover.shutdown();   // before the dock goes: a running take is dropped, not turned into a clip
         if (dock != null) dock.shutdown();
         stopPlayback();
         saveProject();
@@ -1971,6 +1985,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         textTool.setTooltip(new Tooltip("Add Text Clip"));
         textTool.setOnAction(e -> handleAddText());
 
+        Button micBtn = buildToolBtn(MaterialDesignM.MICROPHONE);
+        micBtn.setTooltip(new Tooltip("Voiceover"));
+        micBtn.setOnAction(e -> openVoiceover());
+
         // Preview options button (left of zoom slider)
         Button previewOptionsBtn = new Button();
         previewOptionsBtn.setGraphic(new FontIcon(MaterialDesignT.TUNE));
@@ -1987,7 +2005,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         });
 
         toolbar.getChildren().addAll(selectTool, sliceTool, trimLeft, trimRight, deleteTool, textTool, keyframeBtn, clearKfBtn,
-                toolSpacer, previewOptionsBtn, zoomLabel, zoomSlider);
+                toolSpacer, micBtn, previewOptionsBtn, zoomLabel, zoomSlider);
 
         // --- Ruler + Track content ---
         HBox trackLayout = new HBox(0);
@@ -2866,6 +2884,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         // We exclude playhead overlay components if they are in the same pane
         // (But in this app, playhead is in a separate Pane, so we're safe)
         if (marqueeRect != null) activeNodes.add(marqueeRect);
+        if (voiceLive != null) {
+            activeNodes.add(voiceLive);                       // the voiceover take in progress is not a clip of the project
+            positionVoiceLive();
+        }
         tracksPane.getChildren().removeIf(n -> !activeNodes.contains(n));
 
         // A delete / undo can remove clips that were selected: forget them so nothing acts on a ghost.
@@ -3996,6 +4018,133 @@ public class EditorWindow extends Stage implements PropertyContext {
             saveProject();
         });
     }
+
+    // =========================================================================
+    // Voiceover
+    // =========================================================================
+
+    private void openVoiceover() {
+        if (voiceover == null) voiceover = new VoiceoverController(voiceoverHost);
+        voiceover.open();
+    }
+
+    private void positionVoiceLive() {
+        if (voiceLive == null) return;
+        double rowH = TRACK_HEIGHT + TRACK_SPACING;
+        voiceLive.setLayoutX(voiceLiveStart * pixelsPerSecond);
+        voiceLive.setLayoutY(voiceLiveTrack * rowH + 3);
+    }
+
+    /** Puts the pane back to the size the project alone needs (after the live clip is gone). */
+    private void restoreTracksPaneSize() {
+        double rowH = TRACK_HEIGHT + TRACK_SPACING;
+        double contentWidth = Math.max(1200, timeline.duration * pixelsPerSecond + 1000);
+        tracksPane.setPrefWidth(contentWidth);
+        tracksPane.setPrefHeight(timeline.tracks.size() * rowH);
+        for (Rectangle b : trackBands.values()) b.setWidth(contentWidth);
+    }
+
+    private final VoiceoverController.Host voiceoverHost = new VoiceoverController.Host() {
+        @Override public DockManager dock() { return dock; }
+
+        @Override public double[] windowPosition() {
+            return new double[]{EditorWindow.this.getX() + 70, EditorWindow.this.getY() + 90};
+        }
+
+        @Override public float playhead() { return currentTime; }
+
+        @Override public int chooseTrack(float start) {
+            // An existing audio track that is free from the playhead on; otherwise a new track at the end.
+            for (int i = 0; i < timeline.tracks.size(); i++) {
+                Track t = timeline.tracks.get(i);
+                if (t.clips.isEmpty()) continue;
+                boolean audioOnly = true;
+                for (Clip c : t.clips) if (c.type != ClipType.AUDIO) { audioOnly = false; break; }
+                if (audioOnly && t.getTrackEndTime() <= start + 0.001f) return i;
+            }
+            return timeline.tracks.size();
+        }
+
+        @Override public void beginPlayback() {
+            recordingPlayback = true;
+            savedPreviewSpeed = previewSpeed;
+            savedReverse = isPlayingInReverse;
+            previewSpeed = 1.0f;                // a take is recorded at normal speed, forward
+            isPlayingInReverse = false;
+            startPlayback();
+            playBtn.setGraphic(pauseIcon);
+        }
+
+        @Override public void endPlayback() {
+            recordingPlayback = false;
+            stopPlayback();
+            playBtn.setGraphic(playIcon);
+            previewSpeed = savedPreviewSpeed;
+            isPlayingInReverse = savedReverse;
+        }
+
+        @Override public void setProjectMuted(boolean muted) {
+            if (timelineRenderer != null) timelineRenderer.setProjectMuted(muted);
+        }
+
+        @Override public void liveShow(int track, float start) {
+            liveHide();
+            voiceLiveTrack = track;
+            voiceLiveStart = start;
+            voiceLive = new VoiceoverLiveClip(TRACK_HEIGHT - 6);
+            tracksPane.getChildren().add(voiceLive);
+            positionVoiceLive();
+            updatePhantomTracks(track);          // a blank row when the take goes on a new track
+        }
+
+        @Override public void liveUpdate(double seconds, float[] peaks, int blocks) {
+            if (voiceLive == null) return;
+            double contentWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
+            double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+            double scrollX = tracksScrollPane.getHvalue() * Math.max(0, contentWidth - viewportWidth);
+            double nodeX = voiceLiveStart * pixelsPerSecond;
+            double needW = (voiceLiveStart + seconds) * pixelsPerSecond + 1000;
+            if (tracksPane.getPrefWidth() < needW) {
+                tracksPane.setPrefWidth(needW);
+                for (Rectangle b : trackBands.values()) b.setWidth(needW);
+            }
+            positionVoiceLive();
+            voiceLive.update(pixelsPerSecond, seconds, peaks, blocks, scrollX - nodeX, scrollX + viewportWidth - nodeX);
+        }
+
+        @Override public void liveHide() {
+            if (voiceLive == null) return;
+            tracksPane.getChildren().remove(voiceLive);
+            voiceLive = null;
+            voiceLiveTrack = -1;
+            clearPhantomTracks();
+            restoreTracksPaneSize();
+        }
+
+        @Override public float[] audioReference(double t0, double seconds, int rate) {
+            return timelineRenderer == null ? new float[0] : timelineRenderer.renderAudioReference(t0, seconds, rate);
+        }
+
+        @Override public ProjectData project() { return project; }
+
+        @Override public void addClip(Clip clip, int trackIndex) {
+            clip.trackIndex = trackIndex;
+            historyManager.execute(new AddClipCommand(timeline, clip, trackIndex, () -> {
+                refreshTrackHeaders();           // the add may have made a track
+                refreshTimelineUI();
+                saveProject();
+            }));
+            selectClip(clip);
+        }
+
+        @Override public void showError(String title, String message) {
+            Alert a = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
+            a.setTitle(title);
+            a.setHeaderText(null);
+            a.initOwner(EditorWindow.this);
+            a.show();
+        }
+    };
 
     private HBox buildTrackHeader(String name, int index) {
         HBox header = new HBox(6);

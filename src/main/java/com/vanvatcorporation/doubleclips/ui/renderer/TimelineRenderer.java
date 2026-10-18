@@ -263,6 +263,16 @@ public class TimelineRenderer {
         }
     }
 
+    /** "Mute project": every clip's sound off while the preview clock keeps running (voiceover recording). */
+    public void setProjectMuted(boolean muted) {
+        audio.setProjectMuted(muted);
+    }
+
+    /** The speaker mix of [t0, t0 + seconds) as mono samples at {@code outRate}; background thread only. */
+    public float[] renderAudioReference(double t0, double seconds, int outRate) {
+        return AudioEngine.renderReference(timeline, data, t0, seconds, outRate);
+    }
+
     public void updateTime(float time, boolean isSeekingOnly) {
         lastTime = time;
         audio.update(time, !isSeekingOnly);

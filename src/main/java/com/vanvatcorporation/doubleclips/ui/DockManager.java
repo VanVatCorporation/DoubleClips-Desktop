@@ -7,6 +7,7 @@ import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
 import javafx.event.EventHandler;
 import javafx.geometry.Bounds;
+import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -53,6 +54,9 @@ import java.util.Map;
  * <li>The layout - docked order, sizes, and every floating window's place and size - is remembered between
  *     sessions; {@link #resetAllToDefault()} (Settings) puts everything back.</li>
  * </ul>
+ * A transient panel ({@link #openDismissablePanel}, the Voiceover panel) behaves differently: it opens as a window, it is
+ * never saved in the layout and has no default slot - closing its window (or the X on its grip when docked) makes it
+ * disappear. It can still be dragged into the row like any other panel.
  * One row panel is the "grower": it takes whatever width the others leave (the preview, or the first docked panel
  * when the preview is floating). Every other docked row panel has a resize strip on the edge facing the grower.
  */
@@ -98,6 +102,8 @@ public final class DockManager {
         double dockedSize;
         boolean floating;
         boolean pendingFloat;               // a saved floating panel waiting for the window to be showing
+        boolean dismissOnClose;             // a transient panel (Voiceover): closing it makes it disappear, see openDismissablePanel
+        Runnable onDismiss;
         Stage stage;
         int lastIndex;
         // drag state
@@ -213,6 +219,50 @@ public final class DockManager {
         panels.add(p);
         bottomPanel = p;
         return p;
+    }
+
+    /**
+     * Opens a transient panel as a window with its content area at (x, y), w x h: a panel that is not part of the saved
+     * layout and disappears when it is closed - the window's close button, or the X on its grip once it has been
+     * dragged into the row. {@code onDismiss} runs whenever it goes away (also when the editor closes). Returns null
+     * when {@code content} is already shown in one.
+     */
+    public DockPanel openDismissablePanel(String title, Region content, double w, double h, double x, double y,
+                                          Runnable onDismiss) {
+        for (DockPanel q : panels) if (q.dismissOnClose && q.title.equals(title)) return null;
+        DockPanel p = new DockPanel(title, content, false, w, 260, 520, false, 0);
+        p.dismissOnClose = true;
+        p.onDismiss = onDismiss;
+        p.lastIndex = docked.size();
+        installGrip(p);
+
+        Label close = new Label("\u2715");
+        close.setStyle("-fx-font-size: 10px; -fx-opacity: 0.6; -fx-cursor: hand;");
+        close.setPadding(new Insets(0, 8, 0, 8));
+        Tooltip.install(close, new Tooltip("Close"));
+        StackPane.setAlignment(close, Pos.CENTER_RIGHT);
+        close.setOnMousePressed(e -> e.consume());                    // not the start of a grip drag
+        close.setOnMouseClicked(e -> { dismissPanel(p); e.consume(); });
+        p.grip.getChildren().add(close);
+
+        panels.add(p);
+        floatPanel(p, x, y, w, h, false);
+        return p;
+    }
+
+    /** Makes a transient panel disappear (window closed, or removed from the row) and frees its content for reuse. */
+    public void dismissPanel(DockPanel p) {
+        if (p == null || !p.dismissOnClose || !panels.contains(p)) return;
+        if (p.floating) releaseFloating(p);
+        docked.remove(p);
+        panels.remove(p);
+        p.pendingFloat = false;
+        p.getChildren().clear();                                       // the content can go into a new panel next time
+        hideHighlight();
+        layout();
+        Runnable r = p.onDismiss;
+        p.onDismiss = null;
+        if (r != null) r.run();
     }
 
     /** Applies the remembered layout (if any) and builds the editor's layout. */
@@ -340,7 +390,10 @@ public final class DockManager {
         st.setScene(sc);
         st.setX(x);
         st.setY(y);
-        st.setOnCloseRequest(e -> { e.consume(); dock(p, p.lastIndex); });
+        st.setOnCloseRequest(e -> {
+            e.consume();
+            if (p.dismissOnClose) dismissPanel(p); else dock(p, p.lastIndex);
+        });
         ChangeListener<Number> geometry = (o, a, b) -> requestSave();
         st.xProperty().addListener(geometry);
         st.yProperty().addListener(geometry);
@@ -381,7 +434,10 @@ public final class DockManager {
         if (closed) return;
         saveLayout();
         closed = true;
-        for (DockPanel p : panels) if (p.floating) releaseFloating(p);
+        for (DockPanel p : new ArrayList<>(panels)) {
+            if (p.floating) releaseFloating(p);
+            if (p.dismissOnClose && p.onDismiss != null) { Runnable r = p.onDismiss; p.onDismiss = null; r.run(); }
+        }
         hideHighlight();
         hideGhost();
         INSTANCES.remove(this);
@@ -398,8 +454,9 @@ public final class DockManager {
         try {
             captureSizes();
             State st = new State();
-            for (DockPanel p : docked) st.order.add(p.title);
+            for (DockPanel p : docked) if (!p.dismissOnClose) st.order.add(p.title);
             for (DockPanel p : panels) {
+                if (p.dismissOnClose) continue;                          // transient panels are never remembered
                 PanelState s = new PanelState();
                 s.size = p.dockedSize;
                 s.floating = p.floating;
@@ -494,6 +551,7 @@ public final class DockManager {
     }
 
     private void resetToDefault() {
+        for (DockPanel p : new ArrayList<>(panels)) if (p.dismissOnClose) dismissPanel(p);
         for (DockPanel p : panels) {
             if (p.floating) releaseFloating(p);
             p.pendingFloat = false;

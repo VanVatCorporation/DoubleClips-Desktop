@@ -63,6 +63,8 @@ public final class AudioEngine {
     private volatile SourceDataLine line;
     private volatile boolean unavailable;
     private volatile List<Src> sources = Collections.emptyList();
+    /** "Mute project" (voiceover recording): the mixer keeps running on the clock but every clip is silent. */
+    private volatile boolean projectMuted;
     private final ConcurrentLinkedQueue<Src> retired = new ConcurrentLinkedQueue<>();
 
     // FX-thread state
@@ -161,6 +163,49 @@ public final class AudioEngine {
         }
         SourceDataLine l = line;
         if (l != null) l.flush();
+    }
+
+    /** Turns every clip's sound off (or back on) without stopping the preview clock. FX thread. */
+    public void setProjectMuted(boolean muted) {
+        projectMuted = muted;
+    }
+
+    public boolean isProjectMuted() {
+        return projectMuted;
+    }
+
+    /**
+     * Renders what the speakers play for [t0, t0 + seconds) as mono samples at {@code outRate}, in -1..1, ignoring
+     * "mute project". Used as the echo reference of a voiceover take. Opens its own readers (the mixer thread's are not
+     * thread-safe), so call it from a background thread.
+     */
+    public static float[] renderReference(Timeline timeline, ProjectData project, double t0, double seconds, int outRate) {
+        List<Src> list = new ArrayList<>();
+        if (timeline != null && timeline.tracks != null) {
+            for (Track track : timeline.tracks) {
+                if (track == null || track.clips == null) continue;
+                for (Clip clip : track.clips) {
+                    if (clip == null) continue;
+                    boolean audible = clip.type == ClipType.AUDIO
+                            || (clip.type == ClipType.VIDEO && clip.isClipHasAudio());
+                    if (audible) list.add(new Src(clip, clip.getAbsolutePreviewPath(project, ".wav")));
+                }
+            }
+        }
+        int total = (int) Math.ceil(seconds * RATE);
+        float[] mono = new float[total];
+        AudioEngine helper = new AudioEngine(msg -> { });
+        float[] acc = new float[CHUNK_FRAMES * 2];
+        try {
+            for (int done = 0; done < total; done += CHUNK_FRAMES) {
+                int frames = Math.min(CHUNK_FRAMES, total - done);
+                helper.mix(list, false, t0 + done / (double) RATE, frames, acc);
+                for (int i = 0; i < frames; i++) mono[done + i] = (acc[2 * i] + acc[2 * i + 1]) * 0.5f / 32768f;
+            }
+        } finally {
+            for (Src s : list) s.close();
+        }
+        return outRate == RATE ? mono : com.vanvatcorporation.doubleclips.voiceover.WavFiles.resample(mono, RATE, outRate);
     }
 
     private void stopPlaying() {
@@ -278,10 +323,15 @@ public final class AudioEngine {
 
     /** Mixes [t0, t0 + frames/RATE) of the whole timeline into {@code acc} (interleaved stereo, float). */
     private void mix(double t0, int frames, float[] acc) {
+        mix(sources, projectMuted, t0, frames, acc);
+    }
+
+    private void mix(List<Src> list, boolean muted, double t0, int frames, float[] acc) {
         java.util.Arrays.fill(acc, 0, frames * 2, 0f);
+        if (muted) return;
         double t1 = t0 + frames / (double) RATE;
 
-        for (Src src : sources) {
+        for (Src src : list) {
             Clip clip = src.clip;
             if (clip.type == ClipType.VIDEO && (clip.isMute() || !clip.isClipHasAudio())) continue;
             float gain = clip.getAudioVolume();
