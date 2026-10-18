@@ -1144,13 +1144,18 @@ public class PropertyPanel extends VBox {
                 if (clip.keyframes.isAnimated(type) && !playheadInside(clip, time)) return; // nowhere to put a keyframe
                 KeyframesSnapshot before = KeyframesSnapshot.of(clip);
                 int frameRate = context.getVideoSettings().frameRate;
+                // Speed changes how long the clip plays the source: the timeline length follows (video / audio), like iOS.
+                final boolean refit = type == VideoProperties.ValueType.Speed && (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO);
+                final float oldDuration = clip.duration;
                 context.executePropertyChange("Change " + label, () -> {
                     if (clip.keyframes.isAnimated(type)) clip.keyframes.setKey(clip, time, type, val, frameRate);
                     else clip.videoProperties.setValue(val, type);
+                    if (refit) clip.refitDuration();
                     context.refreshTimelineUI();
                     context.saveProject();
                 }, () -> {
                     before.restore(clip);
+                    if (refit) clip.duration = oldDuration;
                     context.refreshTimelineUI();
                     context.saveProject();
                 });

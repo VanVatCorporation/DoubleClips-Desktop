@@ -245,6 +245,7 @@ public class ClipNode extends Pane {
         final float[] initialDuration = new float[1];
         final float[] initialStartTrim = new float[1];
         final float[] initialEndTrim = new float[1];
+        final com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap[] dragMap = new com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap[1];
 
         // --- Left Handle Drag ---
         leftHandle.setOnMousePressed(e -> {
@@ -253,6 +254,7 @@ public class ClipNode extends Pane {
             initialDuration[0] = clip.duration;
             initialStartTrim[0] = clip.startClipTrim;
             initialEndTrim[0] = clip.endClipTrim;
+            dragMap[0] = clip.timeMapSnapshot();
             e.consume();
         });
 
@@ -272,10 +274,12 @@ public class ClipNode extends Pane {
             
             if (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO) {
                 // Limit by source start (cannot trim before 0 of file)
-                proposedDelta = Math.max(-initialStartTrim[0], proposedDelta);
-                
+                // The handle moves in TIMELINE seconds; the trim is in SOURCE seconds (they differ when the speed isn't 1).
+                double s = dragMap[0].sourceOffset(proposedDelta);
+                if (s < -initialStartTrim[0]) { s = -initialStartTrim[0]; proposedDelta = (float) (s / dragMap[0].speedAt(0)); }
+
                 clip.startTime = initialStartTime[0] + proposedDelta;
-                clip.startClipTrim = initialStartTrim[0] + proposedDelta;
+                clip.startClipTrim = initialStartTrim[0] + (float) s;
                 clip.duration = initialDuration[0] - proposedDelta;
             } else {
                 // Unlimited resources: IMAGE, TEXT, EFFECT, etc.
@@ -307,6 +311,7 @@ public class ClipNode extends Pane {
             initialDuration[0] = clip.duration;
             initialStartTrim[0] = clip.startClipTrim;
             initialEndTrim[0] = clip.endClipTrim;
+            dragMap[0] = clip.timeMapSnapshot();
             e.consume();
         });
 
@@ -322,10 +327,15 @@ public class ClipNode extends Pane {
 
             if (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO) {
                 // Limit by source end (cannot trim after originalDuration)
-                proposedDelta = Math.min(initialEndTrim[0], proposedDelta);
-                
+                double base = dragMap[0].sourceOffset(initialDuration[0]);
+                double s = dragMap[0].sourceOffset(initialDuration[0] + proposedDelta) - base;
+                if (s > initialEndTrim[0]) {
+                    s = initialEndTrim[0];
+                    proposedDelta = (float) (dragMap[0].localTime(base + s) - initialDuration[0]);
+                }
+
                 clip.duration = initialDuration[0] + proposedDelta;
-                clip.endClipTrim = initialEndTrim[0] - proposedDelta;
+                clip.endClipTrim = initialEndTrim[0] - (float) s;
             } else {
                 // Unlimited resources: IMAGE, TEXT, EFFECT, etc.
                 // Just adjust duration, no trim needed

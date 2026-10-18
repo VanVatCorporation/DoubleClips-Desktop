@@ -238,13 +238,13 @@ public class Clip implements Serializable, UnknownKeysHolder {
     public float getStartClipTrim() { return startClipTrim; }
     public void setStartClipTrim(float value) {
         this.startClipTrim = value;
-        setDuration(originalDuration - endClipTrim - startClipTrim);
+        refitFromTrims();
     }
 
     public float getEndClipTrim() { return endClipTrim; }
     public void setEndClipTrim(float value) {
         this.endClipTrim = value;
-        setDuration(originalDuration - endClipTrim - startClipTrim);
+        refitFromTrims();
     }
 
     public float getLocalClipTime(float playheadTime) {
@@ -321,6 +321,35 @@ public class Clip implements Serializable, UnknownKeysHolder {
         timeMapCache = map;
         timeMapSignature = signature;
         return map;
+    }
+
+    /** Video and audio: the timeline length follows the trims AND the speed (iOS). Other types keep trims = plain lengths. */
+    private void refitFromTrims() {
+        if ((type == ClipType.VIDEO || type == ClipType.AUDIO) && originalDuration > 0) setDuration(fittedDuration());
+        else setDuration(originalDuration - endClipTrim - startClipTrim);
+    }
+
+    /** Sets the duration to what the trims and the speed need (video / audio). Call after a speed or speed-key edit. */
+    public void refitDuration() {
+        if ((type == ClipType.VIDEO || type == ClipType.AUDIO) && originalDuration > 0) setDuration(fittedDuration());
+    }
+
+    /** Changes whenever the speed map would: use it in a cache key (thumbnails, waveform). */
+    public String speedSignature() {
+        timeMap();
+        return timeMapSignature;
+    }
+
+    /**
+     * A map frozen at the clip's CURRENT start time, not cached: for a drag that moves {@code startTime} while the map is
+     * still needed for the pre-drag clip.
+     */
+    public ClipTimeMap timeMapSnapshot() {
+        float base = videoProperties == null ? 1f : videoProperties.valueSpeed;
+        boolean animated = keyframes != null && keyframes.keyframes != null && keyframes.isAnimated(VideoProperties.ValueType.Speed);
+        if (!animated) return ClipTimeMap.constant(base);
+        final float frozenStart = startTime;
+        return ClipTimeMap.curve(t -> keyframes.getValueAtTime(this, frozenStart + (float) t, VideoProperties.ValueType.Speed));
     }
 
     /** The timeline length that plays the source between the trims at the clip's speed (what iOS stores as the duration). */

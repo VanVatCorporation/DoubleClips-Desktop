@@ -2369,10 +2369,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clip clip = node.getContainerClip();
         switch (clip.type) {
             case VIDEO:
-                return "V|" + node.computeTileCount() + "|" + clip.startClipTrim + "|" + clip.duration;
+                return "V|" + node.computeTileCount() + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature();
             case AUDIO:
                 // The waveform bitmap is drawn for a specific scale.
-                return "A|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration;
+                return "A|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature();
             case IMAGE:
                 return "I|" + clip.getClipName();
             default:
@@ -2577,11 +2577,13 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
             thumbnailExecutor.submit(() -> {
                 float tileDuration = (float) (clip.duration / tileCount);
+                // A tile shows the source frame the clip plays at that moment (speed-aware), not the frame at trim + time.
+                final com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap speedMap = clip.timeMapSnapshot();
                 int decoded = 0;
                 for (int i = 0; i < tileCount; i++) {
                     if (stale.getAsBoolean())
                         return; // node removed, or re-zoomed/re-trimmed since this job was queued
-                    float time = clip.startClipTrim + (i * tileDuration);
+                    float time = clip.startClipTrim + (float) speedMap.sourceOffset(i * tileDuration);
                     Image img = decodeVideoFrame(clip, time);
                     if (img != null) {
                         decoded++;

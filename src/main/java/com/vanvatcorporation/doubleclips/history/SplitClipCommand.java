@@ -35,11 +35,13 @@ public class SplitClipCommand implements Command {
 
         // Secondary part
         secondPart.startTime = splitTime;
-        secondPart.setStartClipTrim(localSplitTime + oldStartClipTrim);
+        // The split point in SOURCE seconds: the speed (a number or a curve) decides how much source the first part uses.
+        float splitSource = oldStartClipTrim + (float) originalClip.timeMap().sourceOffset(localSplitTime);
+        secondPart.setStartClipTrim(splitSource);
         secondPart.setEndClipTrim(oldEndClipTrim);
 
         // Primary part
-        originalClip.setEndClipTrim(originalClip.originalDuration - (localSplitTime + oldStartClipTrim));
+        originalClip.setEndClipTrim(originalClip.originalDuration - splitSource);
 
         track.addClip(secondPart);
         track.sortClips();

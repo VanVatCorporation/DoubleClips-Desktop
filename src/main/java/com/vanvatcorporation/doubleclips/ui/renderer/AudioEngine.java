@@ -294,8 +294,12 @@ public final class AudioEngine {
             if (i1 <= i0) continue;
             if (!src.ensureOpen(log)) continue;
 
-            double srcSeconds = (t0 + i0 / (double) RATE) - c0 + clip.startClipTrim;
-            double step = src.sampleRate / (double) RATE;
+            // Source time follows the clip's speed (a number or a curve): varispeed, so a faster clip is higher-pitched.
+            com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap speedMap = clip.timeMap();
+            double l0 = (t0 + i0 / (double) RATE) - c0, l1 = (t0 + i1 / (double) RATE) - c0;
+            double s0 = speedMap.sourceOffset(l0), s1 = speedMap.sourceOffset(l1);
+            double srcSeconds = s0 + clip.startClipTrim;
+            double step = (s1 - s0) / (i1 - i0) * src.sampleRate;
             double pos0 = srcSeconds * src.sampleRate;
             long first = (long) Math.floor(pos0);
             int count = (int) Math.ceil((i1 - i0) * step) + 3;

@@ -33,6 +33,8 @@ public class AudioUtils {
         final int bmpH = trackHeight - 4;
 
         ArrayList<Short> samples = new ArrayList<>(64000);
+        final com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap speedMap = clip.timeMapSnapshot();
+        final double[] sourceSeconds = {clip.duration};
 
         try {
             File f = new File(wavPath);
@@ -43,7 +45,9 @@ public class AudioUtils {
             
             int bytesPerFrame = fmt.getFrameSize();
             long startFrame = (long) (clip.startClipTrim * fmt.getSampleRate());
-            long endFrame = startFrame + (long) (clip.duration * fmt.getSampleRate());
+            // The clip shows clip.duration TIMELINE seconds, which consume more or less SOURCE (speed, or a speed curve).
+            sourceSeconds[0] = speedMap.sourceOffset(clip.duration);
+            long endFrame = startFrame + (long) (sourceSeconds[0] * fmt.getSampleRate());
             
             if (startFrame > 0) {
                 long skipped = 0;
@@ -92,10 +96,11 @@ public class AudioUtils {
         if (samples.isEmpty()) {
             java.util.Arrays.fill(amps, 0f);
         } else {
-            int samplesPerBar = Math.max(1, samples.size() / barCount);
+            // Bar b covers timeline [b, b+1] * duration / barCount; the samples it shows are the source between those moments.
+            final double total = Math.max(1e-6, sourceSeconds[0]);
             for (int b = 0; b < barCount; b++) {
-                int start = b * samplesPerBar;
-                int end = Math.min(start + samplesPerBar, samples.size());
+                int start = (int) Math.min(samples.size() - 1, speedMap.sourceOffset(clip.duration * b / (double) barCount) / total * samples.size());
+                int end = (int) Math.min(samples.size(), Math.max(start + 1, speedMap.sourceOffset(clip.duration * (b + 1) / (double) barCount) / total * samples.size()));
                 long rms = 0;
                 for (int s = start; s < end; s++) {
                     long v = samples.get(s);
