@@ -139,6 +139,13 @@ public class FFmpegEdit {
 
     // Mirrors the inputPath resolution logic used when building "-i" arguments, so the dedup
     // pre-pass groups clips by the exact same path that will actually be opened.
+    /** The clip's track is muted ("Mute track"): the clip's sound is left out of the export, as in the preview. */
+    private static boolean isTrackMuted(Clip clip, RenderSettings rs) {
+        if (rs == null || rs.timeline == null || rs.timeline.tracks == null) return false;
+        int i = clip.trackIndex;
+        return i >= 0 && i < rs.timeline.tracks.size() && rs.timeline.tracks.get(i).muted;
+    }
+
     private static String resolveClipInputPath(Clip clip, RenderSettings templateSettings) {
         if (templateSettings.isTemplateCommand && clip.isLockedForTemplate()) {
             return null; // template placeholder marks are not real file paths; never dedup these
@@ -689,6 +696,7 @@ public class FFmpegEdit {
 //                    filterComplex.append("<Effect here - ").append("startTime: ").append(clip.startTime).append(" duration: ").append(clip.duration);
 
                 case AUDIO:
+                    if (isTrackMuted(clip, templateSettings)) break;     // its track is muted: nothing of it in the export
                     // 🎵 Pure audio clip logic
                     int delayMs = (int) (clip.startTime * 1000);
                     filterComplex.append("[").append(inputLayerIndex).append(":a]")
@@ -706,7 +714,7 @@ public class FFmpegEdit {
             }
 
             // 🔊 Handle embedded audio in VIDEO
-            if (clip.type == ClipType.VIDEO && clip.isClipHasAudio() && !clip.isMute()) {
+            if (clip.type == ClipType.VIDEO && clip.isClipHasAudio() && !clip.isMute() && !isTrackMuted(clip, templateSettings)) {
 
                 // Transition extension: Same for clip
                 int delayMs = (int) (clip.startTime * 1000);

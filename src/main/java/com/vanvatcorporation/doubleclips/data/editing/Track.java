@@ -19,8 +19,8 @@ public class Track implements Serializable, UnknownKeysHolder {
     @Expose
     public List<Clip> clips = new ArrayList<>();
     /**
-     * The track's sound is off in the editor's PREVIEW. Desktop-only and preview-only: an export still contains the
-     * track's audio, and the mobile apps ignore this key (they drop it when they save the project again).
+     * The track's sound is off: in the preview AND in the export (clips of this track add nothing to the mix; their
+     * picture is not touched). Desktop-only: the mobile apps ignore this key and drop it when they save the project.
      */
     @Expose
     public volatile boolean muted;

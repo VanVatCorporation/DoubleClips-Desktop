@@ -2,7 +2,7 @@ package com.vanvatcorporation.doubleclips.history;
 
 import com.vanvatcorporation.doubleclips.data.editing.Track;
 
-/** Turns a track's preview sound off or on, as one undo step. Preview only: an export is not affected. */
+/** Turns a track's sound off or on (preview and export), as one undo step. */
 public class MuteTrackCommand implements Command {
 
     private final Track track;

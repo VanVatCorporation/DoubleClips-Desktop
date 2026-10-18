@@ -336,7 +336,7 @@ public final class AudioEngine {
 
         for (Src src : list) {
             Clip clip = src.clip;
-            if (src.track != null && src.track.muted) continue;             // the track's sound is off (preview only)
+            if (src.track != null && src.track.muted) continue;             // the track's sound is off (the export skips it too)
             if (clip.type == ClipType.VIDEO && (clip.isMute() || !clip.isClipHasAudio())) continue;
             float gain = clip.getAudioVolume();
             if (gain <= 0f) continue;
