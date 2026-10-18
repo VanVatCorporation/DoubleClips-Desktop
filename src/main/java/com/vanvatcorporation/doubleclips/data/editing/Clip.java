@@ -1,5 +1,8 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
+import com.google.gson.JsonObject;
+import com.vanvatcorporation.doubleclips.UnknownKeysHolder;
+
 import com.google.gson.annotations.Expose;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.helper.FrameHelper;
@@ -7,7 +10,12 @@ import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import java.io.Serializable;
 import java.util.ArrayList;
 
-public class Clip implements Serializable {
+public class Clip implements Serializable, UnknownKeysHolder {
+    /** Keys of this object's JSON that no field maps to (another platform's), kept across a save. See {@link UnknownKeysHolder}. */
+    private transient JsonObject unknownKeys;
+    @Override public JsonObject getUnknownKeys() { return unknownKeys; }
+    @Override public void setUnknownKeys(JsonObject keys) { unknownKeys = keys; }
+
     @Expose public ClipType type;
     @Expose private String clipName;
     @Expose public float startTime; // seconds
@@ -23,6 +31,37 @@ public class Clip implements Serializable {
     @Expose public AnimatedProperty keyframes = new AnimatedProperty();
     
     @Expose public EffectTemplate effect;
+
+    /**
+     * The clip's masks (see {@link ClipMask}), combined in order; null / empty = no mask. Only video, image and text
+     * clips use them.
+     */
+    @Expose public java.util.List<ClipMask> masks;
+    /** How the clip mixes with what is drawn below it (iOS's {@code blendMode} key); null = normal. */
+    @Expose public ClipBlendMode blendMode;
+    /** iOS's single mask and its keyframes. Only READ, from a project that has them: folded into {@link #masks} on load. */
+    @Expose public ClipMask mask;
+    @Expose public java.util.List<ClipMask.MaskKeyframe> maskKeys;
+
+    /** The masks to draw at {@code localTime} seconds into the clip (animated parameters resolved); empty for a clip without masks. */
+    public java.util.List<ClipMask> resolvedMasks(float localTime) {
+        java.util.List<ClipMask> out = new ArrayList<>();
+        if (masks != null) for (ClipMask m : masks) out.add(m.resolved(localTime));
+        return out;
+    }
+
+    public boolean hasMasks() {
+        return masks != null && !masks.isEmpty();
+    }
+
+    /** Deep copy of the masks list (null stays null) for undo snapshots. */
+    public java.util.List<ClipMask> copyOfMasks() {
+        if (masks == null) return null;
+        java.util.List<ClipMask> copy = new ArrayList<>();
+        for (ClipMask m : masks) copy.add(new ClipMask(m));
+        return copy;
+    }
+
     @Expose public String textContent;
     @Expose public float fontSize;
     // Text look. Every default below (null / 0 / false) means "how text always looked", so projects saved
@@ -136,6 +175,7 @@ public class Clip implements Serializable {
     }
 
     public Clip(Clip other) {
+        copyUnknownKeysFrom(other);
         this.clipName = other.clipName;
         this.startTime = other.startTime;
         this.duration = other.duration;
@@ -168,6 +208,8 @@ public class Clip implements Serializable {
         this.textStagger = other.textStagger;
         this.textUnitOrder = other.textUnitOrder;
         this.textStyle = other.textStyle == null ? null : new TextStyleData(other.textStyle);
+        this.masks = other.copyOfMasks();
+        this.blendMode = other.blendMode;
         this.effect = other.effect == null ? null : new EffectTemplate(other.effect); // an effect clip keeps its effect and strength when copied
         this.sceneConfig = other.sceneConfig;
         this.textureClipName = other.textureClipName;
@@ -230,6 +272,41 @@ public class Clip implements Serializable {
         if (inAnimation == null) inAnimation = new AnimationClip("none", 0.5f);
         if (outAnimation == null) outAnimation = new AnimationClip("none", 0.5f);
         if (comboAnimation == null) comboAnimation = new AnimationClip("none", 0.5f);
+        normalizeMasks();
+    }
+
+    /**
+     * iOS reads one mask only ({@code mask} + {@code maskKeys}) and ignores {@code masks}. A clip with exactly one
+     * mask that simply adds is written in that layout as well, so an iOS project that went through desktop keeps its mask.
+     * Several masks, or a subtract / intersect mask, have no iOS form and are written as {@code masks} alone.
+     */
+    @Override
+    public void onSaving(JsonObject tree) {
+        tree.remove("mask");
+        tree.remove("maskKeys");
+        if (masks == null || masks.size() != 1 || masks.get(0) == null || masks.get(0).mode != ClipMask.Mode.ADD) return;
+        JsonObject m = com.vanvatcorporation.doubleclips.ProjectGson.forSave().toJsonTree(masks.get(0)).getAsJsonObject();
+        com.google.gson.JsonElement keys = m.remove("keys");
+        m.remove("mode");
+        tree.add("mask", m);
+        if (keys != null && keys.isJsonArray() && keys.getAsJsonArray().size() > 0) tree.add("maskKeys", keys);
+    }
+
+    /** Folds iOS's single {@code mask} + {@code maskKeys} into {@link #masks} (as the first mask) and repairs what a file left out. */
+    private void normalizeMasks() {
+        if (mask != null) {
+            if (masks == null) masks = new ArrayList<>();
+            if (masks.isEmpty()) {
+                if (maskKeys != null) mask.keys = new ArrayList<>(maskKeys);
+                masks.add(mask);
+            }
+            mask = null;
+            maskKeys = null;
+        }
+        if (masks == null) return;
+        masks.removeIf(m -> m == null);
+        for (ClipMask m : masks) m.normalizeAfterLoad();
+        if (masks.isEmpty()) masks = null;
     }
 
     public String getAbsolutePath(ProjectData data) {
@@ -272,17 +349,22 @@ public class Clip implements Serializable {
         return isReverse;
     }
 
+    /** True when some property changes over time, i.e. is held by two or more keyframes (see {@link KeyframeChannels}). */
     public boolean hasAnimatedProperties() {
-        return keyframes != null && keyframes.keyframes != null && keyframes.keyframes.size() > 1;
+        return keyframes != null && keyframes.keyframes != null && keyframes.hasAnimation();
     }
 
+    /**
+     * Folds keyframes that can't animate anything into the static properties: a property held by exactly one
+     * keyframe is just that keyframe's value everywhere. Properties no keyframe holds, or that two or more hold,
+     * are left alone.
+     */
     public void mergingVideoPropertiesFromSingleKeyframe() {
-        if (keyframes != null && keyframes.keyframes != null && keyframes.keyframes.size() == 1) {
-            Keyframe singleKey = keyframes.keyframes.get(0);
-            if (singleKey.value != null) {
-                // Simplistic merge: overwrite base properties with keyframe values
-                this.videoProperties = new VideoProperties(singleKey.value);
-            }
+        if (keyframes == null || keyframes.keyframes == null || keyframes.keyframes.isEmpty()) return;
+        for (VideoProperties.ValueType type : VideoProperties.ValueType.CHANNELS) {
+            if (keyframes.holderCount(type) != 1) continue;
+            Keyframe only = keyframes.keyframesHolding(type).get(0);
+            if (only.value != null) this.videoProperties.setValue(only.value.getValue(type), type);
         }
     }
 }

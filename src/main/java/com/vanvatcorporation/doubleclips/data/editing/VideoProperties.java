@@ -1,9 +1,17 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
+import com.google.gson.JsonObject;
+import com.vanvatcorporation.doubleclips.UnknownKeysHolder;
+
 import com.google.gson.annotations.Expose;
 import java.io.Serializable;
 
-public class VideoProperties implements Serializable {
+public class VideoProperties implements Serializable, UnknownKeysHolder {
+    /** Keys of this object's JSON that no field maps to (another platform's), kept across a save. See {@link UnknownKeysHolder}. */
+    private transient JsonObject unknownKeys;
+    @Override public JsonObject getUnknownKeys() { return unknownKeys; }
+    @Override public void setUnknownKeys(JsonObject keys) { unknownKeys = keys; }
+
     @Expose public float valuePosX;
     @Expose public float valuePosY;
     @Expose public float valueRot;
@@ -42,6 +50,7 @@ public class VideoProperties implements Serializable {
     }
 
     public VideoProperties(VideoProperties other) {
+        copyUnknownKeysFrom(other);
         this.valuePosX = other.valuePosX;
         this.valuePosY = other.valuePosY;
         this.valueRot = other.valueRot;

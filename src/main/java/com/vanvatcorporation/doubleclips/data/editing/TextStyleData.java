@@ -1,5 +1,8 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
+import com.google.gson.JsonObject;
+import com.vanvatcorporation.doubleclips.UnknownKeysHolder;
+
 import com.google.gson.annotations.Expose;
 
 import java.util.ArrayList;
@@ -15,7 +18,12 @@ import java.util.List;
  * doesn't know, but it only writes the keys it does know, so those extras are dropped if the clip is saved
  * by iOS.
  */
-public class TextStyleData {
+public class TextStyleData implements UnknownKeysHolder {
+    /** Keys of this object's JSON that no field maps to (another platform's), kept across a save. See {@link UnknownKeysHolder}. */
+    private transient JsonObject unknownKeys;
+    @Override public JsonObject getUnknownKeys() { return unknownKeys; }
+    @Override public void setUnknownKeys(JsonObject keys) { unknownKeys = keys; }
+
 
     public static final String DEFAULT_COLOR_HEX = "#FFFFFF";
 
@@ -92,6 +100,7 @@ public class TextStyleData {
     public TextStyleData() {}
 
     public TextStyleData(TextStyleData o) {
+        copyUnknownKeysFrom(o);
         fontName = o.fontName;
         bold = o.bold;
         italic = o.italic;

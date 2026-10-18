@@ -1,10 +1,18 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
+import com.google.gson.JsonObject;
+import com.vanvatcorporation.doubleclips.UnknownKeysHolder;
+
 import com.google.gson.annotations.Expose;
 import java.io.Serializable;
 import java.util.List;
 
-public class Keyframe implements Serializable {
+public class Keyframe implements Serializable, UnknownKeysHolder {
+    /** Keys of this object's JSON that no field maps to (another platform's), kept across a save. See {@link UnknownKeysHolder}. */
+    private transient JsonObject unknownKeys;
+    @Override public JsonObject getUnknownKeys() { return unknownKeys; }
+    @Override public void setUnknownKeys(JsonObject keys) { unknownKeys = keys; }
+
     @Expose private float time; // seconds, in local clip time
     @Expose private long frame; // frames, in local clip frame
     @Expose public VideoProperties value;
@@ -24,6 +32,7 @@ public class Keyframe implements Serializable {
 
     /** A copy that shares nothing with the original (value and channels are copied). */
     public Keyframe(Keyframe other) {
+        copyUnknownKeysFrom(other);
         this.time = other.time;
         this.frame = other.frame;
         this.value = other.value == null ? null : new VideoProperties(other.value);

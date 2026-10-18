@@ -1,11 +1,19 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
+import com.google.gson.JsonObject;
+import com.vanvatcorporation.doubleclips.UnknownKeysHolder;
+
 import com.google.gson.annotations.Expose;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Track implements Serializable {
+public class Track implements Serializable, UnknownKeysHolder {
+    /** Keys of this object's JSON that no field maps to (another platform's), kept across a save. See {@link UnknownKeysHolder}. */
+    private transient JsonObject unknownKeys;
+    @Override public JsonObject getUnknownKeys() { return unknownKeys; }
+    @Override public void setUnknownKeys(JsonObject keys) { unknownKeys = keys; }
+
     @Expose
     public int timelineIndex;
     @Expose
@@ -16,6 +24,7 @@ public class Track implements Serializable {
     public Track() {}
 
     public Track(Track other) {
+        copyUnknownKeysFrom(other);
         timelineIndex = other.timelineIndex;
         clips.addAll(other.clips);
     }

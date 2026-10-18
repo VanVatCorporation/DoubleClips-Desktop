@@ -3055,7 +3055,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         File file = fileChooser.showOpenDialog(this);
         if (file != null) {
             try (Reader reader = new FileReader(file)) {
-                Gson gson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
+                Gson gson = com.vanvatcorporation.doubleclips.ProjectGson.forLoad();
                 List<Keyframe> importedKfs = gson.fromJson(reader, new TypeToken<List<Keyframe>>(){}.getType());
                 if (importedKfs != null) {
                     List<Keyframe> oldKfs = new ArrayList<>(selectedClip.keyframes.keyframes);
@@ -3097,7 +3097,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         File file = fileChooser.showSaveDialog(this);
         if (file != null) {
             try (Writer writer = new FileWriter(file)) {
-                Gson gson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().setPrettyPrinting().create();
+                Gson gson = com.vanvatcorporation.doubleclips.ProjectGson.forSavePretty();
                 gson.toJson(selectedClip.keyframes.keyframes, writer);
             } catch (Exception e) {
                 e.printStackTrace();
@@ -3751,7 +3751,8 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     /** Same JSON layout as the project file (only @Expose fields), so what is copied is exactly what is saved. */
-    private final Gson clipboardGson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
+    private final Gson clipboardGson = com.vanvatcorporation.doubleclips.ProjectGson.forSave();
+    private final Gson clipboardLoadGson = com.vanvatcorporation.doubleclips.ProjectGson.forLoad();
 
     /**
      * Copies the selected clips to the system clipboard as a JSON ARRAY of clips (one element when a single
@@ -3822,7 +3823,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (el == null || !el.isJsonObject()) return null;
         JsonObject obj = el.getAsJsonObject();
         if (!obj.has("clipName") && !obj.has("type")) return null;
-        Clip c = clipboardGson.fromJson(obj, Clip.class);
+        Clip c = clipboardLoadGson.fromJson(obj, Clip.class);
         if (c == null) return null;
         c.filterNullAfterLoad();
         return c;

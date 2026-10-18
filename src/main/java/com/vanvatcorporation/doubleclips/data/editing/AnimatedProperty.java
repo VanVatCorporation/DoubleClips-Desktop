@@ -1,5 +1,8 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
+import com.google.gson.JsonObject;
+import com.vanvatcorporation.doubleclips.UnknownKeysHolder;
+
 import com.google.gson.annotations.Expose;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.helper.FrameHelper;
@@ -10,13 +13,19 @@ import java.util.List;
 
 import com.vanvatcorporation.doubleclips.data.editing.VideoProperties.ValueType;
 
-public class AnimatedProperty implements Serializable {
+public class AnimatedProperty implements Serializable, UnknownKeysHolder {
+    /** Keys of this object's JSON that no field maps to (another platform's), kept across a save. See {@link UnknownKeysHolder}. */
+    private transient JsonObject unknownKeys;
+    @Override public JsonObject getUnknownKeys() { return unknownKeys; }
+    @Override public void setUnknownKeys(JsonObject keys) { unknownKeys = keys; }
+
     @Expose
     public List<Keyframe> keyframes = new ArrayList<>();
 
     public AnimatedProperty() {}
 
     public AnimatedProperty(AnimatedProperty other) {
+        copyUnknownKeysFrom(other);
         if (other != null && other.keyframes != null) {
             // Deep copy: keyframes are edited in place now (per-property keys), a copy must not share them.
             for (Keyframe k : other.keyframes) this.keyframes.add(new Keyframe(k));

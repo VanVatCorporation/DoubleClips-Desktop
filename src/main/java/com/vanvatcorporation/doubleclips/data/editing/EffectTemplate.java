@@ -1,9 +1,17 @@
 package com.vanvatcorporation.doubleclips.data.editing;
 
+import com.google.gson.JsonObject;
+import com.vanvatcorporation.doubleclips.UnknownKeysHolder;
+
 import com.google.gson.annotations.Expose;
 import java.io.Serializable;
 
-public class EffectTemplate implements Serializable {
+public class EffectTemplate implements Serializable, UnknownKeysHolder {
+    /** Keys of this object's JSON that no field maps to (another platform's), kept across a save. See {@link UnknownKeysHolder}. */
+    private transient JsonObject unknownKeys;
+    @Override public JsonObject getUnknownKeys() { return unknownKeys; }
+    @Override public void setUnknownKeys(JsonObject keys) { unknownKeys = keys; }
+
     @Expose
     public String style;
     @Expose
@@ -21,6 +29,7 @@ public class EffectTemplate implements Serializable {
 
     /** A copy that shares nothing with {@code other} (clip copies must not share an effect). */
     public EffectTemplate(EffectTemplate other) {
+        copyUnknownKeysFrom(other);
         this.style = other.style;
         this.duration = other.duration;
         this.startTime = other.startTime;

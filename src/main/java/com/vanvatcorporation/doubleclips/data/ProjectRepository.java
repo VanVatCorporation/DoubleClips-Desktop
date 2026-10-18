@@ -31,7 +31,9 @@ public class ProjectRepository {
     private static ProjectRepository instance;
     private final ListProperty<ProjectData> projects = new SimpleListProperty<>(FXCollections.observableArrayList());
     private final Gson gson = new Gson();
-    private final Gson exposeGson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
+    /** Timeline and settings go through ProjectGson, which keeps the keys this build does not know (another platform's). */
+    private final Gson exposeGson = com.vanvatcorporation.doubleclips.ProjectGson.forSave();
+    private final Gson loadGson = com.vanvatcorporation.doubleclips.ProjectGson.forLoad();
 
     private ProjectRepository() {
         refreshProjects();
@@ -277,7 +279,7 @@ public class ProjectRepository {
         }
 
         try (FileReader reader = new FileReader(timelineFile)) {
-            Timeline timeline = exposeGson.fromJson(reader, Timeline.class);
+            Timeline timeline = loadGson.fromJson(reader, Timeline.class);
             if (timeline != null) {
                 timeline.prepareAfterLoad();
                 return timeline;
@@ -295,7 +297,7 @@ public class ProjectRepository {
         }
 
         try (FileReader reader = new FileReader(settingsFile)) {
-            VideoSettings settings = exposeGson.fromJson(reader, VideoSettings.class);
+            VideoSettings settings = loadGson.fromJson(reader, VideoSettings.class);
             if (settings != null) {
                 return settings;
             }
