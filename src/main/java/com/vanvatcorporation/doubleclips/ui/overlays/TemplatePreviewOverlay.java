@@ -1,5 +1,6 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
+import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.TemplateStripMath;
 import com.vanvatcorporation.doubleclips.TemplateTimelineInfo;
 import com.vanvatcorporation.doubleclips.TemplateTimelineInfo.Role;
@@ -571,18 +572,42 @@ public class TemplatePreviewOverlay extends StackPane {
         });
     }
 
+    /**
+     * "Use template": first asks which engine renders it (a rabbit for OpenGL = the timeline, a turtle for FFmpeg = the
+     * template's command), with the one the template cannot use grayed out. The FFmpeg path is the existing export
+     * window; the OpenGL path renders the template's timeline.
+     */
     private void useTemplate() {
-        if (!data.isFfmpegAvailable()) {
-            // Timeline-only template: the FFmpeg flow below has no command to run.
-            Alert a = new Alert(Alert.AlertType.INFORMATION,
-                    "This template only exists as a timeline. Rendering a template from its timeline is not in the desktop app yet.");
+        if (!data.hasTimeline() && !data.isFfmpegAvailable()) {
+            Alert a = new Alert(Alert.AlertType.INFORMATION, "This template cannot be rendered: it has neither a timeline nor an FFmpeg command.");
             a.setTitle("Use template");
             a.setHeaderText(null);
             a.show();
             return;
         }
-        close();
-        TemplateExportWindow.showInstance(data);
+        final TemplateEnginePickerOverlay[] picker = new TemplateEnginePickerOverlay[1];
+        picker[0] = new TemplateEnginePickerOverlay(data,
+                engine -> {
+                    DoubleClipsDesktop.getInstance().hideOverlay(picker[0]);
+                    if (engine == TemplateEnginePickerOverlay.Engine.FFMPEG) {
+                        close();
+                        TemplateExportWindow.showInstance(data);
+                    } else {
+                        renderWithOpenGl();
+                    }
+                },
+                () -> DoubleClipsDesktop.getInstance().hideOverlay(picker[0]));
+        DoubleClipsDesktop.getInstance().showOverlay(picker[0]);
+    }
+
+    /** The OpenGL path: the template's timeline with the user's own media. (Next step: not built yet.) */
+    private void renderWithOpenGl() {
+        Alert a = new Alert(Alert.AlertType.INFORMATION,
+                "Rendering a template from its timeline with OpenGL is the next step on desktop and is not available yet. "
+                        + "Pick the turtle (FFmpeg) for templates that have an FFmpeg version.");
+        a.setTitle("Use template");
+        a.setHeaderText(null);
+        a.show();
     }
 
     private void close() {

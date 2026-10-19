@@ -855,3 +855,16 @@
 .template-slot:hover {
     -fx-background-color: -color-accent-subtle;
 }
+
+
+/* An engine choice the template cannot use (Use template): same square, no hover, no hand cursor. */
+.option-card-disabled {
+    -fx-background-color: transparent;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-radius: 16;
+    -fx-background-radius: 16;
+    -fx-border-width: 1;
+    -fx-padding: 24;
+    -fx-alignment: center;
+    -fx-cursor: default;
+}
