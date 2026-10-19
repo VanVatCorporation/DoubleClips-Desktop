@@ -17,6 +17,7 @@ import com.vanvatcorporation.doubleclips.helper.MediaHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
+import javafx.scene.Node;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.MouseEvent;
@@ -2126,8 +2127,8 @@ public class EditorWindow extends Stage implements PropertyContext {
             if (e.getTarget() != tracksPane) return;
             javafx.geometry.Point2D local = tracksPane.sceneToLocal(e.getSceneX(), e.getSceneY());
             int row = (int) (local.getY() / (TRACK_HEIGHT + TRACK_SPACING));
-            if (row < 0 || row >= timeline.tracks.size()) return;
-            Track track = timeline.tracks.get(row);
+            if (row < 0 || row >= this.timeline.tracks.size()) return;
+            Track track = this.timeline.tracks.get(row);
             selectTrack(track);
             trackActions.menuFor(track).show(tracksPane, e.getScreenX(), e.getScreenY());
             e.consume();

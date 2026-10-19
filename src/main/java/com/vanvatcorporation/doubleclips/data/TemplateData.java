@@ -16,6 +16,12 @@ public class TemplateData implements Serializable {
     private long templateDuration;
     private int templateTotalClip;
     private String[] additionalResourceName;
+    /** URL of the template's timeline JSON (same format as a project's timeline, possibly wrapped). Null/empty = the old, ffmpeg-only kind. */
+    private String templateTimelineLink;
+    /** Folder URL (ends with "/") the template's resource files live in: additionalResourceName[i] is at templateContentLink + name. */
+    private String templateContentLink;
+    /** The server says whether ffmpegCommand can render this template. Null = an older server: assume yes when there is a command. */
+    private Boolean ffmpegAvailable;
     private int viewCount;
     private int useCount;
     private int heartCount;
@@ -42,6 +48,26 @@ public class TemplateData implements Serializable {
     public int getUseCount() { return useCount; }
     public int getHeartCount() { return heartCount; }
     public int getBookmarkCount() { return bookmarkCount; }
+    public String getTemplateTimelineLink() { return templateTimelineLink == null ? "" : templateTimelineLink.trim(); }
+    /** The template is a timeline (the new kind); false = the old kind that only has an ffmpeg command. */
+    public boolean hasTimeline() { return !getTemplateTimelineLink().isEmpty(); }
+    /** FFmpeg can render it: the server says so, or (older server) there is a command. */
+    public boolean isFfmpegAvailable() {
+        if (ffmpegAvailable != null) return ffmpegAvailable;
+        return ffmpegCommand != null && !ffmpegCommand.trim().isEmpty();
+    }
+    /**
+     * Folder URL (ends with "/") of the template's resource files: the server's templateContentLink, else derived from the
+     * preview video's address (.../{user}/{id}/preview.mp4 -> .../{user}/{id}/content/).
+     */
+    public String getResolvedContentLink() {
+        String given = templateContentLink == null ? "" : templateContentLink.trim();
+        if (!given.isEmpty()) return given.endsWith("/") ? given : given + "/";
+        if (templateVideoLink == null || templateVideoLink.trim().isEmpty()) return "";
+        String v = templateVideoLink.trim();
+        int slash = v.lastIndexOf('/');
+        return slash < 0 ? "" : v.substring(0, slash + 1) + "content/";
+    }
     public String getTemplateLocation() {
         return "/" + templateAuthor + "/" + templateId;
     }
@@ -57,6 +83,7 @@ public class TemplateData implements Serializable {
     public void setTemplateTitle(String templateTitle) { this.templateTitle = templateTitle; }
     public void setTemplateVideoLink(String templateVideoLink) { this.templateVideoLink = templateVideoLink; }
     public void setHeartCount(int heartCount) { this.heartCount = heartCount; }
+    public void setViewCount(int viewCount) { this.viewCount = viewCount; }
     public void setBookmarkCount(int bookmarkCount) { this.bookmarkCount = bookmarkCount; }
 
     public void setFfmpegCommand(String ffmpegCommand) {
