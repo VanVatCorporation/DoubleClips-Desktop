@@ -35,11 +35,11 @@ public class LoginOverlay extends StackPane {
         this.onClose = onClose;
         
         // Background Dimming
-        getStyleClass().add("preview-overlay");
+        getStyleClass().add("modal-overlay");
         
         // Main Login Card
         VBox loginCard = new VBox(25);
-        loginCard.getStyleClass().add("preview-container");
+        loginCard.getStyleClass().add("login-card");
         loginCard.setMaxSize(400, 600);
         loginCard.setPadding(new Insets(40));
         loginCard.setAlignment(Pos.CENTER);
@@ -54,6 +54,11 @@ public class LoginOverlay extends StackPane {
             logoView.setImage(logo);
             logoView.setFitWidth(80);
             logoView.setPreserveRatio(true);
+            // rounded app-icon corners (the icon is square)
+            javafx.scene.shape.Rectangle logoClip = new javafx.scene.shape.Rectangle(80, 80);
+            logoClip.setArcWidth(36);
+            logoClip.setArcHeight(36);
+            logoView.setClip(logoClip);
         } catch (Exception e) {
             System.err.println("Could not load logo: " + e.getMessage());
         }
@@ -97,14 +102,13 @@ public class LoginOverlay extends StackPane {
         buttons.setAlignment(Pos.CENTER);
         
         loginButton = new Button("Sign In");
-        loginButton.getStyleClass().addAll("button-primary", "button-large");
+        loginButton.getStyleClass().addAll("app-button-primary", "app-button-large");
         loginButton.setMaxWidth(Double.MAX_VALUE);
         loginButton.setPrefHeight(50);
         loginButton.setOnAction(e -> handleLogin());
         
         Button registerBtn = new Button("Don't have an account? Register");
-        registerBtn.getStyleClass().addAll("button-transparent");
-        registerBtn.setStyle("-fx-text-fill: -color-accent-fg;");
+        registerBtn.setStyle("-fx-background-color: transparent; -fx-border-color: transparent; -fx-text-fill: -color-accent-fg; -fx-cursor: hand;");
         registerBtn.setOnAction(e -> {
             DoubleClipsDesktop.getInstance().getHostServices().showDocument("https://account.vanvatcorp.com/register");
         });

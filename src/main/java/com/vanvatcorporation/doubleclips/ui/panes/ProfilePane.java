@@ -180,7 +180,8 @@ public class ProfilePane extends VBox {
         Button btn = createSettingButton("Log Out", new FontIcon(MaterialDesignL.LOGOUT));
         btn.setStyle("-fx-text-fill: -color-danger-fg;");
         if (btn.getGraphic() != null) {
-            btn.getGraphic().setStyle("-fx-icon-color: -color-danger-fg;");
+            // coloured by the stylesheet: an inline -fx-icon-color makes the icon lose its font (striped box)
+            btn.getGraphic().getStyleClass().add("danger-icon");
         }
         btn.setOnAction(e -> handleLogout());
         return btn;

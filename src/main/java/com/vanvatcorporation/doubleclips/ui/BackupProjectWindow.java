@@ -7,6 +7,7 @@ import com.vanvatcorporation.doubleclips.drive.DriveError;
 import com.vanvatcorporation.doubleclips.drive.DriveNode;
 import com.vanvatcorporation.doubleclips.helper.ProjectBackup;
 import com.vanvatcorporation.doubleclips.helper.TaskbarHelper;
+import com.vanvatcorporation.doubleclips.ui.components.AppUi;
 import com.vanvatcorporation.doubleclips.ui.components.TransferProgressWindow;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -25,6 +26,8 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignF;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignM;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -44,19 +47,34 @@ public final class BackupProjectWindow {
 
         ListView<ProjectData> list = new ListView<>();
         list.getItems().addAll(new ArrayList<>(ProjectRepository.getInstance().projectsProperty()));
-        Label empty = new Label("No projects yet. Create a project first, then come back to back it up.");
-        empty.setWrapText(true);
+        list.getStyleClass().add("storage-list");
+
+        Label emptyTitle = new Label("No projects yet");
+        emptyTitle.getStyleClass().add("storage-empty-title");
+        Label emptyHint = new Label("Create a project first, then come back to back it up.");
+        emptyHint.getStyleClass().add("storage-meta");
+        emptyHint.setWrapText(true);
+        VBox empty = new VBox(8, AppUi.tile(MaterialDesignM.MOVIE, true, true), emptyTitle, emptyHint);
+        empty.setAlignment(Pos.CENTER);
+        empty.setPadding(new Insets(36, 20, 36, 20));
         list.setPlaceholder(empty);
+
         list.setCellFactory(v -> new ListCell<>() {
             @Override protected void updateItem(ProjectData p, boolean isEmpty) {
                 super.updateItem(p, isEmpty);
-                if (isEmpty || p == null) { setGraphic(null); return; }
+                if (isEmpty || p == null) { setGraphic(null); setText(null); return; }
                 Label title = new Label(p.getProjectTitle());
-                title.setStyle("-fx-font-weight: bold;");
+                title.getStyleClass().add("storage-row-name");
                 Label meta = new Label("About " + ProjectBackup.formatBytes(p.getProjectSize()) + " \u00b7 "
                         + DateFormat.getDateInstance(DateFormat.MEDIUM).format(new Date(p.getProjectTimestamp())));
-                meta.getStyleClass().add("text-muted");
-                setGraphic(new VBox(2, title, meta));
+                meta.getStyleClass().add("storage-meta");
+                VBox texts = new VBox(3, title, meta);
+                HBox row = new HBox(12, AppUi.tile(MaterialDesignM.MOVIE, true, false), texts);
+                row.setAlignment(Pos.CENTER_LEFT);
+                row.setMaxWidth(Double.MAX_VALUE);
+                row.getStyleClass().add("storage-row");
+                setGraphic(row);
+                setText(null);
             }
         });
 
@@ -64,18 +82,29 @@ public final class BackupProjectWindow {
         stage.setTitle("Back up a project");
         if (owner != null) { stage.initOwner(owner); stage.initModality(Modality.WINDOW_MODAL); }
 
-        Label header = new Label("Choose a project to back up to OpenEditz/Projects");
-        Button cancel = new Button("Cancel");
-        Button go = new Button("Back up");
-        go.getStyleClass().add("button-primary");
+        Label header = new Label("Back up a project");
+        header.getStyleClass().add("storage-dialog-title");
+        Label sub = new Label("Pick a project. It is packed into one ZIP and saved to OpenEditz/Projects in Van Vat Drive.");
+        sub.getStyleClass().add("storage-subtitle");
+        sub.setWrapText(true);
+
+        Button cancel = AppUi.button("Cancel", null, false);
+        Button go = AppUi.button("Back up", MaterialDesignF.FOLDER_UPLOAD, true);
         go.disableProperty().bind(list.getSelectionModel().selectedItemProperty().isNull());
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox buttons = new HBox(8, spacer, cancel, go);
+        HBox buttons = new HBox(10, spacer, cancel, go);
         buttons.setAlignment(Pos.CENTER_RIGHT);
+
         VBox.setVgrow(list, Priority.ALWAYS);
-        VBox box = new VBox(12, header, list, buttons);
-        box.setPadding(new Insets(18));
+        VBox listCard = new VBox(list);
+        listCard.getStyleClass().add("storage-card");
+        listCard.setPadding(new Insets(8));
+        VBox.setVgrow(listCard, Priority.ALWAYS);
+
+        VBox box = new VBox(16, new VBox(4, header, sub), listCard, buttons);
+        box.getStyleClass().add("storage-dialog");
+        box.setPadding(new Insets(24));
 
         Runnable choose = () -> {
             ProjectData p = list.getSelectionModel().getSelectedItem();
@@ -87,7 +116,9 @@ public final class BackupProjectWindow {
         list.setOnMouseClicked(e -> { if (e.getClickCount() == 2) choose.run(); });
         cancel.setOnAction(e -> stage.close());
 
-        stage.setScene(new Scene(box, 460, 420));
+        Scene scene = new Scene(box, 500, 540);
+        AppUi.applyAppStyles(scene);
+        stage.setScene(scene);
         stage.show();
     }
 

@@ -38,16 +38,24 @@ public final class TransferProgressWindow {
 
     public TransferProgressWindow(Window owner, String title) {
         status.setWrapText(true);
-        status.setMaxWidth(380);
-        bar.setPrefWidth(380);
+        status.setMaxWidth(Double.MAX_VALUE);
+        status.getStyleClass().add("storage-section-title");
+        bar.getStyleClass().add("storage-bar");
+        bar.setMaxWidth(Double.MAX_VALUE);
 
+        Label heading = new Label(title);
+        heading.getStyleClass().add("storage-dialog-title");
+
+        stop.getStyleClass().add("app-button");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox buttons = new HBox(spacer, stop);
         buttons.setAlignment(Pos.CENTER_RIGHT);
 
-        VBox box = new VBox(12, status, bar, buttons);
-        box.setPadding(new Insets(18));
+        VBox box = new VBox(14, heading, status, bar, buttons);
+        box.getStyleClass().add("storage-dialog");
+        box.setPadding(new Insets(24));
+        box.setPrefWidth(440);
 
         stage.setTitle(title);
         if (owner != null) {
@@ -55,7 +63,9 @@ public final class TransferProgressWindow {
             stage.initModality(Modality.WINDOW_MODAL);
         }
         stage.setResizable(false);
-        stage.setScene(new Scene(box));
+        Scene scene = new Scene(box);
+        AppUi.applyAppStyles(scene);
+        stage.setScene(scene);
 
         stop.setOnAction(e -> requestStop());
         stage.setOnCloseRequest(e -> { e.consume(); requestStop(); });   // never closes by itself mid-transfer

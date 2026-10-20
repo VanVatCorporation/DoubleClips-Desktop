@@ -116,6 +116,7 @@ public class SettingsOverlay extends StackPane {
             com.vanvatcorporation.doubleclips.ui.DockManager.resetAllToDefault();
             restoreLayoutBtn.setText("Restored \u2713");
         });
+        restoreLayoutBtn.setMinWidth(Region.USE_PREF_SIZE);
         layoutRow.getChildren().add(restoreLayoutBtn);
         layoutGroup.getChildren().add(layoutRow);
 
@@ -150,8 +151,7 @@ public class SettingsOverlay extends StackPane {
         HBox row = new HBox(15);
         row.setAlignment(Pos.CENTER_LEFT);
         
-        icon.setIconSize(24);
-        icon.setStyle("-fx-icon-color: -color-accent-fg;");
+        icon.getStyleClass().add("settings-row-icon");   // colour + size from the stylesheet (inline styles break the icon font)
         
         VBox textVBox = new VBox(2);
         Label titleLabel = new Label(title);
@@ -159,12 +159,12 @@ public class SettingsOverlay extends StackPane {
         Label descLabel = new Label(description);
         descLabel.getStyleClass().add("text-muted");
         descLabel.setStyle("-fx-font-size: 12px;");
+        descLabel.setWrapText(true);
         textVBox.getChildren().addAll(titleLabel, descLabel);
-        
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        
-        row.getChildren().addAll(icon, textVBox, spacer);
+        textVBox.setMinWidth(0);
+        HBox.setHgrow(textVBox, Priority.ALWAYS);
+
+        row.getChildren().addAll(icon, textVBox);
         return row;
     }
 
@@ -173,8 +173,7 @@ public class SettingsOverlay extends StackPane {
         row.setAlignment(Pos.CENTER_LEFT);
         
         FontIcon icon = new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignK.KEYBOARD);
-        icon.setIconSize(24);
-        icon.setStyle("-fx-icon-color: -color-accent-fg;");
+        icon.getStyleClass().add("settings-row-icon");   // colour + size from the stylesheet (inline styles break the icon font)
         
         VBox textVBox = new VBox(2);
         Label titleLabel = new Label(title);
@@ -182,10 +181,10 @@ public class SettingsOverlay extends StackPane {
         Label descLabel = new Label(description);
         descLabel.getStyleClass().add("text-muted");
         descLabel.setStyle("-fx-font-size: 12px;");
+        descLabel.setWrapText(true);
         textVBox.getChildren().addAll(titleLabel, descLabel);
-        
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
+        textVBox.setMinWidth(0);
+        HBox.setHgrow(textVBox, Priority.ALWAYS);
         
         Button keyBtn = new Button(formatForDisplay(bindProperty.get()));
         keyBtn.setMinWidth(100);
@@ -262,7 +261,7 @@ public class SettingsOverlay extends StackPane {
 
         bindProperty.addListener((obs, oldVal, newVal) -> keyBtn.setText(formatForDisplay(newVal)));
         
-        row.getChildren().addAll(icon, textVBox, spacer, keyBtn);
+        row.getChildren().addAll(icon, textVBox, keyBtn);
         return row;
     }
 

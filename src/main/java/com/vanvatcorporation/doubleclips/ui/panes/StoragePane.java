@@ -11,6 +11,7 @@ import com.vanvatcorporation.doubleclips.drive.OpenEditzClient;
 import com.vanvatcorporation.doubleclips.helper.ProjectBackup;
 import com.vanvatcorporation.doubleclips.helper.ProjectRestore;
 import com.vanvatcorporation.doubleclips.ui.BackupProjectWindow;
+import com.vanvatcorporation.doubleclips.ui.components.AppUi;
 import com.vanvatcorporation.doubleclips.ui.components.FxCoalescer;
 import com.vanvatcorporation.doubleclips.ui.components.TransferProgressWindow;
 import javafx.application.Platform;
@@ -42,10 +43,13 @@ import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import org.kordamp.ikonli.javafx.FontIcon;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignD;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignF;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignI;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignM;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignR;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignU;
 
 import java.io.File;
@@ -66,6 +70,7 @@ import java.util.function.Consumer;
  * The Storage tab: your OpenEditz folder in Van Vat Drive (iOS: StorageView). Back up projects as ZIPs, restore them,
  * upload and download files. Everything here stays inside OpenEditz (the full Drive - sharing, trash, other folders -
  * lives in the Van Vat Drive app). There is no second sign-in: the account login supplies the token.
+ * Looks come from the "storage-*" / "app-*" classes at the end of style.css.
  */
 public class StoragePane extends VBox {
 
@@ -83,35 +88,34 @@ public class StoragePane extends VBox {
     private final BooleanProperty signedIn = new SimpleBooleanProperty(false);
 
     // ui
-    private final VBox contentBox = new VBox(12);
-    private final VBox signInBox = new VBox(8);
-    private final Label signInText = new Label();
-    private final HBox breadcrumb = new HBox(6);
+    private final VBox contentBox = new VBox(14);
+    private final VBox signInBox = new VBox(10);
+    private final HBox breadcrumb = new HBox(2);
     private final ProgressBar quotaBar = new ProgressBar(0);
     private final Label quotaLabel = new Label();
-    private final VBox uploadRows = new VBox(10);
+    private final VBox uploadRows = new VBox(8);
     private final VBox uploadsBox = new VBox(8);
     private final Label messageLabel = new Label();
-    private final Label listPlaceholder = new Label();
+    private final Label emptyTitle = new Label();
+    private final Label emptyHint = new Label();
     private final ListView<DriveNode> list = new ListView<>(items);
 
     public StoragePane() {
-        setSpacing(16);
-        setPadding(new Insets(32));
-        getStyleClass().add("content-pane");
+        setSpacing(20);
+        setPadding(new Insets(32, 36, 28, 36));
+        getStyleClass().addAll("content-pane", "storage-page");
 
         // ---- header
         Label title = new Label("Storage");
-        title.setStyle("-fx-font-size: 26px; -fx-font-weight: bold;");
+        title.getStyleClass().add("storage-title");
         Label subtitle = new Label("Your OpenEditz folder in Van Vat Drive");
-        subtitle.getStyleClass().add("text-muted");
-        VBox titles = new VBox(2, title, subtitle);
+        subtitle.getStyleClass().add("storage-subtitle");
+        VBox titles = new VBox(4, title, subtitle);
 
-        Button backupBtn = new Button("Back up a project", new FontIcon(MaterialDesignF.FOLDER_UPLOAD));
-        backupBtn.getStyleClass().add("button-primary");
-        Button uploadBtn = new Button("Upload files", new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
-        Button folderBtn = new Button("New folder", new FontIcon(MaterialDesignF.FOLDER_OUTLINE));
-        Button refreshBtn = new Button("Refresh");
+        Button backupBtn = AppUi.button("Back up a project", MaterialDesignF.FOLDER_UPLOAD, true);
+        Button uploadBtn = AppUi.button("Upload files", MaterialDesignU.UPLOAD_OUTLINE, false);
+        Button folderBtn = AppUi.button("New folder", MaterialDesignF.FOLDER_OUTLINE, false);
+        Button refreshBtn = AppUi.button("Refresh", MaterialDesignR.REFRESH, false);
         for (Button b : new Button[]{backupBtn, uploadBtn, folderBtn, refreshBtn}) b.disableProperty().bind(signedIn.not());
         backupBtn.setOnAction(e -> BackupProjectWindow.show(owner(), this::reload));
         uploadBtn.setOnAction(e -> chooseFilesToUpload());
@@ -122,61 +126,83 @@ public class StoragePane extends VBox {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox header = new HBox(10, titles, spacer, backupBtn, uploadBtn, folderBtn, refreshBtn);
         header.setAlignment(Pos.CENTER_LEFT);
-        header.setPadding(new Insets(0, 0, 8, 0));
-
-        Region divider = new Region();
-        divider.setStyle("-fx-background-color: -color-border-subtle;");
-        divider.setPrefHeight(1);
-        divider.setMaxWidth(Double.MAX_VALUE);
 
         // ---- signed-out view
         Label signInTitle = new Label("Sign in to use Storage");
-        signInTitle.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
-        signInText.setText("Sign in from the Profile tab to back up your projects to OpenEditz.");
-        signInText.getStyleClass().add("text-muted");
+        signInTitle.getStyleClass().add("storage-empty-title");
+        Label signInText = new Label("Sign in from the Profile tab to back up your projects to OpenEditz and restore them on any device.");
+        signInText.getStyleClass().add("storage-meta");
         signInText.setWrapText(true);
-        signInBox.getChildren().addAll(signInTitle, signInText);
-        signInBox.setAlignment(Pos.TOP_CENTER);
-        signInBox.setPadding(new Insets(60, 0, 0, 0));
+        signInText.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
+        signInBox.getChildren().addAll(AppUi.tile(MaterialDesignF.FOLDER_UPLOAD, true, true), signInTitle, signInText);
+        signInBox.getStyleClass().add("storage-card");
+        signInBox.setAlignment(Pos.CENTER);
+        signInBox.setPadding(new Insets(36, 40, 36, 40));
+        signInBox.setMaxSize(440, Region.USE_PREF_SIZE);
 
-        // ---- signed-in view
+        // ---- signed-in view: quota card
+        Label quotaTitle = new Label("Storage used");
+        quotaTitle.getStyleClass().add("storage-section-title");
+        quotaLabel.getStyleClass().add("storage-meta");
+        Region quotaSpacer = new Region();
+        HBox.setHgrow(quotaSpacer, Priority.ALWAYS);
+        quotaBar.getStyleClass().add("storage-bar");
         quotaBar.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(quotaBar, Priority.ALWAYS);
-        quotaLabel.getStyleClass().add("text-muted");
-        HBox quotaRow = new HBox(12, quotaBar, quotaLabel);
-        quotaRow.setAlignment(Pos.CENTER_LEFT);
+        VBox quotaCard = new VBox(10, new HBox(8, quotaTitle, quotaSpacer, quotaLabel), quotaBar);
+        quotaCard.getStyleClass().add("storage-card");
+        quotaCard.setPadding(new Insets(16, 18, 16, 18));
 
         breadcrumb.setAlignment(Pos.CENTER_LEFT);
 
+        // ---- uploads
         Label uploadsTitle = new Label("Uploads");
-        uploadsTitle.setStyle("-fx-font-weight: bold;");
-        Button clearUploads = new Button("Clear finished");
-        clearUploads.getStyleClass().add("button-transparent");
+        uploadsTitle.getStyleClass().add("storage-section-title");
+        Button clearUploads = AppUi.button("Clear finished", null, false);
         clearUploads.setOnAction(e -> {
             uploadRows.getChildren().removeIf(n -> Boolean.TRUE.equals(n.getProperties().get("finished")));
             refreshUploadsVisibility();
         });
         Region upSpacer = new Region();
         HBox.setHgrow(upSpacer, Priority.ALWAYS);
-        uploadsBox.getChildren().addAll(new HBox(8, uploadsTitle, upSpacer, clearUploads), uploadRows);
+        HBox uploadsHeader = new HBox(8, uploadsTitle, upSpacer, clearUploads);
+        uploadsHeader.setAlignment(Pos.CENTER_LEFT);
+        uploadsBox.getChildren().addAll(uploadsHeader, uploadRows);
         uploadsBox.setVisible(false);
         uploadsBox.setManaged(false);
 
+        // ---- messages
+        messageLabel.getStyleClass().add("storage-banner");
         messageLabel.setWrapText(true);
+        messageLabel.setMaxWidth(Double.MAX_VALUE);
         messageLabel.setVisible(false);
         messageLabel.setManaged(false);
 
-        listPlaceholder.setWrapText(true);
-        listPlaceholder.getStyleClass().add("text-muted");
-        list.setPlaceholder(listPlaceholder);
+        // ---- the list (inside one rounded card)
+        emptyTitle.getStyleClass().add("storage-empty-title");
+        emptyHint.getStyleClass().add("storage-meta");
+        emptyHint.setWrapText(true);
+        emptyHint.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
+        emptyHint.managedProperty().bind(emptyHint.textProperty().isNotEmpty());
+        emptyHint.visibleProperty().bind(emptyHint.textProperty().isNotEmpty());
+        VBox emptyBox = new VBox(8, AppUi.tile(MaterialDesignF.FOLDER_OUTLINE, true, true), emptyTitle, emptyHint);
+        emptyBox.setAlignment(Pos.CENTER);
+        emptyBox.setPadding(new Insets(48, 24, 48, 24));
+        setEmptyText("Loading\u2026", "");
+
+        list.getStyleClass().add("storage-list");
+        list.setPlaceholder(emptyBox);
         list.setCellFactory(v -> new NodeCell());
         VBox.setVgrow(list, Priority.ALWAYS);
+        VBox listCard = new VBox(list);
+        listCard.getStyleClass().add("storage-card");
+        listCard.setPadding(new Insets(8));
+        VBox.setVgrow(listCard, Priority.ALWAYS);
 
-        contentBox.getChildren().addAll(quotaRow, breadcrumb, messageLabel, uploadsBox, list);
+        contentBox.getChildren().addAll(quotaCard, breadcrumb, messageLabel, uploadsBox, listCard);
 
         StackPane body = new StackPane(contentBox, signInBox);
         VBox.setVgrow(body, Priority.ALWAYS);
-        getChildren().addAll(header, divider, body);
+        getChildren().addAll(header, body);
 
         // ---- wiring
         AuthRepository.getInstance().userProperty().addListener((o, a, b) -> {
@@ -198,6 +224,11 @@ public class StoragePane extends VBox {
 
     private Window owner() { return getScene() != null ? getScene().getWindow() : null; }
 
+    private void setEmptyText(String title, String hint) {
+        emptyTitle.setText(title);
+        emptyHint.setText(hint);
+    }
+
     private void updateView() {
         boolean has = DoubleClipsDrive.hasSession();
         signedIn.set(has);
@@ -214,7 +245,7 @@ public class StoragePane extends VBox {
 
         final int seq = loadSeq.incrementAndGet();
         final DriveNode folder = currentFolder();
-        listPlaceholder.setText("Loading\u2026");
+        setEmptyText("Loading\u2026", "");
         background(() -> {
             List<DriveNode> children = oe.list(folder);
             DriveMe fresh = null;
@@ -230,25 +261,26 @@ public class StoragePane extends VBox {
             });
             items.setAll(sorted);
             if (result[1] != null) me = (DriveMe) result[1];
-            listPlaceholder.setText("Nothing here yet. Back up a project or upload files.");
+            setEmptyText("Nothing here yet", "Back up a project or upload files and they show up here.");
             renderQuota();
             clearMessage();
         }, err -> {
             if (seq != loadSeq.get()) return;
-            listPlaceholder.setText("Nothing to show.");
+            setEmptyText("Couldn't load this folder", "");
             handle(err);
         });
     }
 
     private void renderQuota() {
+        quotaBar.getStyleClass().remove("storage-bar-warn");
         if (me == null || me.quotaBytes <= 0) {
             quotaBar.setProgress(0);
             quotaLabel.setText("");
             return;
         }
         quotaBar.setProgress(Math.min(1.0, (double) me.usedBytes / me.quotaBytes));
-        quotaBar.setStyle(me.usedBytes * 10 > me.quotaBytes * 9 ? "-fx-accent: -color-danger-fg;" : "");
-        quotaLabel.setText(ProjectBackup.formatBytes(me.usedBytes) + " of " + ProjectBackup.formatBytes(me.quotaBytes) + " used");
+        if (me.usedBytes * 10 > me.quotaBytes * 9) quotaBar.getStyleClass().add("storage-bar-warn");
+        quotaLabel.setText(ProjectBackup.formatBytes(me.usedBytes) + " of " + ProjectBackup.formatBytes(me.quotaBytes));
     }
 
     private void renderBreadcrumb() {
@@ -256,25 +288,27 @@ public class StoragePane extends VBox {
         breadcrumb.setVisible(!trail.isEmpty());
         breadcrumb.setManaged(!trail.isEmpty());
         if (trail.isEmpty()) return;
-        Hyperlink root = new Hyperlink("OpenEditz");
-        root.setOnAction(e -> goToDepth(0));
-        breadcrumb.getChildren().add(root);
+        breadcrumb.getChildren().add(crumb("OpenEditz", 0));
         for (int i = 0; i < trail.size(); i++) {
             Label sep = new Label("\u203a");
-            sep.getStyleClass().add("text-muted");
+            sep.getStyleClass().add("storage-meta");
             breadcrumb.getChildren().add(sep);
             DriveNode f = trail.get(i);
             if (i == trail.size() - 1) {
                 Label last = new Label(f.name);
-                last.setStyle("-fx-font-weight: bold;");
+                last.getStyleClass().add("storage-crumb-current");
                 breadcrumb.getChildren().add(last);
             } else {
-                final int depth = i + 1;
-                Hyperlink link = new Hyperlink(f.name);
-                link.setOnAction(e -> goToDepth(depth));
-                breadcrumb.getChildren().add(link);
+                breadcrumb.getChildren().add(crumb(f.name, i + 1));
             }
         }
+    }
+
+    private Hyperlink crumb(String text, int depth) {
+        Hyperlink link = new Hyperlink(text);
+        link.getStyleClass().add("storage-crumb");
+        link.setOnAction(e -> goToDepth(depth));
+        return link;
     }
 
     private void enter(DriveNode folder) {
@@ -341,17 +375,23 @@ public class StoragePane extends VBox {
         final DriveNode folder = currentFolder();
         final AtomicBoolean cancel = new AtomicBoolean();
 
+        StackPane tile = AppUi.tile(MaterialDesignU.UPLOAD_OUTLINE, true, false);
         Label name = new Label(file.getName());
-        name.setStyle("-fx-font-weight: bold;");
-        Button stop = new Button("Stop");
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
-        ProgressBar bar = new ProgressBar(0);
-        bar.setMaxWidth(Double.MAX_VALUE);
+        name.getStyleClass().add("storage-row-name");
+        name.setMaxWidth(Double.MAX_VALUE);
         Label status = new Label("Starting\u2026");
-        status.getStyleClass().add("text-muted");
-        VBox row = new VBox(4, new HBox(8, name, sp, stop), bar, status);
+        status.getStyleClass().add("storage-meta");
+        ProgressBar bar = new ProgressBar(0);
+        bar.getStyleClass().add("storage-bar");
+        bar.setMaxWidth(Double.MAX_VALUE);
+        Button stop = AppUi.button("Stop", MaterialDesignC.CLOSE, false);
         stop.setOnAction(e -> { cancel.set(true); stop.setDisable(true); status.setText("Stopping\u2026"); });
+
+        VBox texts = new VBox(6, name, bar, status);
+        HBox.setHgrow(texts, Priority.ALWAYS);
+        HBox row = new HBox(12, tile, texts, stop);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("storage-upload");
         uploadRows.getChildren().add(row);
         refreshUploadsVisibility();
 
@@ -362,19 +402,19 @@ public class StoragePane extends VBox {
         });
 
         background(() -> oe.upload(file, folder, null, ui::post, cancel), node -> {
-            finishRow(row, bar, stop, status, "Uploaded", 1.0, null);
+            finishRow(row, bar, stop, status, "Uploaded", 1.0, false);
             reload();
         }, err -> {
-            if (err instanceof CancellationException) finishRow(row, bar, stop, status, "Stopped", bar.getProgress(), null);
-            else finishRow(row, bar, stop, status, DriveError.describe(err), bar.getProgress(), "-fx-text-fill: -color-danger-fg;");
+            if (err instanceof CancellationException) finishRow(row, bar, stop, status, "Stopped", bar.getProgress(), false);
+            else finishRow(row, bar, stop, status, DriveError.describe(err), bar.getProgress(), true);
             reload();
         });
     }
 
-    private void finishRow(VBox row, ProgressBar bar, Button stop, Label status, String text, double progress, String style) {
+    private void finishRow(HBox row, ProgressBar bar, Button stop, Label status, String text, double progress, boolean error) {
         bar.setProgress(progress);
         status.setText(text);
-        status.setStyle(style == null ? "" : style);
+        if (error) status.getStyleClass().add("storage-meta-error");
         stop.setVisible(false);
         stop.setManaged(false);
         row.getProperties().put("finished", Boolean.TRUE);
@@ -444,7 +484,8 @@ public class StoragePane extends VBox {
 
     private void showMessage(String text, boolean error) {
         messageLabel.setText(text);
-        messageLabel.setStyle(error ? "-fx-text-fill: -color-danger-fg;" : "-fx-text-fill: -color-success-fg;");
+        messageLabel.getStyleClass().removeAll("storage-banner-ok", "storage-banner-error");
+        messageLabel.getStyleClass().add(error ? "storage-banner-error" : "storage-banner-ok");
         messageLabel.setVisible(true);
         messageLabel.setManaged(true);
     }
@@ -506,29 +547,29 @@ public class StoragePane extends VBox {
                 setOnMouseClicked(null);
                 return;
             }
-            FontIcon icon = iconFor(n);
-            icon.setIconSize(22);
-            icon.setStyle(n.isFolder ? "-fx-icon-color: -color-accent-fg;" : "-fx-icon-color: -color-fg-muted;");
-            StackPane iconBox = new StackPane(icon);
-            iconBox.setMinWidth(34);
+            StackPane tile = new StackPane(iconFor(n));
+            tile.getStyleClass().add("storage-tile");
+            if (n.isFolder || isProjectZip(n)) tile.getStyleClass().add("storage-tile-accent");
 
             Label name = new Label(n.name);
-            name.setStyle("-fx-font-weight: bold;");
+            name.getStyleClass().add("storage-row-name");
             String when = n.updatedAt == null ? "" : (n.isFolder ? DATE.format(n.updatedAt) : DATE_TIME.format(n.updatedAt));
             Label meta = new Label(n.isFolder ? when : ProjectBackup.formatBytes(n.size) + (when.isEmpty() ? "" : " \u00b7 " + when));
-            meta.getStyleClass().add("text-muted");
-            VBox texts = new VBox(2, name, meta);
+            meta.getStyleClass().add("storage-meta");
+            VBox texts = new VBox(3, name, meta);
+            HBox.setHgrow(texts, Priority.ALWAYS);
 
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
             ContextMenu menu = menuFor(n);
             Button more = new Button();
             more.setGraphic(new FontIcon(MaterialDesignD.DOTS_HORIZONTAL));
-            more.getStyleClass().add("button-transparent");
+            more.getStyleClass().add("storage-more");
+            more.setFocusTraversable(false);
             more.setOnAction(e -> menu.show(more, Side.BOTTOM, 0, 0));
 
-            HBox row = new HBox(10, iconBox, texts, spacer, more);
+            HBox row = new HBox(12, tile, texts, more);
             row.setAlignment(Pos.CENTER_LEFT);
+            row.setMaxWidth(Double.MAX_VALUE);
+            row.getStyleClass().add("storage-row");
             setGraphic(row);
             setText(null);
             setContextMenu(menu);
@@ -545,22 +586,24 @@ public class StoragePane extends VBox {
     private ContextMenu menuFor(DriveNode n) {
         ContextMenu menu = new ContextMenu();
         if (n.isFolder) {
-            MenuItem open = new MenuItem("Open");
+            MenuItem open = new MenuItem("Open", new FontIcon(MaterialDesignF.FOLDER_OUTLINE));
             open.setOnAction(e -> enter(n));
             menu.getItems().add(open);
         } else {
             if (isProjectZip(n)) {
-                MenuItem restore = new MenuItem("Restore into DoubleClips");
+                MenuItem restore = new MenuItem("Restore into DoubleClips", new FontIcon(MaterialDesignR.RESTORE));
                 restore.setOnAction(e -> restore(n));
                 menu.getItems().add(restore);
             }
-            MenuItem save = new MenuItem("Save a copy\u2026");
+            MenuItem save = new MenuItem("Save a copy\u2026", new FontIcon(MaterialDesignC.CONTENT_COPY));
             save.setOnAction(e -> saveAs(n));
             menu.getItems().add(save);
         }
-        MenuItem rename = new MenuItem("Rename\u2026");
+        MenuItem rename = new MenuItem("Rename\u2026", new FontIcon(MaterialDesignP.PENCIL_OUTLINE));
         rename.setOnAction(e -> rename(n));
-        MenuItem delete = new MenuItem("Delete\u2026");
+        FontIcon trash = new FontIcon(MaterialDesignD.DELETE_OUTLINE);
+        trash.getStyleClass().add("danger-icon");
+        MenuItem delete = new MenuItem("Delete\u2026", trash);
         delete.setOnAction(e -> delete(n));
         menu.getItems().addAll(rename, delete);
         return menu;
