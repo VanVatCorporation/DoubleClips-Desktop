@@ -26,12 +26,14 @@ public class RetrofitClient {
 
     private static final String BASE_URL = "https://account.vanvatcorp.com";
     private static final String APP_BASE_URL = "https://app.vanvatcorp.com";
+    private static final String AUTH_COOKIE = "authToken";
     private static RetrofitClient instance;
     private Retrofit authRetrofit;
     private Retrofit appRetrofit;
+    private final FileCookieJar cookieJar;
 
     private RetrofitClient() {
-        FileCookieJar cookieJar = new FileCookieJar(StorageHelper.getAuthFile());
+        cookieJar = new FileCookieJar(StorageHelper.getAuthFile());
 
         HttpLoggingInterceptor logging = new HttpLoggingInterceptor();
         logging.setLevel(HttpLoggingInterceptor.Level.BODY);
@@ -72,6 +74,16 @@ public class RetrofitClient {
         return appRetrofit.create(TemplateApiService.class);
     }
 
+    /** The account's JWT (cookie "authToken"), which Van Vat Drive takes as a Bearer token; null when signed out. */
+    public String getAuthToken() {
+        return cookieJar.findValue(AUTH_COOKIE);
+    }
+
+    /** Stores a refreshed JWT the server sent (X-Refreshed-Token) in place of the old one. */
+    public void replaceAuthToken(String token) {
+        cookieJar.replaceValue(AUTH_COOKIE, token);
+    }
+
     public void clearCookies() {
         if (authRetrofit.callFactory() instanceof OkHttpClient) {
             CookieJar jar = ((OkHttpClient) authRetrofit.callFactory()).cookieJar();
@@ -92,7 +104,47 @@ public class RetrofitClient {
             loadCookies();
         }
 
-        public void clear() {
+        /** The value of the named cookie as stored for the account host first, else any host; null when there is none. */
+        public synchronized String findValue(String name) {
+            List<Cookie> preferred = cookieStore.get("account.vanvatcorp.com");
+            String v = valueIn(preferred, name);
+            if (v != null) return v;
+            for (List<Cookie> list : cookieStore.values()) {
+                v = valueIn(list, name);
+                if (v != null) return v;
+            }
+            return null;
+        }
+
+        private static String valueIn(List<Cookie> list, String name) {
+            if (list == null) return null;
+            for (Cookie c : list) if (c.name().equals(name) && !c.value().isEmpty()) return c.value();
+            return null;
+        }
+
+        /** Replaces the value of every cookie with this name, keeping its other attributes, and saves. */
+        public synchronized void replaceValue(String name, String value) {
+            boolean changed = false;
+            for (Map.Entry<String, List<Cookie>> entry : cookieStore.entrySet()) {
+                List<Cookie> rebuilt = new ArrayList<>();
+                for (Cookie c : entry.getValue()) {
+                    if (c.name().equals(name)) {
+                        Cookie.Builder b = new Cookie.Builder().name(name).value(value).expiresAt(c.expiresAt()).path(c.path());
+                        if (c.secure()) b.secure();
+                        if (c.httpOnly()) b.httpOnly();
+                        if (c.hostOnly()) b.hostOnlyDomain(c.domain()); else b.domain(c.domain());
+                        rebuilt.add(b.build());
+                        changed = true;
+                    } else {
+                        rebuilt.add(c);
+                    }
+                }
+                entry.setValue(rebuilt);
+            }
+            if (changed) saveCookies();
+        }
+
+        public synchronized void clear() {
             cookieStore.clear();
             if (storageFile.exists()) {
                 storageFile.delete();
@@ -100,13 +152,13 @@ public class RetrofitClient {
         }
 
         @Override
-        public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
+        public synchronized void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
             cookieStore.put(url.host(), cookies);
             saveCookies();
         }
 
         @Override
-        public List<Cookie> loadForRequest(HttpUrl url) {
+        public synchronized List<Cookie> loadForRequest(HttpUrl url) {
             List<Cookie> cookies = cookieStore.get(url.host());
             return cookies != null ? cookies : new ArrayList<>();
         }

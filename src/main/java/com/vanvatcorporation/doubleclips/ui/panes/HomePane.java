@@ -11,6 +11,7 @@ import com.vanvatcorporation.doubleclips.helper.DateHelper;
 import com.vanvatcorporation.doubleclips.helper.FileHelper;
 import com.vanvatcorporation.doubleclips.helper.ProjectShare;
 import com.vanvatcorporation.doubleclips.helper.TaskbarHelper;
+import com.vanvatcorporation.doubleclips.ui.BackupProjectWindow;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.collections.ListChangeListener;
@@ -228,8 +229,9 @@ public class HomePane extends VBox {
         MenuItem shareItem = new MenuItem("Share", new FontIcon(MaterialDesignS.SHARE_VARIANT));
         shareItem.setOnAction(e -> handleShare(project));
         
-        MenuItem uploadItem = new MenuItem("Upload", new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
-        uploadItem.setDisable(true); // Placeholder
+        // Back up to OpenEditz in Van Vat Drive (same as Storage > Back up a project, for this one project).
+        MenuItem uploadItem = new MenuItem("Back up to Drive", new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
+        uploadItem.setOnAction(e -> BackupProjectWindow.backup(getScene() != null ? getScene().getWindow() : null, project, null));
 
         MenuItem revealItem = new MenuItem(getRevealLabel(), new FontIcon(MaterialDesignF.FOLDER_OUTLINE));
         revealItem.setOnAction(e -> FileHelper.revealInFileBrowser(java.nio.file.Paths.get(project.getProjectPath())));
