@@ -27,6 +27,8 @@ import javafx.scene.shape.QuadCurveTo;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.StrokeLineCap;
 
+import com.vanvatcorporation.doubleclips.TemplateAvailability;
+
 import java.util.function.Consumer;
 
 /**
@@ -34,9 +36,11 @@ import java.util.function.Consumer;
  * the template's timeline, fast) and the turtle (FFmpeg: runs the template's own command, slower). Desktop and Android
  * have both engines; a template can offer one or both:
  * <ul>
- *   <li>no timeline (an older template): the rabbit is grayed out and cannot be picked;</li>
- *   <li>no FFmpeg command (a newer template the FFmpeg path cannot render): the turtle is grayed out.</li>
+ *   <li>no (usable) timeline: the rabbit is grayed out and cannot be picked;</li>
+ *   <li>no (usable) FFmpeg command: the turtle is grayed out.</li>
  * </ul>
+ * What is usable comes from {@link TemplateAvailability}, which really fetches the command and parses the timeline; the
+ * reason it gives is the grayed-out choice's tooltip.
  * The art is drawn with shapes; drop {@code engine_rabbit.png} / {@code engine_turtle.png} into {@code resources/icons}
  * to use pictures instead.
  */
@@ -47,7 +51,7 @@ public class TemplateEnginePickerOverlay extends StackPane {
     private final Consumer<Engine> onChoose;
     private final Runnable onCancel;
 
-    public TemplateEnginePickerOverlay(TemplateData data, Consumer<Engine> onChoose, Runnable onCancel) {
+    public TemplateEnginePickerOverlay(TemplateAvailability.Result avail, Consumer<Engine> onChoose, Runnable onCancel) {
         this.onChoose = onChoose;
         this.onCancel = onCancel;
         getStyleClass().add("modal-overlay");
@@ -64,15 +68,15 @@ public class TemplateEnginePickerOverlay extends StackPane {
         sub.getStyleClass().add("text-muted");
         sub.setWrapText(true);
 
-        boolean glOk = data.hasTimeline();
-        boolean ffOk = data.isFfmpegAvailable();
+        boolean glOk = avail.timelineOk;
+        boolean ffOk = avail.ffmpegOk;
         Node rabbit = card(art("/icons/engine_rabbit.png", Engine.OPENGL), "OpenGL", "Fast",
                 "Renders the template's timeline on the graphics card, like the editor's preview.",
-                glOk, "This template has no timeline (it is an older template), so OpenGL cannot render it.",
+                glOk, avail.timelineWhyNot,
                 () -> choose(Engine.OPENGL));
         Node turtle = card(art("/icons/engine_turtle.png", Engine.FFMPEG), "FFmpeg", "Slower",
                 "Runs the template's original FFmpeg command.",
-                ffOk, "This template has no FFmpeg version (it needs the timeline), so FFmpeg cannot render it.",
+                ffOk, avail.ffmpegWhyNot,
                 () -> choose(Engine.FFMPEG));
 
         HBox cards = new HBox(16, rabbit, turtle);

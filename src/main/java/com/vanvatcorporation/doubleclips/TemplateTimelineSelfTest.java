@@ -89,6 +89,27 @@ public final class TemplateTimelineSelfTest {
         check("row height clamps", TemplateStripMath.rowHeight(100, 3, 4, 12, 28) == 28f && TemplateStripMath.rowHeight(40, 6, 4, 12, 28) == 12f, "");
         check("clip left: current time under the middle", Math.abs(TemplateStripMath.clipLeft(400, 5, 5, 20) - 200) < 1e-4, "");
 
+        // template data: what counts as a timeline address / an ffmpeg command
+        check("link: null, blank, \"null\", relative path = none",
+                com.vanvatcorporation.doubleclips.data.TemplateData.cleanLink(null).isEmpty()
+                        && com.vanvatcorporation.doubleclips.data.TemplateData.cleanLink("  ").isEmpty()
+                        && com.vanvatcorporation.doubleclips.data.TemplateData.cleanLink("null").isEmpty()
+                        && com.vanvatcorporation.doubleclips.data.TemplateData.cleanLink("/a/timeline.json").isEmpty(), "");
+        check("link: http(s) address kept, trimmed",
+                com.vanvatcorporation.doubleclips.data.TemplateData.cleanLink(" https://x.y/t.json ").equals("https://x.y/t.json"), "");
+        check("command: blank / null / html / json answers are not commands",
+                !com.vanvatcorporation.doubleclips.data.TemplateData.looksLikeCommand("") && !com.vanvatcorporation.doubleclips.data.TemplateData.looksLikeCommand("null")
+                        && !com.vanvatcorporation.doubleclips.data.TemplateData.looksLikeCommand("<html>404</html>")
+                        && !com.vanvatcorporation.doubleclips.data.TemplateData.looksLikeCommand("{\"error\":1}"), "");
+        check("command: a real ffmpeg command is",
+                com.vanvatcorporation.doubleclips.data.TemplateData.looksLikeCommand("-y -i \"in.mp4\" out.mp4"), "");
+        com.vanvatcorporation.doubleclips.data.TemplateData td = new com.vanvatcorporation.doubleclips.data.TemplateData();
+        check("unchecked, no command in the list: FFmpeg not available, no timeline", !td.isFfmpegAvailable() && !td.hasTimeline(), "");
+        td.setFfmpegCommand("-i x y"); td.setFfmpegVerified(false);
+        check("a failed check wins over a command in the data", !td.isFfmpegAvailable(), "");
+        td.setFfmpegVerified(true);
+        check("a passed check enables FFmpeg", td.isFfmpegAvailable() && td.hasVerifiedFfmpegCommand(), "");
+
         System.exit(failures == 0 ? 0 : 1);
     }
 }

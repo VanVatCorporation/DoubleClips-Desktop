@@ -1,6 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
+import com.vanvatcorporation.doubleclips.TemplateAvailability;
 import com.vanvatcorporation.doubleclips.TemplateStripMath;
 import com.vanvatcorporation.doubleclips.TemplateTimelineInfo;
 import com.vanvatcorporation.doubleclips.TemplateTimelineInfo.Role;
@@ -67,6 +68,8 @@ public class TemplatePreviewOverlay extends StackPane {
     private final TemplateData data;
     private final Consumer<Void> onClose;
     private boolean closed;
+    /** "Use template": held while the engines are being checked. */
+    private Button useButton;
 
     // player
     private MediaPlayer mediaPlayer;
@@ -155,6 +158,7 @@ public class TemplatePreviewOverlay extends StackPane {
         use.getStyleClass().add("button-primary");
         use.setStyle("-fx-font-weight: bold; -fx-font-size: 14px; -fx-padding: 9 22; -fx-background-radius: 10;");
         use.setOnAction(e -> useTemplate());
+        useButton = use;
 
         Button closeBtn = new Button();
         closeBtn.setGraphic(new FontIcon(MaterialDesignC.CLOSE));
@@ -334,16 +338,20 @@ public class TemplatePreviewOverlay extends StackPane {
     // ------------------------------------------------------------------------------------------------ timeline
 
     private void loadTimeline() {
-        if (!data.hasTimeline()) return;
         Thread t = new Thread(() -> {
-            try {
-                TemplateTimelineInfo real = TemplateTimelineLoader.load(data);
-                Platform.runLater(() -> { if (!closed) applyInfo(real, true); });
-            } catch (Exception e) {
-                Platform.runLater(() -> {
-                    if (!closed) timelineNote.setText("The template's timeline could not be loaded (" + e.getMessage() + "); the simple strip is shown instead.");
-                });
+            if (data.hasTimeline()) {
+                try {
+                    TemplateTimelineInfo real = TemplateTimelineLoader.load(data);
+                    Platform.runLater(() -> { if (!closed) applyInfo(real, true); });
+                } catch (Exception e) {
+                    Platform.runLater(() -> {
+                        if (!closed) timelineNote.setText("The template's timeline could not be loaded (" + e.getMessage() + "); the simple strip is shown instead.");
+                    });
+                }
             }
+            // Check which engines can really render it (fetches the FFmpeg command, parses the timeline): remembered, so
+            // "Use template" can open the picker straight away.
+            TemplateAvailability.start(data);
         }, "TemplateTimelineLoad");
         t.setDaemon(true);
         t.start();
@@ -578,15 +586,32 @@ public class TemplatePreviewOverlay extends StackPane {
      * window; the OpenGL path renders the template's timeline.
      */
     private void useTemplate() {
-        if (!data.hasTimeline() && !data.isFfmpegAvailable()) {
-            Alert a = new Alert(Alert.AlertType.INFORMATION, "This template cannot be rendered: it has neither a timeline nor an FFmpeg command.");
+        TemplateAvailability.Result known = TemplateAvailability.peek(data);
+        if (known != null) {
+            showEnginePicker(known);
+            return;
+        }
+        // Not checked yet (or the last check only failed on the network): check now, holding the button meanwhile.
+        useButton.setDisable(true);
+        useButton.setText("Checking\u2026");
+        TemplateAvailability.start(data).thenAccept(result -> Platform.runLater(() -> {
+            useButton.setDisable(false);
+            useButton.setText("Use template");
+            if (!closed) showEnginePicker(result);
+        }));
+    }
+
+    private void showEnginePicker(TemplateAvailability.Result avail) {
+        if (!avail.anyEngine()) {
+            Alert a = new Alert(Alert.AlertType.INFORMATION,
+                    "This template cannot be rendered.\n\nOpenGL: " + avail.timelineWhyNot + "\nFFmpeg: " + avail.ffmpegWhyNot);
             a.setTitle("Use template");
             a.setHeaderText(null);
             a.show();
             return;
         }
         final TemplateEnginePickerOverlay[] picker = new TemplateEnginePickerOverlay[1];
-        picker[0] = new TemplateEnginePickerOverlay(data,
+        picker[0] = new TemplateEnginePickerOverlay(avail,
                 engine -> {
                     DoubleClipsDesktop.getInstance().hideOverlay(picker[0]);
                     if (engine == TemplateEnginePickerOverlay.Engine.FFMPEG) {

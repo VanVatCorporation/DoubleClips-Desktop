@@ -2,6 +2,7 @@ package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEditNative;
+import com.vanvatcorporation.doubleclips.TemplateAvailability;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.data.ClipReplacementData;
 import com.vanvatcorporation.doubleclips.data.TemplateData;
@@ -220,28 +221,30 @@ public class TemplateExportWindow extends Stage {
     }
 
     private void fetchFFmpegCommand() {
+        if (data.hasVerifiedFfmpegCommand()) {
+            taskStatusLabel.setText("Template ready.");
+            logTextArea.appendText("FFmpeg command template was already fetched.\n");
+            return;
+        }
         taskStatusLabel.setText("Fetching FFmpeg template...");
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://app.vanvatcorp.com/doubleclips/api/fetch-ffmpeg-command/" + data.getTemplateAuthor() + "/" + data.getTemplateId()))
-                .build();
-
-        client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenAccept(body -> {
-                    Platform.runLater(() -> {
-                        data.setFfmpegCommand(body);
-                        taskStatusLabel.setText("Template ready.");
-                        logTextArea.appendText("Successfully fetched FFmpeg command template.\n");
-                    });
-                })
-                .exceptionally(e -> {
-                    Platform.runLater(() -> {
-                        taskStatusLabel.setText("Failed to fetch template.");
-                        logTextArea.appendText("Error fetching command: " + e.getMessage() + "\n");
-                    });
-                    return null;
+        Thread t = new Thread(() -> {
+            try {
+                String command = TemplateAvailability.fetchCommand(data);
+                Platform.runLater(() -> {
+                    data.setFfmpegCommand(command);
+                    data.setFfmpegVerified(true);
+                    taskStatusLabel.setText("Template ready.");
+                    logTextArea.appendText("Successfully fetched FFmpeg command template.\n");
                 });
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    taskStatusLabel.setText("Failed to fetch template.");
+                    logTextArea.appendText("Error fetching command: " + e.getMessage() + "\n");
+                });
+            }
+        }, "TemplateFfmpegFetch");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void downloadResources() {
