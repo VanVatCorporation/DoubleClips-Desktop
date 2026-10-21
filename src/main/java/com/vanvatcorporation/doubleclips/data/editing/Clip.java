@@ -23,6 +23,7 @@ public class Clip implements Serializable, UnknownKeysHolder {
     @Expose public float startClipTrim;
     @Expose public float endClipTrim;
     @Expose public float originalDuration;
+    @Expose public float audioVolume;
     @Expose public int trackIndex;
     @Expose public int width;
     @Expose public int height;
@@ -139,6 +140,12 @@ public class Clip implements Serializable, UnknownKeysHolder {
     @Expose public boolean isClipHasAudio;
     @Expose public boolean isMute;
     @Expose public boolean isLockedForTemplate;
+    /**
+     * Set only in a PUBLISHED template (iOS: TemplateGrouping): replaceable clips that share one source carry the same id
+     * ("g1", "g2", ... in order of first appearance); null = the clip stands alone. "Use template" fills every member of a
+     * group from one pick. Part of the iOS clip JSON; Android ignores it (and keeps it as an unknown key).
+     */
+    @Expose public String templateGroup;
     @Expose public boolean isReverse;
     @Expose public boolean removeBackground;
     
@@ -162,6 +169,7 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.startTime = startTime;
         this.duration = duration;
         this.originalDuration = duration;
+        this.audioVolume = isClipHasAudio ? 1.0f : 0.0f;
         this.trackIndex = trackIndex;
         this.type = type;
         this.isClipHasAudio = isClipHasAudio;
@@ -180,6 +188,7 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.startTime = other.startTime;
         this.duration = other.duration;
         this.originalDuration = other.originalDuration;
+        this.audioVolume = other.audioVolume;
         this.startClipTrim = other.startClipTrim;
         this.endClipTrim = other.endClipTrim;
         this.trackIndex = other.trackIndex;
@@ -218,6 +227,7 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.isReverse = other.isReverse;
         this.removeBackground = other.removeBackground;
         this.isLockedForTemplate = other.isLockedForTemplate;
+        this.templateGroup = other.templateGroup;
     }
 
     public String getClipName() {
@@ -234,6 +244,9 @@ public class Clip implements Serializable, UnknownKeysHolder {
 
     public float getDuration() { return duration; }
     public void setDuration(float duration) { this.duration = duration; }
+
+    public float getAudioVolume() { return audioVolume; }
+    public void setAudioVolume(float audioVolume) { this.audioVolume = audioVolume; }
 
     public float getStartClipTrim() { return startClipTrim; }
     public void setStartClipTrim(float value) {

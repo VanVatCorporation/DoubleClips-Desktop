@@ -18,6 +18,15 @@ public class DriveError extends IOException {
     public String getCode() { return code; }
     public boolean isUnauthorized() { return status == 401; }
 
+    /**
+     * The server refused because of a quota or plan limit (storage, file size, daily transfer, compute):
+     * the useful next step is "Get more resources" (the account tier upgrade).
+     */
+    public boolean isQuotaLimit() {
+        return "quota_exceeded".equals(code) || "file_too_large".equals(code) || "daily_upload_limit".equals(code)
+                || "daily_download_limit".equals(code) || "daily_compute_limit".equals(code);
+    }
+
     /** Words for the user for any failure of a Drive call (a server answer, no network, a timeout ...). */
     public static String describe(Throwable e) {
         if (e instanceof DriveError) {

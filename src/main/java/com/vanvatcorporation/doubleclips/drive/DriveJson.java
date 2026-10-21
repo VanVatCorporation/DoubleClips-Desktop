@@ -46,6 +46,18 @@ final class DriveJson {
         try { return e == null ? def : e.getAsLong(); } catch (RuntimeException ex) { return def; }
     }
 
+    /** A number as a double, or {@code def} when it is missing or not a number. */
+    static double dbl(JsonObject o, String key, double def) {
+        JsonElement e = get(o, key);
+        try { return e == null ? def : e.getAsDouble(); } catch (RuntimeException ex) { return def; }
+    }
+
+    /** A nested object, or null. */
+    static JsonObject obj(JsonObject o, String key) {
+        JsonElement e = get(o, key);
+        return e != null && e.isJsonObject() ? e.getAsJsonObject() : null;
+    }
+
     static boolean bool(JsonObject o, String key) {
         JsonElement e = get(o, key);
         try { return e != null && e.getAsBoolean(); } catch (RuntimeException ex) { return false; }

@@ -28,6 +28,12 @@ public final class ProjectBackup {
     public interface Listener {
         void onZipping(double fraction);
         void onUploading(double fraction);
+
+        /**
+         * The ZIP probably won't fit today's upload allowance. Return true to continue anyway (the server has the
+         * final say); false stops the backup. Called on the backup thread: it may block while the user decides.
+         */
+        default boolean confirmDailyUpload(long size, long freeToday) { return true; }
     }
 
     public static String formatBytes(long n) {
@@ -78,6 +84,11 @@ public final class ProjectBackup {
             if (size > me.freeBytes()) {
                 throw new DriveError(413, "quota_exceeded", "The backup is " + formatBytes(size) + " but only "
                         + formatBytes(me.freeBytes()) + " of storage is left.");
+            }
+
+            // The daily upload cap only warns: the user can still continue.
+            if (listener != null && size > me.uploadFree() && !listener.confirmDailyUpload(size, me.uploadFree())) {
+                throw new CancellationException("Backup stopped.");
             }
 
             // 3. upload

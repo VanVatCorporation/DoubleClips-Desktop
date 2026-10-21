@@ -13,6 +13,7 @@ import com.vanvatcorporation.doubleclips.helper.ProjectRestore;
 import com.vanvatcorporation.doubleclips.ui.BackupProjectWindow;
 import com.vanvatcorporation.doubleclips.ui.components.AppUi;
 import com.vanvatcorporation.doubleclips.ui.components.FxCoalescer;
+import com.vanvatcorporation.doubleclips.ui.components.QuotaUi;
 import com.vanvatcorporation.doubleclips.ui.components.TransferProgressWindow;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
@@ -93,6 +94,7 @@ public class StoragePane extends VBox {
     private final HBox breadcrumb = new HBox(2);
     private final ProgressBar quotaBar = new ProgressBar(0);
     private final Label quotaLabel = new Label();
+    private final VBox usageBox = new VBox(10);
     private final VBox uploadRows = new VBox(8);
     private final VBox uploadsBox = new VBox(8);
     private final Label messageLabel = new Label();
@@ -148,7 +150,7 @@ public class StoragePane extends VBox {
         HBox.setHgrow(quotaSpacer, Priority.ALWAYS);
         quotaBar.getStyleClass().add("storage-bar");
         quotaBar.setMaxWidth(Double.MAX_VALUE);
-        VBox quotaCard = new VBox(10, new HBox(8, quotaTitle, quotaSpacer, quotaLabel), quotaBar);
+        VBox quotaCard = new VBox(10, new HBox(8, quotaTitle, quotaSpacer, quotaLabel), quotaBar, usageBox, QuotaUi.moreResourcesLink());
         quotaCard.getStyleClass().add("storage-card");
         quotaCard.setPadding(new Insets(16, 18, 16, 18));
 
@@ -272,15 +274,26 @@ public class StoragePane extends VBox {
     }
 
     private void renderQuota() {
-        quotaBar.getStyleClass().remove("storage-bar-warn");
+        usageBox.getChildren().clear();
         if (me == null || me.quotaBytes <= 0) {
             quotaBar.setProgress(0);
             quotaLabel.setText("");
             return;
         }
-        quotaBar.setProgress(Math.min(1.0, (double) me.usedBytes / me.quotaBytes));
-        if (me.usedBytes * 10 > me.quotaBytes * 9) quotaBar.getStyleClass().add("storage-bar-warn");
-        quotaLabel.setText(ProjectBackup.formatBytes(me.usedBytes) + " of " + ProjectBackup.formatBytes(me.quotaBytes));
+        QuotaUi.applyTone(quotaBar, me.usedBytes, me.quotaBytes);
+        quotaLabel.setText((me.planName == null ? "" : "Plan: " + me.planName + "  \u00b7  ")
+                + ProjectBackup.formatBytes(me.usedBytes) + " of " + ProjectBackup.formatBytes(me.quotaBytes));
+
+        if (me.hasUsage) {
+            usageBox.getChildren().add(QuotaUi.usageRow("Today: \u2191 " + ProjectBackup.formatBytes(me.uploadedBytes) + " / "
+                    + ProjectBackup.formatBytes(me.uploadLimit), me.uploadedBytes, me.uploadLimit));
+            usageBox.getChildren().add(QuotaUi.usageRow("Today: \u2193 " + ProjectBackup.formatBytes(me.downloadedBytes) + " / "
+                    + ProjectBackup.formatBytes(me.downloadLimit), me.downloadedBytes, me.downloadLimit));
+            if (me.hasCompute) {
+                usageBox.getChildren().add(QuotaUi.usageRow("Today: compute " + QuotaUi.credits(me.computeUsed) + " / "
+                        + QuotaUi.credits(me.computeLimit) + " credits", me.computeUsed, me.computeLimit));
+            }
+        }
     }
 
     private void renderBreadcrumb() {
@@ -363,13 +376,19 @@ public class StoragePane extends VBox {
         chooser.setTitle("Upload files to OpenEditz");
         List<File> files = chooser.showOpenMultipleDialog(owner());
         if (files == null) return;
+        // The daily cap only warns (like the web Drive): one question for the whole selection.
+        long total = 0;
+        for (File f : files) total += f.length();
+        long freeToday = me == null ? Long.MAX_VALUE : me.uploadFree();
+        if (total > freeToday && !QuotaUi.confirmContinue(owner(), QuotaUi.UPLOAD_TITLE, QuotaUi.uploadMessage(total, freeToday))) return;
         for (File f : files) startUpload(f);
     }
 
     private void startUpload(File file) {
         final long size = file.length();
         if (me != null && size > me.freeBytes()) {
-            showMessage("Not enough space for \u201c" + file.getName() + "\u201d: " + ProjectBackup.formatBytes(me.freeBytes()) + " left.", true);
+            QuotaUi.blocked(owner(), "Not enough space", "Not enough space for \u201c" + file.getName() + "\u201d: "
+                    + ProjectBackup.formatBytes(me.freeBytes()) + " left of " + ProjectBackup.formatBytes(me.quotaBytes) + ".");
             return;
         }
         final DriveNode folder = currentFolder();
@@ -406,7 +425,10 @@ public class StoragePane extends VBox {
             reload();
         }, err -> {
             if (err instanceof CancellationException) finishRow(row, bar, stop, status, "Stopped", bar.getProgress(), false);
-            else finishRow(row, bar, stop, status, DriveError.describe(err), bar.getProgress(), true);
+            else {
+                finishRow(row, bar, stop, status, DriveError.describe(err), bar.getProgress(), true);
+                if (err instanceof DriveError && ((DriveError) err).isQuotaLimit()) texts.getChildren().add(QuotaUi.moreResourcesLink());
+            }
             reload();
         });
     }
@@ -428,12 +450,19 @@ public class StoragePane extends VBox {
 
     // ================================================================================== download / restore
 
+    /** Downloading spends today's download allowance: warn first when the file probably won't fit (the user may continue). */
+    private boolean confirmDownload(DriveNode node) {
+        long free = me == null ? Long.MAX_VALUE : me.downloadFree();
+        return node.size <= free || QuotaUi.confirmContinue(owner(), QuotaUi.DOWNLOAD_TITLE, QuotaUi.downloadMessage(node.size, free));
+    }
+
     private static double fraction(long got, long total) { return total <= 0 ? -1 : Math.min(1.0, (double) got / total); }
 
     private static String percent(long got, long total) { return total <= 0 ? "" : String.format(" %.0f%%", Math.min(1.0, (double) got / total) * 100); }
 
     /** Downloads a project ZIP and unpacks it into the projects folder (a project that exists is never overwritten). */
     private void restore(DriveNode node) {
+        if (!confirmDownload(node)) return;
         TransferProgressWindow w = new TransferProgressWindow(owner(), "Restore project");
         w.show();
         w.post("Downloading \u201c" + node.name + "\u201d\u2026", 0);
@@ -450,6 +479,7 @@ public class StoragePane extends VBox {
         }, result -> {
             w.close();
             ProjectRepository.getInstance().refreshProjects();
+            reload();                                     // the download spent part of today's allowance
             showMessage("Restored as \u201c" + result.folder.getName() + "\u201d; it is in your projects now."
                     + (result.hasProperties ? "" : " This ZIP has no project information in it, so it may not be listed as a project."), false);
         }, err -> {
@@ -459,6 +489,7 @@ public class StoragePane extends VBox {
     }
 
     private void saveAs(DriveNode node) {
+        if (!confirmDownload(node)) return;
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Save a copy");
         chooser.setInitialFileName(OpenEditzClient.safeFileName(node.name));
@@ -473,6 +504,7 @@ public class StoragePane extends VBox {
             return dest;
         }, saved -> {
             w.close();
+            reload();
             showMessage("Saved to " + saved.getAbsolutePath(), false);
         }, err -> {
             w.close();
@@ -500,6 +532,10 @@ public class StoragePane extends VBox {
         if (err instanceof CancellationException) return;
         err.printStackTrace();
         updateView();
+        if (err instanceof DriveError && ((DriveError) err).isQuotaLimit()) {
+            QuotaUi.blocked(owner(), "Limit reached", DriveError.describe(err));   // explains it and offers the upgrade
+            return;
+        }
         showMessage(DriveError.describe(err), true);
     }
 

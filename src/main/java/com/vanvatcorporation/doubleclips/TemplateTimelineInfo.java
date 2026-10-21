@@ -51,8 +51,17 @@ public final class TemplateTimelineInfo {
         public final int number;            // 1-based, time order (top row first on a tie)
         public final double start, duration; // how long the template keeps this clip on screen
         public final boolean isImage;
-        Slot(Clip clip, int number, double start, double duration, boolean isImage) {
+        /** The id the author's template gave the clips that share one source ("g1", "g2" ...); null = the clip stands alone. */
+        public final String group;
+        /** Where the template's own clip starts inside its source (seconds): where a grouped clip starts by default. */
+        public final double sourceTrim;
+        Slot(Clip clip, int number, double start, double duration, boolean isImage, String group, double sourceTrim) {
             this.clip = clip; this.number = number; this.start = start; this.duration = duration; this.isImage = isImage;
+            this.group = group; this.sourceTrim = sourceTrim;
+        }
+        /** A slot that stands alone (legacy templates). */
+        Slot(Clip clip, int number, double start, double duration, boolean isImage) {
+            this(clip, number, start, duration, isImage, null, 0);
         }
     }
 
@@ -112,13 +121,16 @@ public final class TemplateTimelineInfo {
         return new TemplateTimelineInfo(clips, 1, duration, slots, null);
     }
 
-    /** Builds the strip and the slot list from a template timeline. */
-    public static TemplateTimelineInfo make(Timeline timeline) {
+    /** The tracks that have clips, top row first (timeline order): the rows of the strip. */
+    static List<Track> visibleTracks(Timeline timeline) {
         List<Track> tracks = new ArrayList<>();
         for (Track t : timeline.tracks) if (t.clips != null && !t.clips.isEmpty()) tracks.add(t);
         Collections.sort(tracks, Comparator.comparingInt(t -> t.timelineIndex));
+        return tracks;
+    }
 
-        // Slots first (time order, then top row first) so the strip can number them.
+    /** The replaceable clips in slot order: time order, a tie goes to the top row. ONE ordering for the numbers and the groups. */
+    static List<Clip> replaceableInOrder(List<Track> tracks) {
         final class Candidate { final Clip clip; final int row; Candidate(Clip c, int r) { clip = c; row = r; } }
         List<Candidate> candidates = new ArrayList<>();
         for (int row = 0; row < tracks.size(); row++) {
@@ -128,13 +140,23 @@ public final class TemplateTimelineInfo {
         }
         Collections.sort(candidates, (a, b) -> a.clip.startTime != b.clip.startTime
                 ? Float.compare(a.clip.startTime, b.clip.startTime) : Integer.compare(a.row, b.row));
+        List<Clip> ordered = new ArrayList<>();
+        for (Candidate c : candidates) ordered.add(c.clip);
+        return ordered;
+    }
 
+    /** Builds the strip and the slot list from a template timeline. */
+    public static TemplateTimelineInfo make(Timeline timeline) {
+        List<Track> tracks = visibleTracks(timeline);
+
+        // Slots first (time order, then top row first) so the strip can number them.
+        List<Clip> ordered = replaceableInOrder(tracks);
         java.util.Map<Clip, Integer> numbers = new java.util.IdentityHashMap<>();
         List<Slot> slots = new ArrayList<>();
-        for (int i = 0; i < candidates.size(); i++) {
-            Clip c = candidates.get(i).clip;
+        for (int i = 0; i < ordered.size(); i++) {
+            Clip c = ordered.get(i);
             numbers.put(c, i + 1);
-            slots.add(new Slot(c, i + 1, c.startTime, c.duration, c.type == ClipType.IMAGE));
+            slots.add(new Slot(c, i + 1, c.startTime, c.duration, c.type == ClipType.IMAGE, c.templateGroup, c.startClipTrim));
         }
 
         List<StripClip> clips = new ArrayList<>();

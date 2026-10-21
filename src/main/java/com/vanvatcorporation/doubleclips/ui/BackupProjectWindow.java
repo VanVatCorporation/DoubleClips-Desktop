@@ -141,6 +141,11 @@ public final class BackupProjectWindow {
                         w.post(String.format("Uploading \u201c%s\u201d\u2026 %.0f%%", project.getProjectTitle(), f * 100), f);
                         TaskbarHelper.updateProgress(f);
                     }
+                    @Override public boolean confirmDailyUpload(long size, long freeToday) {
+                        return com.vanvatcorporation.doubleclips.ui.components.QuotaUi.confirmContinueAnyThread(owner,
+                                com.vanvatcorporation.doubleclips.ui.components.QuotaUi.UPLOAD_TITLE,
+                                com.vanvatcorporation.doubleclips.ui.components.QuotaUi.uploadMessage(size, freeToday));
+                    }
                 }, w.cancelFlag());
                 Platform.runLater(() -> {
                     w.close();
@@ -155,7 +160,11 @@ public final class BackupProjectWindow {
                 Platform.runLater(() -> {
                     w.close();
                     TaskbarHelper.stopProgress();
-                    alert(owner, Alert.AlertType.ERROR, "Couldn't back up the project", DriveError.describe(e));
+                    if (e instanceof DriveError && ((DriveError) e).isQuotaLimit()) {
+                        com.vanvatcorporation.doubleclips.ui.components.QuotaUi.blocked(owner, "Couldn't back up the project", DriveError.describe(e));
+                    } else {
+                        alert(owner, Alert.AlertType.ERROR, "Couldn't back up the project", DriveError.describe(e));
+                    }
                     if (onDone != null) onDone.run();
                 });
             }

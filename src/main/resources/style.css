@@ -1040,6 +1040,10 @@
     -fx-padding: 0;
 }
 
+.storage-bar-caution > .bar {
+    -fx-background-color: #FF9500;
+}
+
 .storage-bar-warn > .bar {
     -fx-background-color: #FF3B30;
 }

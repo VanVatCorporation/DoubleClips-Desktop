@@ -110,6 +110,41 @@ public final class TemplateTimelineSelfTest {
         td.setFfmpegVerified(true);
         check("a passed check enables FFmpeg", td.isFfmpegAvailable() && td.hasVerifiedFfmpegCommand(), "");
 
+
+        // ---- template groups (iOS TemplateGrouping): clips sharing ONE source get g1, g2 ... in slot order
+        Clip g1a = clip("same.mp4", 6, 2, ClipType.VIDEO, false);      // 3rd in time
+        Clip g1b = clip("same.mp4", 0, 2, ClipType.VIDEO, false);      // 1st in time -> group g1
+        Clip solo = clip("alone.mp4", 2, 2, ClipType.VIDEO, false);
+        Clip g2a = clip("pic.png", 3, 1, ClipType.IMAGE, false);       // a photo used twice -> g2
+        Clip g2b = clip("pic.png", 5, 1, ClipType.IMAGE, false);
+        Clip sameNameVideo = clip("pic.png", 4, 1, ClipType.VIDEO, false); // a VIDEO named like the photo: another source
+        Clip lockedSame = clip("same.mp4", 7, 1, ClipType.VIDEO, true);    // locked: never counted, never grouped
+        Clip stale = clip("one.mp4", 8, 1, ClipType.VIDEO, false);
+        stale.templateGroup = "old";                                    // a stale id on a clip that is alone now
+        Timeline gt = new Timeline();
+        gt.tracks.add(track(0, g1a, g2a, g2b, lockedSame));
+        gt.tracks.add(track(1, g1b, solo, sameNameVideo, stale));
+        int made = TemplateGrouping.assign(gt);
+        check("groups: two ids made", made == 2, "made " + made);
+        check("groups: first appearance in slot order gets g1", "g1".equals(g1b.templateGroup) && "g1".equals(g1a.templateGroup), g1b.templateGroup + "," + g1a.templateGroup);
+        check("groups: a photo used twice is g2", "g2".equals(g2a.templateGroup) && "g2".equals(g2b.templateGroup), g2a.templateGroup + "," + g2b.templateGroup);
+        check("groups: a source used once stays alone", solo.templateGroup == null && sameNameVideo.templateGroup == null, "");
+        check("groups: a stale id is cleared", stale.templateGroup == null, String.valueOf(stale.templateGroup));
+        check("groups: a locked clip is not grouped", lockedSame.templateGroup == null, "");
+
+        TemplateTimelineInfo gi = TemplateTimelineInfo.make(gt);
+        TemplateTimelineInfo.Slot slotOfG1b = null;
+        for (TemplateTimelineInfo.Slot sl : gi.slots) if (sl.clip == g1b) slotOfG1b = sl;
+        g1b.startClipTrim = 2.5f;
+        TemplateTimelineInfo gi2 = TemplateTimelineInfo.make(gt);
+        TemplateTimelineInfo.Slot trimmed = null;
+        for (TemplateTimelineInfo.Slot sl : gi2.slots) if (sl.clip == g1b) trimmed = sl;
+        check("slot carries the group of its clip", slotOfG1b != null && "g1".equals(slotOfG1b.group), slotOfG1b == null ? "none" : slotOfG1b.group);
+        check("slot carries sourceTrim = the clip's own start inside its source", trimmed != null && trimmed.sourceTrim == 2.5, trimmed == null ? "none" : String.valueOf(trimmed.sourceTrim));
+        check("a standing-alone slot has no group and the clip's own trim", gi.slots.stream().anyMatch(sl -> sl.clip == solo && sl.group == null && sl.sourceTrim == 0), "");
+        check("numbering is unchanged by grouping (time order)", gi.slots.get(0).clip == g1b && gi.slots.get(1).clip == solo, "");
+        check("legacy slots have no group", TemplateTimelineInfo.legacy(3, 6, 0).slots.stream().allMatch(sl -> sl.group == null && sl.sourceTrim == 0), "");
+        check("copy keeps templateGroup", new Clip(g2a).templateGroup.equals("g2"), "");
         System.exit(failures == 0 ? 0 : 1);
     }
 }
