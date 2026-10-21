@@ -23,7 +23,6 @@ public class Clip implements Serializable, UnknownKeysHolder {
     @Expose public float startClipTrim;
     @Expose public float endClipTrim;
     @Expose public float originalDuration;
-    @Expose public float audioVolume;
     @Expose public int trackIndex;
     @Expose public int width;
     @Expose public int height;
@@ -169,7 +168,6 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.startTime = startTime;
         this.duration = duration;
         this.originalDuration = duration;
-        this.audioVolume = isClipHasAudio ? 1.0f : 0.0f;
         this.trackIndex = trackIndex;
         this.type = type;
         this.isClipHasAudio = isClipHasAudio;
@@ -188,7 +186,6 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.startTime = other.startTime;
         this.duration = other.duration;
         this.originalDuration = other.originalDuration;
-        this.audioVolume = other.audioVolume;
         this.startClipTrim = other.startClipTrim;
         this.endClipTrim = other.endClipTrim;
         this.trackIndex = other.trackIndex;
@@ -244,9 +241,6 @@ public class Clip implements Serializable, UnknownKeysHolder {
 
     public float getDuration() { return duration; }
     public void setDuration(float duration) { this.duration = duration; }
-
-    public float getAudioVolume() { return audioVolume; }
-    public void setAudioVolume(float audioVolume) { this.audioVolume = audioVolume; }
 
     public float getStartClipTrim() { return startClipTrim; }
     public void setStartClipTrim(float value) {
