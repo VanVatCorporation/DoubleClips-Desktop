@@ -95,6 +95,7 @@ public class StoragePane extends VBox {
     private final ProgressBar quotaBar = new ProgressBar(0);
     private final Label quotaLabel = new Label();
     private final VBox usageBox = new VBox(10);
+    private final Label planLabel = new Label();
     private final VBox uploadRows = new VBox(8);
     private final VBox uploadsBox = new VBox(8);
     private final Label messageLabel = new Label();
@@ -150,7 +151,11 @@ public class StoragePane extends VBox {
         HBox.setHgrow(quotaSpacer, Priority.ALWAYS);
         quotaBar.getStyleClass().add("storage-bar");
         quotaBar.setMaxWidth(Double.MAX_VALUE);
-        VBox quotaCard = new VBox(10, new HBox(8, quotaTitle, quotaSpacer, quotaLabel), quotaBar, usageBox, QuotaUi.moreResourcesLink());
+        // Minimalist: only the storage bar shows; the arrow slides the plan, daily limits and upgrade link open.
+        planLabel.getStyleClass().add("storage-meta");
+        VBox quotaDetails = new VBox(10, planLabel, usageBox, QuotaUi.moreResourcesLink());
+        javafx.scene.control.Button quotaArrow = QuotaUi.collapseArrow(quotaDetails);
+        VBox quotaCard = new VBox(10, new HBox(8, quotaTitle, quotaSpacer, quotaLabel, quotaArrow), quotaBar, quotaDetails);
         quotaCard.getStyleClass().add("storage-card");
         quotaCard.setPadding(new Insets(16, 18, 16, 18));
 
@@ -281,8 +286,10 @@ public class StoragePane extends VBox {
             return;
         }
         QuotaUi.applyTone(quotaBar, me.usedBytes, me.quotaBytes);
-        quotaLabel.setText((me.planName == null ? "" : "Plan: " + me.planName + "  \u00b7  ")
-                + ProjectBackup.formatBytes(me.usedBytes) + " of " + ProjectBackup.formatBytes(me.quotaBytes));
+        quotaLabel.setText(ProjectBackup.formatBytes(me.usedBytes) + " of " + ProjectBackup.formatBytes(me.quotaBytes));
+        planLabel.setText(me.planName == null ? "" : "Plan: " + me.planName);
+        planLabel.setManaged(me.planName != null);
+        planLabel.setVisible(me.planName != null);
 
         if (me.hasUsage) {
             usageBox.getChildren().add(QuotaUi.usageRow("Today: \u2191 " + ProjectBackup.formatBytes(me.uploadedBytes) + " / "

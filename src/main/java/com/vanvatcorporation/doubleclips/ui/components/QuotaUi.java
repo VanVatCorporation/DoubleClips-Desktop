@@ -2,14 +2,23 @@ package com.vanvatcorporation.doubleclips.ui.components;
 
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.helper.ProjectBackup;
+import javafx.animation.Interpolator;
+import javafx.animation.KeyFrame;
+import javafx.animation.KeyValue;
+import javafx.animation.RotateTransition;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.scene.shape.Rectangle;
+import javafx.util.Duration;
 import javafx.stage.Window;
 
 import java.util.Locale;
@@ -64,6 +73,53 @@ public final class QuotaUi {
 
     public static void openPlans() {
         try { DoubleClipsDesktop.getInstance().getHostServices().showDocument(PLANS_URL); } catch (RuntimeException ignored) { /* no browser */ }
+    }
+
+    // ── collapsible details (minimalist: only the main bar shows until the arrow is clicked) ──
+
+    /** A transparent arrow button that shows/hides {@code details} with a short slide + fade, and turns itself around. */
+    public static Button collapseArrow(VBox details) {
+        details.setManaged(false);
+        details.setVisible(false);
+        details.setMaxHeight(0);
+        Rectangle clip = new Rectangle();
+        clip.widthProperty().bind(details.widthProperty());
+        clip.heightProperty().bind(details.heightProperty());
+        details.setClip(clip);
+
+        Button arrow = new Button("\u25BE");
+        arrow.setFocusTraversable(false);
+        arrow.setStyle("-fx-background-color: transparent; -fx-text-fill: #8E8E93; -fx-padding: 0 6 0 6; -fx-cursor: hand;");
+        arrow.setOnAction(e -> {
+            boolean show = !details.isManaged();
+            RotateTransition spin = new RotateTransition(Duration.millis(200), arrow);
+            spin.setToAngle(show ? 180 : 0);
+            spin.play();
+            slide(details, show);
+        });
+        return arrow;
+    }
+
+    private static void slide(VBox box, boolean show) {
+        if (show) {
+            box.setManaged(true);
+            box.setVisible(true);
+            box.setMaxHeight(0);
+            box.setOpacity(0);
+            double target = box.prefHeight(box.getWidth() > 0 ? box.getWidth() : -1);
+            Timeline t = new Timeline(new KeyFrame(Duration.millis(220),
+                    new KeyValue(box.maxHeightProperty(), target, Interpolator.EASE_BOTH),
+                    new KeyValue(box.opacityProperty(), 1, Interpolator.EASE_BOTH)));
+            t.setOnFinished(e -> box.setMaxHeight(Region.USE_COMPUTED_SIZE));
+            t.play();
+        } else {
+            box.setMaxHeight(box.getHeight());
+            Timeline t = new Timeline(new KeyFrame(Duration.millis(180),
+                    new KeyValue(box.maxHeightProperty(), 0, Interpolator.EASE_BOTH),
+                    new KeyValue(box.opacityProperty(), 0, Interpolator.EASE_BOTH)));
+            t.setOnFinished(e -> { box.setVisible(false); box.setManaged(false); });
+            t.play();
+        }
     }
 
     // ── dialogs ─────────────────────────────────────────────────────────────
