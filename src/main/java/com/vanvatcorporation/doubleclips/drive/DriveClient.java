@@ -161,6 +161,22 @@ public final class DriveClient {
     public DriveMe me() throws IOException { return new DriveMe(call("GET", "/me", null, null)); }
 
     /** The protected OpenEditz folder at the top of the user's space (created on first call). */
+    /** Turns image thumbnails on/off for this account. */
+    public void updateSettings(boolean previewThumbnails) throws IOException {
+        call("PUT", "/settings", null, "{\"previewThumbnails\":" + previewThumbnails + "}");
+    }
+
+    /**
+     * The image itself, served inline: the server has no thumbnail endpoint, so this spends a little of the daily download
+     * allowance (the caller keeps the result on disk, so it happens once per image).
+     */
+    public byte[] inlineContent(DriveNode node) throws IOException {
+        HttpRequest.Builder b = builder("/files/" + node.id + "/content", java.util.Collections.singletonMap("inline", "1"), Duration.ofSeconds(60));
+        HttpResponse<byte[]> r = exec(b.GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+        check(r.statusCode(), r.headers(), r.body());
+        return r.body();
+    }
+
     public DriveNode ensureOpenEditz() throws IOException {
         return DriveNode.fromJson(need(call("POST", "/system/openeditz", null, null), "node"));
     }

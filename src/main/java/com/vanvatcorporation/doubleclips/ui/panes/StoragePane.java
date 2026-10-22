@@ -14,6 +14,7 @@ import com.vanvatcorporation.doubleclips.ui.BackupProjectWindow;
 import com.vanvatcorporation.doubleclips.ui.components.AppUi;
 import com.vanvatcorporation.doubleclips.ui.components.FxCoalescer;
 import com.vanvatcorporation.doubleclips.ui.components.QuotaUi;
+import com.vanvatcorporation.doubleclips.ui.components.StorageThumbs;
 import com.vanvatcorporation.doubleclips.ui.components.TransferProgressWindow;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
@@ -593,6 +594,10 @@ public class StoragePane extends VBox {
             StackPane tile = new StackPane(iconFor(n));
             tile.getStyleClass().add("storage-tile");
             if (n.isFolder || isProjectZip(n)) tile.getStyleClass().add("storage-tile-accent");
+            // Image thumbnails follow the account's "Preview thumbnails" setting (Settings > VanVatDrive).
+            if ((me == null || me.previewThumbnails) && StorageThumbs.isThumbnailable(n)) {
+                StorageThumbs.load(DoubleClipsDrive.client, n, tile, () -> getItem() == n);
+            }
 
             Label name = new Label(n.name);
             name.getStyleClass().add("storage-row-name");

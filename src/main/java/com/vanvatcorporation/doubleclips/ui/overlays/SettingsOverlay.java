@@ -120,7 +120,20 @@ public class SettingsOverlay extends StackPane {
         layoutRow.getChildren().add(restoreLayoutBtn);
         layoutGroup.getChildren().add(layoutRow);
 
-        content.getChildren().addAll(generalGroup, shortcutsGroup, layoutGroup);
+        // --- VANVATDRIVE ---
+        // This setting lives on the account (shared with the web and the Drive apps), so it is not stored on this computer.
+        VBox driveGroup = createGroup("VANVATDRIVE");
+        HBox thumbsRow = createSettingRow("Preview thumbnails",
+                "Shows small previews of your images in the Storage tab. Every preview downloads the image once, so it uses your daily download allowance.",
+                new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignI.IMAGE_MULTIPLE_OUTLINE));
+        ToggleSwitch thumbsSwitch = new ToggleSwitch();
+        thumbsSwitch.setSelected(true);
+        thumbsSwitch.setDisable(true);                                   // until the account's current value is known
+        thumbsRow.getChildren().add(thumbsSwitch);
+        driveGroup.getChildren().add(thumbsRow);
+        bindDriveThumbnails(thumbsSwitch);
+
+        content.getChildren().addAll(generalGroup, shortcutsGroup, layoutGroup, driveGroup);
         scrollPane.setContent(content);
 
         settingsCard.getChildren().addAll(header, scrollPane);
@@ -131,6 +144,40 @@ public class SettingsOverlay extends StackPane {
             if (e.getTarget() == this) {
                 onClose.accept(null);
             }
+        });
+    }
+
+    private void bindDriveThumbnails(ToggleSwitch sw) {
+        if (!com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive.hasSession()) {
+            sw.setTooltip(new Tooltip("Sign in from the Profile tab to change this."));
+            return;
+        }
+        Thread loader = new Thread(() -> {
+            try {
+                boolean on = com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive.client.me().previewThumbnails;
+                javafx.application.Platform.runLater(() -> { sw.setSelected(on); sw.setDisable(false); attachThumbnailsListener(sw); });
+            } catch (Exception e) {
+                javafx.application.Platform.runLater(() -> sw.setTooltip(new Tooltip("Couldn't load this setting: " + e.getMessage())));
+            }
+        }, "drive-settings-load");
+        loader.setDaemon(true);
+        loader.start();
+    }
+
+    private void attachThumbnailsListener(ToggleSwitch sw) {
+        sw.selectedProperty().addListener((obs, was, on) -> {
+            Thread saver = new Thread(() -> {
+                try {
+                    com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive.client.updateSettings(on);
+                } catch (Exception e) {
+                    javafx.application.Platform.runLater(() -> {      // the server refused: roll back
+                        sw.setSelected(was);
+                        new Alert(Alert.AlertType.ERROR, e.getMessage() == null ? "Couldn't save the setting." : e.getMessage()).showAndWait();
+                    });
+                }
+            }, "drive-settings-save");
+            saver.setDaemon(true);
+            saver.start();
         });
     }
 

@@ -23,6 +23,9 @@ public final class DriveMe {
     public final boolean hasCompute;
     public final double computeUsed, computeLimit;
 
+    /** Image thumbnails in the lists: on unless the account turned them off (shared with the web and the Drive apps). */
+    public final boolean previewThumbnails;
+
     DriveMe(JsonObject o) {
         userId = DriveJson.str(o, "userId");
         username = DriveJson.str(o, "username");
@@ -31,6 +34,10 @@ public final class DriveMe {
         usedBytes = DriveJson.lng(o, "usedBytes", 0);
         chunkSize = (int) Math.max(64 * 1024, DriveJson.lng(o, "chunkSize", 4L * 1024 * 1024));
         maxFileBytes = DriveJson.lng(o, "maxFileBytes", 0);
+
+        JsonObject settings = DriveJson.obj(o, "settings");
+        previewThumbnails = settings == null || !settings.has("previewThumbnails") || settings.get("previewThumbnails").isJsonNull()
+                || settings.get("previewThumbnails").getAsBoolean();
 
         JsonObject plan = DriveJson.obj(o, "plan");
         planName = plan == null ? null : DriveJson.str(plan, "name");
