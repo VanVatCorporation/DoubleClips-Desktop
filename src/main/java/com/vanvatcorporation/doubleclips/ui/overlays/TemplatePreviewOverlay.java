@@ -625,14 +625,10 @@ public class TemplatePreviewOverlay extends StackPane {
         DoubleClipsDesktop.getInstance().showOverlay(picker[0]);
     }
 
-    /** The OpenGL path: the template's timeline with the user's own media. (Next step: not built yet.) */
+    /** The OpenGL path: pick media for each replaceable clip of the template's timeline, then render it with the editor's engine. */
     private void renderWithOpenGl() {
-        Alert a = new Alert(Alert.AlertType.INFORMATION,
-                "Rendering a template from its timeline with OpenGL is the next step on desktop and is not available yet. "
-                        + "Pick the turtle (FFmpeg) for templates that have an FFmpeg version.");
-        a.setTitle("Use template");
-        a.setHeaderText(null);
-        a.show();
+        close();
+        TemplateUseWindow.showInstance(data);
     }
 
     private void close() {

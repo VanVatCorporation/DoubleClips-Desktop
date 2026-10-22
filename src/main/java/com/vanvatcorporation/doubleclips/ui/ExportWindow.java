@@ -89,9 +89,10 @@ public class ExportWindow extends Stage {
     // ─────────────────────────────────────────────────────────────────────────
 
     /** Open (or replace) the singleton export window. */
-    public static void show(Stage owner, ProjectData project, Timeline timeline, VideoSettings settings) {
+    public static ExportWindow show(Stage owner, ProjectData project, Timeline timeline, VideoSettings settings) {
         ExportWindow win = new ExportWindow(owner, project, timeline, settings);
         win.show();
+        return win;   // callers that need to know when it closes (template export) hook setOnHidden
     }
 
     // ─────────────────────────────────────────────────────────────────────────

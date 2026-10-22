@@ -144,26 +144,35 @@ public final class TemplateRenderer {
 
             // 3. the user's media into the replaceable clips
             final int canvasW = settings.videoWidth, canvasH = settings.videoHeight;
+            java.util.Map<String, File> placed = new java.util.HashMap<>();
+            java.util.Map<String, MediaFacts> facts = new java.util.HashMap<>();
             for (int i = 0; i < info.slots.size(); i++) {
                 TemplateTimelineInfo.Slot slot = info.slots.get(i);
                 SlotPick pick = picks.get(i);
                 File source = pick == null || pick.path == null ? null : new File(pick.path);
                 if (source == null || !source.isFile()) throw new RenderError("Clip " + (i + 1) + " is empty.");
 
-                String ext = extensionOf(source.getName());
-                if (ext.isEmpty()) ext = pick.isVideo ? "mov" : "png";
-                String name = "template-slot-" + (i + 1) + "." + ext;
-                File destination = new File(clipsDir, name);
-                try {
-                    Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                } catch (IOException e) {
-                    throw new RenderError("Clip " + (i + 1) + " couldn't be copied: " + e.getMessage());
+                // Clips of a group point at ONE file: it is put in the folder once and probed once.
+                String key = canonicalKey(source);
+                File destination = placed.get(key);
+                MediaFacts media = facts.get(key);
+                if (destination == null) {
+                    String ext = extensionOf(source.getName());
+                    if (ext.isEmpty()) ext = pick.isVideo ? "mov" : "png";
+                    destination = new File(clipsDir, "template-slot-" + (i + 1) + "." + ext);
+                    try {
+                        linkOrCopy(source, destination);
+                    } catch (IOException e) {
+                        throw new RenderError("Clip " + (i + 1) + " couldn't be copied: " + e.getMessage());
+                    }
+                    media = probe.probe(destination);
+                    if (media.width <= 0 || media.height <= 0) {
+                        log.accept("Clip " + (i + 1) + ": its size couldn't be read, the template's box is kept.");
+                    }
+                    placed.put(key, destination);
+                    facts.put(key, media);
                 }
-
-                MediaFacts media = probe.probe(destination);
-                if (media.width <= 0 || media.height <= 0) {
-                    log.accept("Clip " + (i + 1) + ": its size couldn't be read, the template's box is kept.");
-                }
+                String name = destination.getName();
                 Clip clip = slot.clip;
                 clip.setType(pick.isVideo ? ClipType.VIDEO : ClipType.IMAGE);
                 clip.setClipName(name);
@@ -186,6 +195,20 @@ public final class TemplateRenderer {
         } catch (RenderError | RuntimeException e) {
             deleteTree(directory);
             throw e;
+        }
+    }
+
+    private static String canonicalKey(File f) {
+        try { return f.getCanonicalPath(); } catch (IOException e) { return f.getAbsolutePath(); }
+    }
+
+    /** A hard link when the file system allows it (instant, no extra disk), else a copy. */
+    private static void linkOrCopy(File source, File destination) throws IOException {
+        try {
+            Files.deleteIfExists(destination.toPath());
+            Files.createLink(destination.toPath(), source.toPath());
+        } catch (IOException | UnsupportedOperationException | SecurityException e) {
+            Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

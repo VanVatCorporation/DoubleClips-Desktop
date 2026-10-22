@@ -1040,10 +1040,6 @@
     -fx-padding: 0;
 }
 
-.storage-bar-caution > .bar {
-    -fx-background-color: #FF9500;
-}
-
 .storage-bar-warn > .bar {
     -fx-background-color: #FF3B30;
 }
@@ -1214,4 +1210,104 @@
 .storage-banner-error {
     -fx-background-color: -color-danger-subtle;
     -fx-text-fill: -color-danger-fg;
+}
+
+
+/* ============================================
+   USE TEMPLATE (slot tiles, trim slider)
+   ============================================ */
+.tpl-tile {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 14;
+    -fx-cursor: hand;
+}
+
+.tpl-tile-shade {
+    -fx-background-color: rgba(0, 0, 0, 0.28);
+}
+
+.tpl-tile-ring {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 2;
+    -fx-border-radius: 14;
+}
+
+.tpl-tile-face:hover .tpl-tile-ring {
+    -fx-border-color: #007AFF;
+}
+
+.tpl-tile-number {
+    -fx-font-size: 26px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-default;
+}
+
+.tpl-tile-number-on-photo {
+    -fx-text-fill: white;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.6), 4, 0.3, 0, 1);
+}
+
+.tpl-tile-plus .ikonli-font-icon {
+    -fx-icon-size: 28px;
+    -fx-icon-color: -color-fg-muted;
+}
+
+.tpl-pill {
+    -fx-background-color: rgba(0, 0, 0, 0.6);
+    -fx-background-radius: 99;
+    -fx-text-fill: white;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 2 7;
+}
+
+.tpl-warn {
+    -fx-background-color: #FF9500;
+    -fx-background-radius: 99;
+    -fx-text-fill: white;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 1 7;
+}
+
+.tpl-edit {
+    -fx-background-color: rgba(0, 0, 0, 0.6);
+    -fx-background-radius: 99;
+    -fx-padding: 6;
+    -fx-cursor: hand;
+}
+
+.tpl-edit:hover {
+    -fx-background-color: rgba(0, 0, 0, 0.85);
+}
+
+.tpl-edit .ikonli-font-icon {
+    -fx-icon-size: 14px;
+    -fx-icon-color: white;
+}
+
+.tpl-hint {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-fg-muted;
+}
+
+.trim-track {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 3;
+}
+
+.trim-range {
+    -fx-background-color: #007AFF;
+    -fx-background-radius: 3;
+}
+
+.trim-thumb {
+    -fx-background-color: white;
+    -fx-background-radius: 99;
+    -fx-border-color: #007AFF;
+    -fx-border-width: 2;
+    -fx-border-radius: 99;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.25), 4, 0, 0, 1);
 }
