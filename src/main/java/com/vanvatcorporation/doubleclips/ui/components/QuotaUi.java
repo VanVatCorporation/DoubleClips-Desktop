@@ -71,6 +71,11 @@ public final class QuotaUi {
         return link;
     }
 
+    /** Opens any page in the system browser. */
+    public static void openUrl(String url) {
+        try { DoubleClipsDesktop.getInstance().getHostServices().showDocument(url); } catch (RuntimeException ignored) { /* no browser */ }
+    }
+
     public static void openPlans() {
         try { DoubleClipsDesktop.getInstance().getHostServices().showDocument(PLANS_URL); } catch (RuntimeException ignored) { /* no browser */ }
     }

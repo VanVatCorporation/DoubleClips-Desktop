@@ -15,6 +15,7 @@ import com.vanvatcorporation.doubleclips.ui.components.AppUi;
 import com.vanvatcorporation.doubleclips.ui.components.FxCoalescer;
 import com.vanvatcorporation.doubleclips.ui.components.QuotaUi;
 import com.vanvatcorporation.doubleclips.ui.components.StorageThumbs;
+import com.vanvatcorporation.doubleclips.ui.components.TermsGate;
 import com.vanvatcorporation.doubleclips.ui.components.TransferProgressWindow;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
@@ -105,6 +106,7 @@ public class StoragePane extends VBox {
     private final ListView<DriveNode> list = new ListView<>(items);
 
     public StoragePane() {
+        TermsGate.addAcceptedListener(this::reload);       // terms accepted (here or after a tos_required answer): load the list
         setSpacing(20);
         setPadding(new Insets(32, 36, 28, 36));
         getStyleClass().addAll("content-pane", "storage-page");
@@ -246,6 +248,14 @@ public class StoragePane extends VBox {
         signInBox.setManaged(!has);
     }
 
+    /** The user still has to accept the current Terms of Service / Privacy Policy (from /me). */
+    private boolean termsPending() { return me != null && me.legalRequired(); }
+
+    /** The blocking popup; once accepted the list loads. */
+    private void showTerms() {
+        if (termsPending()) TermsGate.show(owner(), DoubleClipsDrive.client, me.legal, null);
+    }
+
     private void reload() {
         updateView();
         renderBreadcrumb();
@@ -255,12 +265,21 @@ public class StoragePane extends VBox {
         final DriveNode folder = currentFolder();
         setEmptyText("Loading\u2026", "");
         background(() -> {
-            List<DriveNode> children = oe.list(folder);
+            // /me first: until the Terms of Service are accepted the listing is refused, and /me says what to show.
             DriveMe fresh = null;
             try { fresh = DoubleClipsDrive.client.me(); } catch (IOException ignored) { /* the list is what matters */ }
+            if (fresh != null && fresh.legalRequired()) return new Object[]{null, fresh};
+            List<DriveNode> children = oe.list(folder);
             return new Object[]{children, fresh};
         }, result -> {
             if (seq != loadSeq.get()) return;                // a newer load is on its way
+            if (result[0] == null) {                          // terms not accepted yet: nothing to list, show the popup
+                me = (DriveMe) result[1];
+                setEmptyText("Accept the Terms of Service to continue", "");
+                renderQuota();
+                showTerms();
+                return;
+            }
             @SuppressWarnings("unchecked") List<DriveNode> children = (List<DriveNode>) result[0];
             List<DriveNode> sorted = new ArrayList<>(children);
             sorted.sort((x, y) -> {
@@ -380,6 +399,7 @@ public class StoragePane extends VBox {
     // ================================================================================== upload
 
     private void chooseFilesToUpload() {
+        if (termsPending()) { showTerms(); return; }
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Upload files to OpenEditz");
         List<File> files = chooser.showOpenMultipleDialog(owner());
@@ -393,6 +413,7 @@ public class StoragePane extends VBox {
     }
 
     private void startUpload(File file) {
+        if (termsPending()) { showTerms(); return; }
         final long size = file.length();
         if (me != null && size > me.freeBytes()) {
             QuotaUi.blocked(owner(), "Not enough space", "Not enough space for \u201c" + file.getName() + "\u201d: "
@@ -470,6 +491,7 @@ public class StoragePane extends VBox {
 
     /** Downloads a project ZIP and unpacks it into the projects folder (a project that exists is never overwritten). */
     private void restore(DriveNode node) {
+        if (termsPending()) { showTerms(); return; }
         if (!confirmDownload(node)) return;
         TransferProgressWindow w = new TransferProgressWindow(owner(), "Restore project");
         w.show();
@@ -497,6 +519,7 @@ public class StoragePane extends VBox {
     }
 
     private void saveAs(DriveNode node) {
+        if (termsPending()) { showTerms(); return; }
         if (!confirmDownload(node)) return;
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Save a copy");

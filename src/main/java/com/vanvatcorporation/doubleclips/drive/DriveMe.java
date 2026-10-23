@@ -26,6 +26,9 @@ public final class DriveMe {
     /** Image thumbnails in the lists: on unless the account turned them off (shared with the web and the Drive apps). */
     public final boolean previewThumbnails;
 
+    /** Terms of Service / Privacy Policy still to accept (null from older servers). */
+    public final LegalModels.Status legal;
+
     DriveMe(JsonObject o) {
         userId = DriveJson.str(o, "userId");
         username = DriveJson.str(o, "username");
@@ -34,6 +37,9 @@ public final class DriveMe {
         usedBytes = DriveJson.lng(o, "usedBytes", 0);
         chunkSize = (int) Math.max(64 * 1024, DriveJson.lng(o, "chunkSize", 4L * 1024 * 1024));
         maxFileBytes = DriveJson.lng(o, "maxFileBytes", 0);
+
+        JsonObject legalObj = DriveJson.obj(o, "legal");
+        legal = legalObj == null ? null : new com.google.gson.Gson().fromJson(legalObj, LegalModels.Status.class);
 
         JsonObject settings = DriveJson.obj(o, "settings");
         previewThumbnails = settings == null || !settings.has("previewThumbnails") || settings.get("previewThumbnails").isJsonNull()
@@ -53,6 +59,9 @@ public final class DriveMe {
         computeUsed = DriveJson.dbl(usage, "computeUsed", 0);
         computeLimit = DriveJson.dbl(usage, "computeLimit", 0);
     }
+
+    /** True when the user must accept the current Terms of Service / Privacy Policy before using Drive. */
+    public boolean legalRequired() { return legal != null && legal.required; }
 
     public long freeBytes() { return Math.max(0, quotaBytes - usedBytes); }
 

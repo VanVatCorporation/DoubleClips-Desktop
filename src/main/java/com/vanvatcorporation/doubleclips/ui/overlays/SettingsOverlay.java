@@ -131,6 +131,14 @@ public class SettingsOverlay extends StackPane {
         thumbsSwitch.setDisable(true);                                   // until the account's current value is known
         thumbsRow.getChildren().add(thumbsSwitch);
         driveGroup.getChildren().add(thumbsRow);
+        // The full pages (web): the Terms of Service of Van Vat Drive and the shared Privacy Policy.
+        javafx.scene.control.Hyperlink terms = new javafx.scene.control.Hyperlink("Terms of Service");
+        terms.setOnAction(e -> com.vanvatcorporation.doubleclips.ui.components.QuotaUi.openUrl(
+                com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive.client.legalPageUrl("terms", null)));
+        javafx.scene.control.Hyperlink privacy = new javafx.scene.control.Hyperlink("Privacy Policy");
+        privacy.setOnAction(e -> com.vanvatcorporation.doubleclips.ui.components.QuotaUi.openUrl(
+                com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive.client.legalPageUrl("privacy", null)));
+        driveGroup.getChildren().add(new HBox(18, terms, privacy));
         bindDriveThumbnails(thumbsSwitch);
 
         content.getChildren().addAll(generalGroup, shortcutsGroup, layoutGroup, driveGroup);

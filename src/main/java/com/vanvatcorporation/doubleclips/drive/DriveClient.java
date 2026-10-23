@@ -38,6 +38,8 @@ public final class DriveClient {
     public static final String DEFAULT_DRIVE = "https://drive.vanvatcorp.com";
 
     private final String base;
+    /** The site root (no path), for the legal API which lives next to /api/v2/drive. */
+    private final String root;
     private final Supplier<String> tokenProvider;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
@@ -48,11 +50,14 @@ public final class DriveClient {
     public volatile Consumer<String> onTokenRefreshed;
     /** Called on any 401, so the app can treat the session as gone. */
     public volatile Runnable onUnauthorized;
+    /** Called on 403 tos_required: new terms were published; the app should re-read /me (its `legal` then shows the popup). */
+    public volatile Runnable onTosRequired;
 
     public DriveClient(Supplier<String> tokenProvider) { this(DEFAULT_DRIVE, tokenProvider); }
 
     public DriveClient(String driveBaseUrl, Supplier<String> tokenProvider) {
         String b = driveBaseUrl.endsWith("/") ? driveBaseUrl.substring(0, driveBaseUrl.length() - 1) : driveBaseUrl;
+        this.root = b;
         this.base = b + "/api/v2/drive";
         this.tokenProvider = tokenProvider;
     }
@@ -67,9 +72,13 @@ public final class DriveClient {
     private static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
 
     private HttpRequest.Builder builder(String path, Map<String, String> query, Duration timeout) throws DriveError {
+        return builderAt(base, path, query, timeout, true);
+    }
+
+    private HttpRequest.Builder builderAt(String prefix, String path, Map<String, String> query, Duration timeout, boolean authed) throws DriveError {
         String token = tokenProvider.get();
-        if (token == null || token.isEmpty()) throw new DriveError(401, "no_session", "You are not signed in.");
-        StringBuilder url = new StringBuilder(base).append(path);
+        if (authed && (token == null || token.isEmpty())) throw new DriveError(401, "no_session", "You are not signed in.");
+        StringBuilder url = new StringBuilder(prefix).append(path);
         char sep = '?';
         if (query != null) {
             for (Map.Entry<String, String> e : query.entrySet()) {
@@ -78,9 +87,9 @@ public final class DriveClient {
                 sep = '&';
             }
         }
-        return HttpRequest.newBuilder(URI.create(url.toString()))
-                .timeout(timeout)
-                .header("Authorization", "Bearer " + token);
+        HttpRequest.Builder rb = HttpRequest.newBuilder(URI.create(url.toString())).timeout(timeout);
+        if (authed) rb.header("Authorization", "Bearer " + token);
+        return rb;
     }
 
     private <T> HttpResponse<T> exec(HttpRequest req, HttpResponse.BodyHandler<T> handler) throws IOException {
@@ -123,6 +132,10 @@ public final class DriveClient {
             Runnable r = onUnauthorized;
             if (r != null) r.run();
         }
+        if (status == 403 && "tos_required".equals(code)) {
+            Runnable r = onTosRequired;
+            if (r != null) r.run();
+        }
         throw new DriveError(status, code, message);
     }
 
@@ -161,6 +174,37 @@ public final class DriveClient {
     public DriveMe me() throws IOException { return new DriveMe(call("GET", "/me", null, null)); }
 
     /** The protected OpenEditz folder at the top of the user's space (created on first call). */
+    // ---- legal (Terms of Service / Privacy Policy) --------------------------------------------------------
+
+    /** Public. The language falls back: lang -> Accept-Language -> English. */
+    public LegalModels.Document legalDocument(String key, String lang) throws IOException {
+        Map<String, String> q = new java.util.LinkedHashMap<>();
+        if (lang != null && !lang.isEmpty()) q.put("lang", lang);
+        HttpRequest.Builder b = builderAt(root + "/api/v2/legal", "/documents/" + key, q, Duration.ofSeconds(30), false);
+        HttpResponse<byte[]> r = exec(b.GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+        check(r.statusCode(), r.headers(), r.body());
+        JsonObject o = tryObject(r.body());
+        if (o == null || !o.has("document")) throw new DriveError(r.statusCode(), null, "The document could not be read.");
+        return new com.google.gson.Gson().fromJson(o.get("document"), LegalModels.Document.class);
+    }
+
+    /** Records that the user accepted exactly the versions they were shown. 409 version_changed = new terms were published meanwhile. */
+    public void acceptLegal(Map<String, String> versions, String lang) throws IOException {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("versions", versions);
+        body.put("lang", lang);
+        HttpRequest.Builder b = builderAt(root + "/api/v2/legal", "/accept", null, Duration.ofSeconds(30), true);
+        b.header("Content-Type", "application/json").header("X-Client", "desktop");
+        b.POST(HttpRequest.BodyPublishers.ofString(new com.google.gson.Gson().toJson(body), StandardCharsets.UTF_8));
+        HttpResponse<byte[]> r = exec(b.build(), HttpResponse.BodyHandlers.ofByteArray());
+        check(r.statusCode(), r.headers(), r.body());
+    }
+
+    /** The full page in the web app: /terms or /privacy. */
+    public String legalPageUrl(String slug, String lang) {
+        return root + "/" + slug + (lang == null || lang.isEmpty() ? "" : "?lang=" + lang.replaceAll("[^A-Za-z-]", ""));
+    }
+
     /** Turns image thumbnails on/off for this account. */
     public void updateSettings(boolean previewThumbnails) throws IOException {
         call("PUT", "/settings", null, "{\"previewThumbnails\":" + previewThumbnails + "}");

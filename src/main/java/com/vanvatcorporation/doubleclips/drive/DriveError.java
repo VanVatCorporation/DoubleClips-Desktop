@@ -18,6 +18,9 @@ public class DriveError extends IOException {
     public String getCode() { return code; }
     public boolean isUnauthorized() { return status == 401; }
 
+    /** New terms were published and the user has not accepted them yet. */
+    public boolean isTosRequired() { return status == 403 && "tos_required".equals(code); }
+
     /**
      * The server refused because of a quota or plan limit (storage, file size, daily transfer, compute):
      * the useful next step is "Get more resources" (the account tier upgrade).

@@ -19,6 +19,8 @@ public final class DoubleClipsDrive {
         // The server hands out a fresh token when the current one is close to expiring: keep it, or the session would
         // end on a date the server already moved.
         client.onTokenRefreshed = token -> RetrofitClient.getInstance().replaceAuthToken(token);
+        // New terms were published while the app was open: any Drive call answers tos_required, so ask /me and show the popup.
+        client.onTosRequired = com.vanvatcorporation.doubleclips.ui.components.TermsGate::checkAndShow;
     }
 
     public static String sessionToken() {

@@ -12,6 +12,7 @@ import com.vanvatcorporation.doubleclips.auth.TemplateRepository;
 import com.vanvatcorporation.doubleclips.data.TemplateData;
 import com.vanvatcorporation.doubleclips.ui.TemplateExportWindow;
 import com.vanvatcorporation.doubleclips.ui.TemplateTimelineStrip;
+import com.vanvatcorporation.doubleclips.ui.TemplateUseWindow;
 import javafx.animation.FadeTransition;
 import javafx.application.Platform;
 import javafx.geometry.Insets;

@@ -160,7 +160,10 @@ public final class BackupProjectWindow {
                 Platform.runLater(() -> {
                     w.close();
                     TaskbarHelper.stopProgress();
-                    if (e instanceof DriveError && ((DriveError) e).isQuotaLimit()) {
+                    if (e instanceof DriveError && ((DriveError) e).isTosRequired()) {
+                        // New terms were published: the popup (DoubleClipsDrive's tos_required hook) is on its way; say why this stopped.
+                        alert(owner, Alert.AlertType.INFORMATION, "Terms of Service", "Please accept the updated Terms of Service and Privacy Policy, then back up again.");
+                    } else if (e instanceof DriveError && ((DriveError) e).isQuotaLimit()) {
                         com.vanvatcorporation.doubleclips.ui.components.QuotaUi.blocked(owner, "Couldn't back up the project", DriveError.describe(e));
                     } else {
                         alert(owner, Alert.AlertType.ERROR, "Couldn't back up the project", DriveError.describe(e));
