@@ -31,6 +31,12 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
     @Expose public float valuePivotX;
     @Expose public float valuePivotY;
     @Expose public float valueVolume;
+    /**
+     * The strength of the clip's effect (an effect clip's, or a clip's own {@link Clip#clipEffect}), only ever ANIMATED: the
+     * static strength is the effect's {@code params["intensity"]}, so this is never read for a clip without a "strength"
+     * keyframe. iOS's and Android's valueStrength: same key, default 1.
+     */
+    @Expose public float valueStrength = 1;
 
     public VideoProperties() {
         this.valuePosX = 0;
@@ -47,6 +53,7 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
         this.valuePivotX = 0;
         this.valuePivotY = 0;
         this.valueVolume = 1;
+        this.valueStrength = 1;
     }
 
     public VideoProperties(VideoProperties other) {
@@ -65,6 +72,7 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
         this.valuePivotX = other.valuePivotX;
         this.valuePivotY = other.valuePivotY;
         this.valueVolume = other.valueVolume;
+        this.valueStrength = other.valueStrength;
     }
 
     public float getValue(ValueType valueType) {
@@ -84,6 +92,7 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
             case Saturation: return valueSaturation;
             case Brightness: return valueBrightness;
             case Temperature: return valueTemperature;
+            case Strength: return valueStrength;
             default: return 1;
         }
     }
@@ -104,16 +113,17 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
             case Saturation: valueSaturation = v; break;
             case Brightness: valueBrightness = v; break;
             case Temperature: valueTemperature = v; break;
+            case Strength: valueStrength = v; break;
         }
     }
 
     public enum ValueType {
-        PosX, PosY, Rot, RotInRadians, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature;
+        PosX, PosY, Rot, RotInRadians, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength;
 
         /** The properties a keyframe can hold one by one, in the order of {@link KeyframeChannels#ALL}
          *  (RotInRadians is only Rot expressed in radians, so it is not a property of its own). */
         public static final ValueType[] CHANNELS = {
-                PosX, PosY, Rot, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature
+                PosX, PosY, Rot, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength
         };
 
         /** The name this property goes by in a keyframe's {@code channels} list - iOS's raw value ("posX", "scaleY"...). */
@@ -134,6 +144,7 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
                 case Saturation: return "saturation";
                 case Brightness: return "brightness";
                 case Temperature: return "temperature";
+                case Strength: return "strength";
                 default: return name();
             }
         }

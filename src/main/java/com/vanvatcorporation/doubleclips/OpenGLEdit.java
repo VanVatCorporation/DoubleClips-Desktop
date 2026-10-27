@@ -577,7 +577,7 @@ public class OpenGLEdit {
         float elapsed = t - clip.startTime - start;
         if (elapsed < 0f || elapsed > length) return null;
         float progress = length > 1e-3f ? Math.max(0f, Math.min(1f, elapsed / length)) : 1f;
-        return new EffectCommand(clip, style.key, EffectCatalog.clampIntensity(style, clip.clipEffect.intensity()), progress, elapsed);
+        return new EffectCommand(clip, style.key, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.clipEffect, t)), progress, elapsed);
     }
 
     /** An active OVERLAP-mode, built-in-style (two-sided blend) transition on a track at some t. */
@@ -799,7 +799,20 @@ public class OpenGLEdit {
         if (style == null) return null;
         float elapsed = Math.max(0f, t - clip.startTime);
         float progress = clip.duration > 1e-3f ? Math.max(0f, Math.min(1f, elapsed / clip.duration)) : 1f;
-        return new EffectCommand(clip, style.key, EffectCatalog.clampIntensity(style, clip.effect.intensity()), progress, elapsed);
+        return new EffectCommand(clip, style.key, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.effect, t)), progress, elapsed);
+    }
+
+    /**
+     * The strength of an effect at {@code t}: its static {@code params["intensity"]}, or, when some keyframe holds the clip's
+     * "strength" channel (an effect clip's or a clip's own effect; a clip never has both), that value read per frame like any
+     * other animated property.
+     */
+    private static float strengthAt(Clip clip, com.vanvatcorporation.doubleclips.data.editing.EffectTemplate template, float t) {
+        if (clip.keyframes != null && clip.videoProperties != null
+                && clip.keyframes.isAnimated(VideoProperties.ValueType.Strength)) {
+            return clip.keyframes.getValueAtTime(clip, t, VideoProperties.ValueType.Strength);
+        }
+        return template.intensity();
     }
 
     /**

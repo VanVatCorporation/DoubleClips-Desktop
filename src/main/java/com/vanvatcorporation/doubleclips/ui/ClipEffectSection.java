@@ -2,7 +2,12 @@ package com.vanvatcorporation.doubleclips.ui;
 
 import com.vanvatcorporation.doubleclips.EffectCatalog;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
+import com.vanvatcorporation.doubleclips.data.editing.AnimatedProperty.KeyState;
 import com.vanvatcorporation.doubleclips.data.editing.EffectTemplate;
+import com.vanvatcorporation.doubleclips.data.editing.Keyframe;
+import com.vanvatcorporation.doubleclips.data.editing.KeyframesSnapshot;
+import com.vanvatcorporation.doubleclips.data.editing.VideoProperties;
+import javafx.geometry.Insets;
 import com.vanvatcorporation.doubleclips.ui.components.TileGridDialog;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -30,7 +35,13 @@ import java.util.Set;
  * as an effect clip, plus a "None" tile to take the effect off, a start / duration for when it shows inside the clip
  * (duration 0 = until the clip ends, so the window keeps following the clip when it is trimmed) and the strength.
  *
- * <p>Every change is ONE undo step that swaps the clip's whole effect (a copy, so a later edit never touches what undo holds).
+ * <p>The strength can be animated like any other property: the diamond beside it keys the strength at the playhead (the
+ * "strength" keyframe channel, the same one Android and iOS use, so the keyframes also show as knots on the clip in the
+ * timeline). Not animated, the slider edits the plain value; animated, it edits the keyframe at the playhead (adding one
+ * there when none is).
+ *
+ * <p>Every change is ONE undo step that puts back the clip's effect AND its keyframes (copies, so a later edit never touches
+ * what undo holds).
  */
 final class ClipEffectSection {
 
@@ -86,9 +97,10 @@ final class ClipEffectSection {
         wire(lengthField, applyTiming);
         box.getChildren().addAll(row("Start (s)", startField), row("Duration (s)", lengthField));
 
-        // ---- strength
+        // ---- strength (with its keyframe diamond)
         if (style.hasIntensity()) {
-            float value = EffectCatalog.clampIntensity(style, fx.intensity());
+            float shownTime = context.getTempTime() >= 0 ? context.getTempTime() : context.getCurrentTime();
+            float value = EffectCatalog.clampIntensity(style, strengthAt(clip, shownTime));
             Label strengthLabel = new Label(style.intensityLabel);
             strengthLabel.getStyleClass().add("text-muted");
             strengthLabel.setStyle("-fx-font-size: 11px;");
@@ -97,37 +109,103 @@ final class ClipEffectSection {
             Slider slider = new Slider(style.intensityMin, style.intensityMax, value);
             slider.setMaxWidth(Double.MAX_VALUE);
             HBox.setHgrow(slider, Priority.ALWAYS);
+            final boolean[] fromCode = {false};
             // Dragging only moves the number; the change is made (one undo step) when the slider is let go.
             slider.valueProperty().addListener((o, was, now) -> {
                 number.setText(strengthText(now.floatValue()));
+                if (fromCode[0]) return;
                 if (!slider.isValueChanging()) commitStrength(clip, now.floatValue());
             });
             slider.valueChangingProperty().addListener((o, was, changing) -> {
                 if (!changing) commitStrength(clip, (float) slider.getValue());
             });
-            HBox strengthRow = new HBox(8, slider, number);
+
+            Button keyButton = new Button();
+            keyButton.getStyleClass().add("tool-button");
+            keyButton.setPadding(new Insets(4));
+            keyButton.setMaxHeight(Double.MAX_VALUE);
+            KeyDiamond diamond = new KeyDiamond();
+            diamond.setState(clip.keyframes == null ? KeyState.NONE : clip.keyframes.stateAt(clip, shownTime, VideoProperties.ValueType.Strength));
+            keyButton.setGraphic(diamond);
+            keyButton.setDisable(!playheadInside(clip, context.getCurrentTime()));
+            keyButton.setOnAction(e -> toggleStrengthKey(clip));
+
+            // Follows the playhead (scrubbing, playing): the strength there and the diamond's state.
+            context.addPropertyUpdater(() -> {
+                float time = context.getTempTime() >= 0 ? context.getTempTime() : context.getCurrentTime();
+                if (clip.clipEffect == null) return;
+                float v = EffectCatalog.clampIntensity(style, strengthAt(clip, time));
+                if (!slider.isValueChanging()) {
+                    fromCode[0] = true;
+                    slider.setValue(v);
+                    fromCode[0] = false;
+                }
+                number.setText(strengthText(v));
+                diamond.setState(clip.keyframes == null ? KeyState.NONE : clip.keyframes.stateAt(clip, time, VideoProperties.ValueType.Strength));
+                keyButton.setDisable(!playheadInside(clip, time));
+            });
+
+            HBox strengthRow = new HBox(8, slider, number, keyButton);
             strengthRow.setAlignment(Pos.CENTER_LEFT);
             box.getChildren().add(new VBox(4, strengthLabel, strengthRow));
         }
 
-        box.getChildren().add(note("Filters this clip only, after its mask and before its blend mode. Drawn by the OpenGL engine "
-                + "(the FFmpeg export skips it)."));
+        box.getChildren().add(note("Filters this clip only, after its mask and before its blend mode. The diamond animates the strength "
+                + "over the clip. Drawn by the OpenGL engine (the FFmpeg export skips it)."));
         return box;
     }
 
     // ---- edits ---------------------------------------------------------------------------------
 
-    /** One undo step: the clip's effect becomes {@code after} (null = none). */
-    private void commit(Clip clip, String undoName, EffectTemplate after) {
-        final EffectTemplate before = clip.clipEffect == null ? null : new EffectTemplate(clip.clipEffect);
-        final EffectTemplate next = after == null ? null : new EffectTemplate(after);
+    /** What one undo step puts back: the clip's effect and every keyframe (the strength keys live in the clip's keyframes). */
+    private static final class Snap {
+        private final KeyframesSnapshot keys;
+        private final EffectTemplate effect;
+
+        private Snap(KeyframesSnapshot keys, EffectTemplate effect) {
+            this.keys = keys;
+            this.effect = effect;
+        }
+
+        static Snap of(Clip clip) {
+            return new Snap(KeyframesSnapshot.of(clip), clip.clipEffect == null ? null : new EffectTemplate(clip.clipEffect));
+        }
+
+        void restore(Clip clip) {
+            keys.restore(clip);
+            clip.clipEffect = effect == null ? null : new EffectTemplate(effect);
+        }
+    }
+
+    /** One undo step: runs {@code change} on the clip (again on redo); undo puts the effect and the keyframes back as they were. */
+    private void commitChange(Clip clip, String undoName, Runnable change) {
+        final Snap before = Snap.of(clip);
         context.executePropertyChange(undoName, () -> {
-            clip.clipEffect = next == null ? null : new EffectTemplate(next);
+            change.run();
             changed();
         }, () -> {
-            clip.clipEffect = before == null ? null : new EffectTemplate(before);
+            before.restore(clip);
             changed();
         });
+    }
+
+    /** One undo step: the clip's effect becomes {@code after} (null = none; the strength keyframes then go too). */
+    private void commit(Clip clip, String undoName, EffectTemplate after) {
+        final EffectTemplate next = after == null ? null : new EffectTemplate(after);
+        commitChange(clip, undoName, () -> {
+            clip.clipEffect = next == null ? null : new EffectTemplate(next);
+            if (next == null) dropStrengthKeys(clip);
+        });
+    }
+
+    /** The clip no longer has an effect to animate: its keyframes let go of "strength" (a keyframe left holding nothing is deleted). */
+    private static void dropStrengthKeys(Clip clip) {
+        if (clip.keyframes == null) return;
+        for (Keyframe k : new java.util.ArrayList<>(clip.keyframes.keyframes)) {
+            if (!k.holds(VideoProperties.ValueType.Strength)) continue;
+            k.setHolds(VideoProperties.ValueType.Strength, false);
+            if (k.holdsNothing()) clip.keyframes.keyframes.remove(k);
+        }
     }
 
     private void changed() {
@@ -136,15 +214,57 @@ final class ClipEffectSection {
         javafx.application.Platform.runLater(context::updatePropertiesPane);
     }
 
+    private static boolean playheadInside(Clip clip, float time) {
+        return time >= clip.startTime - 0.001f && time <= clip.startTime + clip.duration + 0.001f;
+    }
+
+    /** The strength at a global time: the keyframed value when some keyframe holds it, else the effect's own. */
+    private static float strengthAt(Clip clip, float time) {
+        if (clip.keyframes != null && clip.keyframes.isAnimated(VideoProperties.ValueType.Strength)) {
+            return clip.keyframes.getValueAtTime(clip, time, VideoProperties.ValueType.Strength);
+        }
+        return clip.clipEffect == null ? 1f : clip.clipEffect.intensity();
+    }
+
+    /**
+     * The slider / typed strength. Not animated: the effect's plain strength. Animated: the keyframe at the playhead (one is
+     * added there when none is), because a value that no keyframe holds would be overruled by the curve at once.
+     */
     private void commitStrength(Clip clip, float value) {
         if (clip.clipEffect == null) return;
         EffectCatalog.Style style = EffectCatalog.find(clip.clipEffect.style);
         if (style == null) return;
-        float clamped = EffectCatalog.clampIntensity(style, value);
-        if (Math.abs(clamped - clip.clipEffect.intensity()) < 1e-4f) return; // the slider reports a change twice on release
-        EffectTemplate after = new EffectTemplate(clip.clipEffect);
-        after.setIntensity(clamped);
-        commit(clip, "Change Clip Effect Strength", after);
+        final float clamped = EffectCatalog.clampIntensity(style, value);
+        final float time = context.getCurrentTime();
+        if (Math.abs(clamped - EffectCatalog.clampIntensity(style, strengthAt(clip, time))) < 1e-4f) return; // the slider reports a change twice on release
+        if (clip.keyframes != null && clip.keyframes.isAnimated(VideoProperties.ValueType.Strength)) {
+            if (!playheadInside(clip, time)) return; // a keyframe can't be placed outside the clip
+            final int fps = context.getVideoSettings().frameRate;
+            commitChange(clip, "Change Clip Effect Strength", () ->
+                    clip.keyframes.setKey(clip, time, VideoProperties.ValueType.Strength, clamped, fps));
+        } else {
+            commitChange(clip, "Change Clip Effect Strength", () -> clip.clipEffect.setIntensity(clamped));
+        }
+    }
+
+    /** The diamond: animate the strength from here on (a key at the playhead), or take the key there off. */
+    private void toggleStrengthKey(Clip clip) {
+        if (clip.clipEffect == null || clip.keyframes == null) return;
+        final float time = context.getCurrentTime();
+        if (!playheadInside(clip, time)) return;
+        final int fps = context.getVideoSettings().frameRate;
+        final VideoProperties.ValueType type = VideoProperties.ValueType.Strength;
+        commitChange(clip, "Keyframe Clip Effect Strength", () -> {
+            Keyframe at = clip.keyframes.getKeyframeAtTime(clip, time, type);
+            if (at != null) {
+                float held = at.value == null ? clip.clipEffect.intensity() : at.value.getValue(type);
+                boolean last = clip.keyframes.holderCount(type) == 1;
+                clip.keyframes.removeKey(clip, time, type);
+                if (last) clip.clipEffect.setIntensity(held); // no longer animated: the strength stays where it was
+            } else {
+                clip.keyframes.setKey(clip, time, type, strengthAt(clip, time), fps);
+            }
+        });
     }
 
     /**

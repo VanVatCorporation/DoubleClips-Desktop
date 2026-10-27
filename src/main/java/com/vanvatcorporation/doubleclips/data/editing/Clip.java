@@ -33,6 +33,13 @@ public class Clip implements Serializable, UnknownKeysHolder {
     @Expose public EffectTemplate effect;
 
     /**
+     * An effect for THIS clip only (the clip's "Effect" tab), as opposed to {@link #effect} of an EFFECT clip, which filters
+     * everything below it. {@code offset} / {@code duration} are the window inside the clip (duration 0 = until the clip's
+     * end); the strength is {@code params["intensity"]}. Same JSON key as Android. null = none.
+     */
+    @Expose public EffectTemplate clipEffect;
+
+    /**
      * The clip's masks (see {@link ClipMask}), combined in order; null / empty = no mask. Only video, image and text
      * clips use them.
      */
@@ -217,6 +224,7 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.masks = other.copyOfMasks();
         this.blendMode = other.blendMode;
         this.effect = other.effect == null ? null : new EffectTemplate(other.effect); // an effect clip keeps its effect and strength when copied
+        this.clipEffect = other.clipEffect == null ? null : new EffectTemplate(other.clipEffect);
         this.sceneConfig = other.sceneConfig;
         this.textureClipName = other.textureClipName;
         this.additionalFFmpegCommand = other.additionalFFmpegCommand;
