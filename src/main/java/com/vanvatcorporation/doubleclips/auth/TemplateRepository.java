@@ -149,6 +149,10 @@ public class TemplateRepository {
             case LIKED: call = api.liked(limit, c, viewer); break;
             case BOOKMARKED: call = api.bookmarked(limit, c, viewer); break;
             case SEARCH: call = api.search(source.query, limit, c, viewer); break;
+            case MINE:
+                if (viewer == null) { fail.accept("Please log in first"); return; }
+                call = api.byAuthor(viewer, limit, c, viewer, "new");
+                break;
             case FEED:
             default: call = api.feed(limit, c, viewer); break;
         }

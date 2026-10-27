@@ -23,6 +23,10 @@ public interface TemplateApiService {
     @GET("/doubleclips/api/templates")
     Call<TemplatePage> search(@Query("q") String q, @Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer);
 
+    /** One author's templates, newest first ("My Templates" = the signed-in account as the author). */
+    @GET("/doubleclips/api/templates")
+    Call<TemplatePage> byAuthor(@Query("author") String author, @Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer, @Query("sort") String sort);
+
     @GET("/doubleclips/api/templates/liked")
     Call<TemplatePage> liked(@Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer);
 

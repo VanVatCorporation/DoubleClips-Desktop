@@ -4,7 +4,7 @@ import java.util.Objects;
 
 /** Which list of templates a screen shows. */
 public final class TemplateFeedSource {
-    public enum Kind { FEED, SEARCH, LIKED, BOOKMARKED }
+    public enum Kind { FEED, SEARCH, LIKED, BOOKMARKED, MINE }
 
     public final Kind kind;
     /** Only for SEARCH. */
@@ -22,6 +22,8 @@ public final class TemplateFeedSource {
     public static TemplateFeedSource liked() { return new TemplateFeedSource(Kind.LIKED, null); }
     /** The signed-in account's Saved (bookmarked) list (Profile). */
     public static TemplateFeedSource bookmarked() { return new TemplateFeedSource(Kind.BOOKMARKED, null); }
+    /** The templates the signed-in account posted itself (Profile -> My Templates), newest first. */
+    public static TemplateFeedSource mine() { return new TemplateFeedSource(Kind.MINE, null); }
 
     @Override public boolean equals(Object o) {
         if (this == o) return true;

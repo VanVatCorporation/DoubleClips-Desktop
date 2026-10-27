@@ -16,6 +16,7 @@ import javafx.scene.shape.Circle;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignB;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignF;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignH;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignL;
@@ -118,6 +119,8 @@ public class ProfilePane extends VBox {
 
         accountSettingsGroup.getChildren().addAll(
                 createSettingButton("Statistics", new FontIcon(MaterialDesignP.POLL)),
+                new Separator(),
+                templatesButton("My Templates", new FontIcon(MaterialDesignF.FOLDER), TemplateFeedSource.mine()),
                 new Separator(),
                 templatesButton("Liked Templates", new FontIcon(MaterialDesignH.HEART), TemplateFeedSource.liked()),
                 new Separator(),

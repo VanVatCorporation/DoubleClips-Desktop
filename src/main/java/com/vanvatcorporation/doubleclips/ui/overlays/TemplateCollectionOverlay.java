@@ -30,6 +30,7 @@ public class TemplateCollectionOverlay extends StackPane {
         getStyleClass().add("preview-overlay");
 
         final boolean saved = source.kind == TemplateFeedSource.Kind.BOOKMARKED;
+        final boolean mine = source.kind == TemplateFeedSource.Kind.MINE;
 
         VBox card = new VBox(16);
         card.getStyleClass().add("template-dialog");
@@ -38,7 +39,7 @@ public class TemplateCollectionOverlay extends StackPane {
         card.setPadding(new Insets(24));
         StackPane.setMargin(card, new Insets(28));
 
-        Label title = new Label(saved ? "Saved templates" : "Liked templates");
+        Label title = new Label(mine ? "My templates" : saved ? "Saved templates" : "Liked templates");
         title.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
         HBox.setHgrow(title, Priority.ALWAYS);
         title.setMaxWidth(Double.MAX_VALUE);
@@ -52,7 +53,9 @@ public class TemplateCollectionOverlay extends StackPane {
         header.setAlignment(Pos.CENTER_LEFT);
 
         // what is no longer liked / saved leaves the list once the preview is closed, without a reload
-        TemplateGridView grid = new TemplateGridView(saved ? d -> d.isBookmarked : d -> d.isLiked, "Nothing here yet");
+        // "My templates" never loses a card; Liked / Saved do when something is unliked / unsaved in the preview.
+        TemplateGridView.Keep keep = mine ? null : (saved ? d -> d.isBookmarked : d -> d.isLiked);
+        TemplateGridView grid = new TemplateGridView(keep, mine ? "You haven't posted a template yet" : "Nothing here yet");
         grid.setOnPreviewClosed(this::requestFocus);
         VBox.setVgrow(grid, Priority.ALWAYS);
 
