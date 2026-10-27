@@ -2421,7 +2421,8 @@ public class EditorWindow extends Stage implements PropertyContext {
                 return "V|" + node.computeTileCount() + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature();
             case AUDIO:
                 // The waveform bitmap is drawn for a specific scale.
-                return "A|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature();
+                return "A|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature()
+                        + "|" + com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.signature(clip);
             case IMAGE:
                 return "I|" + clip.getClipName();
             default:
@@ -2438,7 +2439,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clip clip = node.getContainerClip();
         if (clip.type != ClipType.VIDEO || !clip.isClipHasAudio()) return;
         final String sig = "W|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature()
-                + "|" + clip.getAudioVolume();
+                + "|" + com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.signature(clip);
         if (sig.equals(node.getWaveSignature())) return;
         node.setWaveSignature(sig);
         final float scale = pixelsPerSecond;

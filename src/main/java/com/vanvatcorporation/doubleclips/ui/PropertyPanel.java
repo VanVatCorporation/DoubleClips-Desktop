@@ -20,6 +20,7 @@ public class PropertyPanel extends VBox {
     private final MaskSection maskSection;
     private final BlendSection blendSection;
     private final ClipEffectSection clipEffectSection;
+    private final AudioVolumeRow audioVolumeRow;
 
     /** The tabs of a selected clip's panel (CapCut style). Mask, Blend and Effect are for video, image and text clips only. */
     private enum Tab {
@@ -38,6 +39,7 @@ public class PropertyPanel extends VBox {
         this.maskSection = new MaskSection(context);
         this.blendSection = new BlendSection(context);
         this.clipEffectSection = new ClipEffectSection(context);
+        this.audioVolumeRow = new AudioVolumeRow(context);
         this.setPadding(new Insets(16));
         tabStrip.getStyleClass().add("editor-tab-strip");
         tabStrip.setVisible(false);
@@ -208,22 +210,7 @@ public class PropertyPanel extends VBox {
             } catch (Exception ignored) {}
         }));
         if(selectedClip.type == ClipType.AUDIO || selectedClip.type == ClipType.VIDEO) {
-            fields.getChildren().add(buildPropertyField("Audio Volume", String.valueOf(selectedClip.getAudioVolume()), newValue -> {
-                try {
-                    float val = Float.parseFloat(newValue);
-                    float oldVal = selectedClip.getAudioVolume();
-                    if (val == oldVal) return;
-                    context.executePropertyChange("Change Audio Volume", () -> {
-                        selectedClip.setAudioVolume(val);
-                        context.refreshTimelineUI();
-                        context.saveProject();
-                    }, () -> {
-                        selectedClip.setAudioVolume(oldVal);
-                        context.refreshTimelineUI();
-                        context.saveProject();
-                    });
-                } catch (Exception ignored) {}
-            }));
+            fields.getChildren().add(audioVolumeRow.build(selectedClip));
         }
 
         if (selectedClip.type == ClipType.TEXT) {

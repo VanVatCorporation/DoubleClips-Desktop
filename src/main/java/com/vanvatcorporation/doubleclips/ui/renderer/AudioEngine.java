@@ -338,14 +338,23 @@ public final class AudioEngine {
             Clip clip = src.clip;
             if (src.track != null && src.track.muted) continue;             // the track's sound is off (the export skips it too)
             if (clip.type == ClipType.VIDEO && (clip.isMute() || !clip.isClipHasAudio())) continue;
-            float gain = clip.getAudioVolume();
-            if (gain <= 0f) continue;
+            // A keyframed volume (VolumeCurve) is read at both ends of this chunk and ramped between them; else the plain one.
+            boolean keyed = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.isAnimated(clip);
+            float gain = keyed ? 1f : clip.getAudioVolume();
+            if (!keyed && gain <= 0f) continue;
 
             double c0 = clip.startTime, c1 = clip.startTime + clip.duration;
             if (t1 <= c0 || t0 >= c1) continue;
             int i0 = Math.max(0, (int) Math.ceil((c0 - t0) * RATE));
             int i1 = Math.min(frames, (int) Math.floor((c1 - t0) * RATE));
             if (i1 <= i0) continue;
+            float g0 = gain, g1 = gain;
+            if (keyed) {
+                g0 = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.gainAt(clip, (float) (t0 + i0 / (double) RATE));
+                g1 = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.gainAt(clip, (float) (t0 + i1 / (double) RATE));
+                if (g0 <= 0f && g1 <= 0f) continue;                      // silent through this chunk
+            }
+            final float gStep = (g1 - g0) / (i1 - i0);
             if (!src.ensureOpen(log)) continue;
 
             // Source time follows the clip's speed (a number or a curve): varispeed, so a faster clip is higher-pitched.
@@ -367,8 +376,9 @@ public final class AudioEngine {
                 int a = k * ch, b = (k + 1) * ch;
                 float left = samples[a] * (1f - f) + samples[b] * f;
                 float right = ch >= 2 ? samples[a + 1] * (1f - f) + samples[b + 1] * f : left;
-                acc[i * 2] += left * gain;
-                acc[i * 2 + 1] += right * gain;
+                float g = g0 + gStep * (i - i0);
+                acc[i * 2] += left * g;
+                acc[i * 2 + 1] += right * g;
             }
         }
     }

@@ -33,6 +33,8 @@ public class AudioUtils {
         final int bmpH = trackHeight - 4;
 
         ArrayList<Short> samples = new ArrayList<>(64000);
+        // A keyframed volume is drawn per bar below; a plain one scales the samples as they are read.
+        final boolean keyedVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.isAnimated(clip);
         final com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap speedMap = clip.timeMapSnapshot();
         final double[] sourceSeconds = {clip.duration};
 
@@ -68,7 +70,7 @@ public class AudioUtils {
             while (framesRead < framesToRead) {
                 int read = ais.read(buf);
                 if (read < 0) break;
-                ClipRenderer.applyVolume(buf, read, clip.getAudioVolume());
+                ClipRenderer.applyVolume(buf, read, keyedVolume ? 1f : clip.getAudioVolume());
                 // Process 16-bit PCM
                 for (int i = 0; i < read - 1; i += 2) {
                     short sample;
@@ -108,6 +110,10 @@ public class AudioUtils {
                 }
                 if (end > start) {
                     amps[b] = (float) Math.sqrt((double) rms / (end - start)) / 32768f; // 0..1
+                }
+                if (keyedVolume) {
+                    float at = clip.startTime + clip.duration * (b + 0.5f) / barCount;
+                    amps[b] = Math.min(1f, amps[b] * com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.gainAt(clip, at));
                 }
             }
         }
@@ -185,6 +191,14 @@ public class AudioUtils {
                 double[] edge = new double[bars];
                 for (int b = 0; b < bars; b++) edge[b] = speedMap.sourceOffset(clip.duration * (b + 1) / (double) bars) * rate;
                 float volume = clip.getAudioVolume();
+                // A keyframed volume: each bar is as loud as the volume at its own moment.
+                final boolean keyedVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.isAnimated(clip);
+                final float[] barVolume = new float[bars];
+                for (int b = 0; b < bars; b++) {
+                    barVolume[b] = keyedVolume
+                            ? com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.gainAt(clip, clip.startTime + clip.duration * (b + 0.5f) / bars)
+                            : volume;
+                }
                 byte[] buf = new byte[frameSize * 2048];
                 long frame = 0;
                 int bar = 0;
@@ -195,7 +209,7 @@ public class AudioUtils {
                         while (bar < bars - 1 && frame >= edge[bar]) bar++;
                         int o = i * frameSize;
                         short s = (short) ((buf[o] & 0xFF) | (buf[o + 1] << 8));   // the first channel is enough for a band
-                        double v = s / 32768.0 * volume;
+                        double v = s / 32768.0 * barVolume[bar];
                         sumSq[bar] += v * v;
                         count[bar]++;
                         if (frame >= edge[bars - 1]) { bar = bars; break; }

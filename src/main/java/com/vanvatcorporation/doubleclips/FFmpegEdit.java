@@ -699,10 +699,13 @@ public class FFmpegEdit {
                     if (isTrackMuted(clip, templateSettings)) break;     // its track is muted: nothing of it in the export
                     // 🎵 Pure audio clip logic
                     int delayMs = (int) (clip.startTime * 1000);
+                    // A keyframed volume is one volume filter of the clip's own time, right after the trim (before the delay).
+                    final String keyedVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.ffmpegStage(clip);
                     filterComplex.append("[").append(inputLayerIndex).append(":a]")
                             .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration).append(",")
+                            .append(keyedVolume)
                             .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
-                            .append("volume=").append(clip.getAudioVolume()).append(",")
+                            .append(keyedVolume.isEmpty() ? "volume=" + clip.getAudioVolume() + "," : "")
                             .append("aformat=sample_fmts=s16").append(",")
                             .append("asetpts=PTS-STARTPTS")
                             .append(clip.isReverse() ? ",areverse" : "")
@@ -727,12 +730,15 @@ public class FFmpegEdit {
                         (inputLayerIndex - (IOHelper.isFileExist(clip.getCutoutPath(templateSettings.data.getProjectPath()) + ".mp4") ? 2 : 1)) :
                         (inputLayerIndex - 1);
 
+                // A keyframed volume is one volume filter of the clip's own time, right after the trim (before the delay).
+                final String keyedVideoVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.ffmpegStage(clip);
                 filterComplex.append("[").append(effectiveSourceInputIndex).append(":a]")
                         .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration + extendMediaDuration).append(",")
+                        .append(keyedVideoVolume)
                         .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
                         // This handle the extension in silent to match the video
                         .append("apad=pad_dur=").append(freezeFrameDuration).append(",")
-                        .append("volume=").append(clip.getAudioVolume()).append(",")
+                        .append(keyedVideoVolume.isEmpty() ? "volume=" + clip.getAudioVolume() + "," : "")
                         .append("aformat=sample_fmts=s16").append(",")
                         .append("asetpts=PTS-STARTPTS")
                         .append(clip.isReverse() ? ",areverse" : "")

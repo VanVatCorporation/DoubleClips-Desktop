@@ -23,6 +23,14 @@ public class Clip implements Serializable, UnknownKeysHolder {
     @Expose public float startClipTrim;
     @Expose public float endClipTrim;
     @Expose public float originalDuration;
+    @Expose public float audioVolume;
+    /**
+     * Desktop only: the keyframes that hold every property ("all" keyframes, which is what older builds wrote for any
+     * animation) are also treated as holding the volume only after the user keyed the volume on this clip. Without it every
+     * clip with an old position keyframe would suddenly follow that keyframe's volume (always 1) instead of its
+     * {@link #audioVolume}. A keyframe that lists the volume channel by name (iOS, Android) always counts. See {@link VolumeCurve}.
+     */
+    @Expose public boolean volumeKeyed;
     @Expose public int trackIndex;
     @Expose public int width;
     @Expose public int height;
@@ -175,6 +183,7 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.startTime = startTime;
         this.duration = duration;
         this.originalDuration = duration;
+        this.audioVolume = isClipHasAudio ? 1.0f : 0.0f;
         this.trackIndex = trackIndex;
         this.type = type;
         this.isClipHasAudio = isClipHasAudio;
@@ -193,6 +202,8 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.startTime = other.startTime;
         this.duration = other.duration;
         this.originalDuration = other.originalDuration;
+        this.audioVolume = other.audioVolume;
+        this.volumeKeyed = other.volumeKeyed;
         this.startClipTrim = other.startClipTrim;
         this.endClipTrim = other.endClipTrim;
         this.trackIndex = other.trackIndex;
@@ -249,6 +260,9 @@ public class Clip implements Serializable, UnknownKeysHolder {
 
     public float getDuration() { return duration; }
     public void setDuration(float duration) { this.duration = duration; }
+
+    public float getAudioVolume() { return audioVolume; }
+    public void setAudioVolume(float audioVolume) { this.audioVolume = audioVolume; }
 
     public float getStartClipTrim() { return startClipTrim; }
     public void setStartClipTrim(float value) {
