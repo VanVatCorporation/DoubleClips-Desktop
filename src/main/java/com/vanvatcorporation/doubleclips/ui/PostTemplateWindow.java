@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
+import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.helper.android.AlertDialog;
 import com.vanvatcorporation.doubleclips.helper.android.Context;
 import javafx.animation.Interpolator;
@@ -55,18 +56,20 @@ public class PostTemplateWindow extends Stage {
     private final int totalClip;
     private final List<String> videoFilePaths;
     private final List<String> previewFilePaths;
+    private String templateTimelinePath;
     private final String defaultTitle;
 
-    public static void show(Stage owner, String ffmpegCommand, int totalClip, List<String> videoFilePaths, List<String> previewFilePaths, String defaultTitle) {
-        PostTemplateWindow win = new PostTemplateWindow(owner, ffmpegCommand, totalClip, videoFilePaths, previewFilePaths, defaultTitle);
+    public static void show(Stage owner, String ffmpegCommand, int totalClip, List<String> videoFilePaths, List<String> previewFilePaths, String templateTimelinePath, String defaultTitle) {
+        PostTemplateWindow win = new PostTemplateWindow(owner, ffmpegCommand, totalClip, videoFilePaths, previewFilePaths, templateTimelinePath, defaultTitle);
         win.show();
     }
 
-    private PostTemplateWindow(Stage owner, String ffmpegCommand, int totalClip, List<String> videoFilePaths, List<String> previewFilePaths, String defaultTitle) {
+    private PostTemplateWindow(Stage owner, String ffmpegCommand, int totalClip, List<String> videoFilePaths, List<String> previewFilePaths, String templateTimelinePath, String defaultTitle) {
         this.ffmpegCommand = ffmpegCommand;
         this.totalClip = totalClip;
         this.videoFilePaths = videoFilePaths;
         this.previewFilePaths = previewFilePaths;
+        this.templateTimelinePath = templateTimelinePath;
         this.defaultTitle = defaultTitle;
 
         setTitle("Upload Template — " + defaultTitle);
@@ -312,6 +315,13 @@ public class PostTemplateWindow extends Stage {
         field.put("templateTitle", templateTitle);
         field.put("templateDescription", templateDesc);
         field.put("ffmpegCommand", ffmpegCommand);
+        // Either can be absent (never both): the timeline is the template for apps that read it, the FFmpeg command for the
+        // ones that only know that.
+        if (ffmpegCommand != null && !ffmpegCommand.isEmpty()) field.put("ffmpegCommand", ffmpegCommand);
+        if (templateTimelinePath != null) {
+            String timelineJson = IOHelper.readFromFile(templateTimelinePath);
+            if (timelineJson != null && !timelineJson.isEmpty()) field.put("templateTimelineJson", timelineJson);
+        }
         field.put("templateTotalClips", String.valueOf(totalClip));
 
 

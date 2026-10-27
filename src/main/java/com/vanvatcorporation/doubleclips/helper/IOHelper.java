@@ -3,10 +3,7 @@ package com.vanvatcorporation.doubleclips.helper;
 import com.vanvatcorporation.doubleclips.data.storage.StorageHelper;
 import com.vanvatcorporation.doubleclips.manager.LoggingManager;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.util.Arrays;
 
 public class IOHelper {
@@ -103,5 +100,39 @@ public class IOHelper {
 //    }
     public static String getPersistentDataPath() {
         return StorageHelper.getAppDirectory().getAbsolutePath();
+    }
+
+
+
+    public static String readFromFile(String filePath)
+    {
+        try
+        {
+            File workingFile = new File(filePath);
+            if (!workingFile.exists())
+            {
+                workingFile.getParentFile().mkdirs();
+                return "";
+            }
+            BufferedReader reader = new BufferedReader(new FileReader(filePath));
+            StringBuilder stringBuilder = new StringBuilder();
+            String line;
+
+            while ((line = reader.readLine()) != null)
+            {
+                stringBuilder.append(line);
+                stringBuilder.append(System.lineSeparator());
+            }
+
+            reader.close();
+            return stringBuilder.toString();
+
+        }
+        catch (IOException e)
+        {
+            // TODO: handle exception
+            LoggingManager.LogToPersistentDataPath(LoggingManager.getStackTraceFromException(e));
+            return "";
+        }
     }
 }
