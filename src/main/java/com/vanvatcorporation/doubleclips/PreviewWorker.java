@@ -223,7 +223,7 @@ public final class PreviewWorker {
                     for (OpenGLEdit.FrameLayer layer : edit.computeFrameForTimestamp(tl, request.t + 0.75f, canvasW, canvasH, stretch)) {
                         if (layer.simpleDraw != null) {
                             pool.prefetch(layer.simpleDraw);
-                        } else {
+                        } else if (layer.transition != null) {
                             pool.prefetch(layer.transition.clipACommand);
                             pool.prefetch(layer.transition.clipBCommand);
                         }

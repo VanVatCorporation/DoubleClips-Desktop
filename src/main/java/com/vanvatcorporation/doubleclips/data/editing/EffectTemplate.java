@@ -25,6 +25,17 @@ public class EffectTemplate implements Serializable, UnknownKeysHolder {
     @Expose
     public java.util.Map<String, Object> params;
 
+    /**
+     * Only for a clip's own effect ({@link Clip#clipEffect}, the Android / iOS key): seconds into the clip where the effect
+     * starts showing. Null (and absent from the file) for an effect clip, which uses {@link #startTime} on the timeline.
+     * {@link #duration} is then the length of the window, 0 = until the clip ends.
+     */
+    @Expose
+    public Double offset;
+    /** Android's free-text kind of the effect (\"transition\", \"overlay\"...); desktop keeps it as it is. */
+    @Expose
+    public String type;
+
     public static final String INTENSITY = "intensity";
 
     /** A copy that shares nothing with {@code other} (clip copies must not share an effect). */
@@ -34,6 +45,8 @@ public class EffectTemplate implements Serializable, UnknownKeysHolder {
         this.duration = other.duration;
         this.startTime = other.startTime;
         this.params = other.params == null ? null : new java.util.LinkedHashMap<>(other.params);
+        this.offset = other.offset;
+        this.type = other.type;
     }
 
     /** The strength slider's value: 1 (the default look) when none is stored. */

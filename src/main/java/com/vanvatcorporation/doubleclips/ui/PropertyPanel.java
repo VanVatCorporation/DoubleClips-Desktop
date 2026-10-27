@@ -19,10 +19,11 @@ public class PropertyPanel extends VBox {
     private final PropertyContext context;
     private final MaskSection maskSection;
     private final BlendSection blendSection;
+    private final ClipEffectSection clipEffectSection;
 
-    /** The tabs of a selected clip's panel (CapCut style). Mask and Blend are for video, image and text clips only. */
+    /** The tabs of a selected clip's panel (CapCut style). Mask, Blend and Effect are for video, image and text clips only. */
     private enum Tab {
-        PROPERTIES("Properties"), MASK("Mask"), BLEND("Blend"), ANIMATION("Animation");
+        PROPERTIES("Properties"), MASK("Mask"), BLEND("Blend"), EFFECT("Effect"), ANIMATION("Animation");
         final String title;
         Tab(String title) { this.title = title; }
     }
@@ -36,6 +37,7 @@ public class PropertyPanel extends VBox {
         this.context = context;
         this.maskSection = new MaskSection(context);
         this.blendSection = new BlendSection(context);
+        this.clipEffectSection = new ClipEffectSection(context);
         this.setPadding(new Insets(16));
         tabStrip.getStyleClass().add("editor-tab-strip");
         tabStrip.setVisible(false);
@@ -112,6 +114,7 @@ public class PropertyPanel extends VBox {
         switch (activeTab) {
             case MASK: buildMaskTab(selectedClip); return;
             case BLEND: buildBlendTab(selectedClip); return;
+            case EFFECT: buildClipEffectTab(selectedClip); return;
             case ANIMATION: buildAnimationTab(selectedClip); return;
             default: break;
         }
@@ -365,6 +368,10 @@ public class PropertyPanel extends VBox {
 
     private void buildBlendTab(Clip clip) {
         getChildren().addAll(tabTitle("Blend"), blendSection.build(clip));
+    }
+
+    private void buildClipEffectTab(Clip clip) {
+        getChildren().addAll(tabTitle("Effect"), clipEffectSection.build(clip));
     }
 
     /** In / out animations, the packs dialog, and the shortcut to the transition at this clip's end. */

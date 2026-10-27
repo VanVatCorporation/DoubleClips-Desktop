@@ -3,6 +3,10 @@
 // The effects shader. The picker tiles are drawn by this same shader (TileRenderer), so a tile is the real effect.
 // Pictures are opaque; positions are in pixels with y pointing DOWN (row 0 = top), a pixel's centre at +0.5.
 //
+// uLayer = 1: the picture is ONE CLIP'S TRANSPARENT LAYER (premultiplied RGBA), not the whole canvas: the clip's own effect.
+// The colour maths run on the un-premultiplied colour, so they behave exactly as on an opaque picture; the alpha follows
+// the same spatial remap as the colour (gA), and the result is written premultiplied again. uLayer = 0 is the old path.
+//
 // uStyle is the effect's position in EffectCatalog. "blur" (10) is not drawn here: it is two passes of the
 // compositor's Gaussian shader. "glow" (11) is four: uPass 1 keeps the bright parts, two Gaussian passes
 // soften them, uPass 2 (this shader again) adds them back with a screen blend.
@@ -16,13 +20,28 @@ uniform float uProgress;        // 0..1 through the effect clip
 uniform float uTime;            // timeline time, seconds
 uniform float uElapsed;         // seconds since the effect clip began
 uniform float uWander;          // vhs: where the tracking line is
+uniform int uLayer;             // 1 = a clip's transparent layer (see above)
 uniform vec2 uResolution;       // canvas size in pixels
 uniform float uRand[32];        // the step's random numbers, by salt (made on the CPU so CPU and GPU agree)
 out vec4 fragColor;
 
 const float PI = 3.14159265358979;
 
-vec3 tap(vec2 p) { return texture(uTexture, p / uResolution).rgb; }
+// alpha of the picture at p (1 on an opaque picture)
+float tapA(vec2 p) { return uLayer == 1 ? texture(uTexture, p / uResolution).a : 1.0; }
+
+// colour of the picture at p (un-premultiplied on a layer)
+vec3 tap(vec2 p) {
+    vec4 s = texture(uTexture, p / uResolution);
+    if (uLayer == 1) return s.a > 0.0001 ? clamp(s.rgb / s.a, 0.0, 1.0) : vec3(0.0);
+    return s.rgb;
+}
+
+// the alpha of the output pixel (layer mode); the spatial effects set it to the alpha of where they read from
+float gA = 1.0;
+
+// tap() for an effect that reads ONE place: the output alpha comes from there too
+vec3 tapG(vec2 p) { gA = tapA(p); return tap(p); }
 
 float luma(vec3 c) { return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; }
 
@@ -72,7 +91,7 @@ vec3 vhsBase(vec2 p, float br) {
 
 vec3 zoomed(vec2 p, float z) {
     vec2 c = uResolution / 2.0;
-    return tap(c + (p - c) / z);
+    return tapG(c + (p - c) / z);
 }
 
 void main() {
@@ -82,17 +101,29 @@ void main() {
     float a = max(uIntensity, 0.0);
     float e = max(uElapsed, 0.0);
     float pr = clamp01(uProgress);
+    float frameA = tapA(p);
+    gA = frameA;
     vec3 frame = tap(p);
     vec3 o = frame;
 
     if (uPass == 1) {                       // glow: keep the bright parts
         float gate = clamp01((luma(frame) - 0.55) / 0.45);
-        fragColor = vec4(frame * gate, 1.0);
+        if (uLayer == 1) fragColor = vec4(frame * gate * frameA, frameA * gate);   // premultiplied, covers where it glows
+        else fragColor = vec4(frame * gate, 1.0);
         return;
     }
     if (uPass == 2) {                       // glow: add the softened bright parts back (screen)
         float k = min(1.2, 0.6 + 0.4 * a);
-        vec3 halo = texture(uTexture2, vUV).rgb;
+        vec4 halo4 = texture(uTexture2, vUV);
+        vec3 halo = halo4.rgb;
+        if (uLayer == 1) {
+            // screen in premultiplied space; the glow may spill a little past the clip's edge, so the alpha grows with it
+            vec3 fp = frame * frameA;
+            float outA = clamp(max(frameA, k * halo4.a), 0.0, 1.0);
+            vec3 pm = vec3(1.0) - (vec3(1.0) - fp) * (vec3(1.0) - clamp(k * halo, 0.0, 1.0));
+            fragColor = vec4(min(clamp(pm, 0.0, 1.0), vec3(outA)), outA);
+            return;
+        }
         o = clamp(vec3(1.0) - (vec3(1.0) - frame) * (vec3(1.0) - clamp(k * halo, 0.0, 1.0)), 0.0, 1.0);
         fragColor = vec4(o, 1.0);
         return;
@@ -112,6 +143,7 @@ void main() {
             if (p.y >= top && p.y < top + height) sx -= shift;
         }
         o = vec3(tap(vec2(sx - dx, p.y)).r + bright, tap(vec2(sx, p.y)).g + bright, tap(vec2(sx + dx, p.y)).b + bright);
+        gA = max(tapA(vec2(sx - dx, p.y)), max(tapA(vec2(sx, p.y)), tapA(vec2(sx + dx, p.y))));
     } else if (uStyle == 1) {               // warp-zoom
         o = zoomed(p, 1.0 + 0.03 * a * e);
     } else if (uStyle == 2) {               // lens-flare-surge
@@ -124,7 +156,8 @@ void main() {
         float cs = cos(theta), sn = sin(theta);
         vec2 d = p - c;
         vec2 s = vec2(c.x + d.x * cs + d.y * sn, c.y - d.x * sn + d.y * cs);
-        o = (s.x < 0.0 || s.x > res.x || s.y < 0.0 || s.y > res.y) ? vec3(0.0) : tap(s);
+        if (s.x < 0.0 || s.x > res.x || s.y < 0.0 || s.y > res.y) { o = vec3(0.0); gA = 0.0; }
+        else o = tapG(s);
     } else if (uStyle == 4) {               // shake
         float dx = (uRand[11] - 0.5) * 2.0 * res.x * 0.012 * a;
         float dy = (uRand[13] - 0.5) * 2.0 * res.y * 0.012 * a;
@@ -133,7 +166,7 @@ void main() {
         float cs = cos(rot), sn = sin(rot);
         vec2 v = p - (c + vec2(dx, dy));
         vec2 r = vec2(v.x * cs + v.y * sn, -v.x * sn + v.y * cs);
-        o = tap(c + r / z);
+        o = tapG(c + r / z);
     } else if (uStyle == 5) {               // beat-pulse
         float phase = fract(e * 2.0);
         o = zoomed(p, 1.0 + 0.08 * a * exp(-6.0 * phase));
@@ -147,6 +180,7 @@ void main() {
     } else if (uStyle == 8) {               // rgb-shift
         float dx = res.x * 0.01 * a * (1.0 + 0.5 * sin(2.0 * PI * 1.5 * e));
         o = vec3(tap(vec2(p.x - dx, p.y)).r, frame.g, tap(vec2(p.x + dx, p.y)).b);
+        gA = max(frameA, max(tapA(vec2(p.x - dx, p.y)), tapA(vec2(p.x + dx, p.y))));
     } else if (uStyle == 9) {               // vhs
         float s = min(a, 2.0);
         float br = max(0.5, res.y * 0.0009 * s);
@@ -160,6 +194,7 @@ void main() {
         if (p.y >= stripTop && p.y < stripTop + stripHeight) sx -= stripShift;
         if (p.y >= lineTop && p.y < lineTop + lineHeight) sx -= lineShift;
         o = vec3(vhsBase(vec2(sx - dx, p.y), br).r, vhsBase(vec2(sx, p.y), br).g, vhsBase(vec2(sx + dx, p.y), br).b);
+        gA = max(tapA(vec2(sx - dx, p.y)), max(tapA(vec2(sx, p.y)), tapA(vec2(sx + dx, p.y))));
         if ((int(floor(p.y / lineWidth)) % 2) == 0) o *= 1.0 - 0.22 * s;
         float n = grain(p + vec2(uRand[25] * 700.0, uRand[27] * 700.0));
         o = o * (1.0 - 0.12 * s) + vec3(n * 0.12 * s);
@@ -172,7 +207,7 @@ void main() {
         o = frame + (aged - frame) * clamp01(a);
     } else if (uStyle == 15) {              // pixelate
         float block = max(2.0, res.y * 0.012 * a);
-        o = tap((floor(p / block) + 0.5) * block);
+        o = tapG((floor(p / block) + 0.5) * block);
     } else if (uStyle == 16) {              // halftone
         float cell = max(3.0, res.y * 0.006 * a);
         float angle = 0.5;
@@ -191,7 +226,7 @@ void main() {
         float t = ang - segment * floor(ang / segment);
         t = abs(t - segment / 2.0);
         float source = t + rot;
-        o = tap(c + r * vec2(cos(source), sin(source)));
+        o = tapG(c + r * vec2(cos(source), sin(source)));
     } else if (uStyle == 18) {              // twirl
         float radius = min(res.x, res.y) * 0.45;
         float angle = 2.0 * a * sin(2.0 * PI * 0.5 * e);
@@ -201,7 +236,7 @@ void main() {
             float f = 1.0 - r / radius;
             float theta = angle * f * f;
             float cs = cos(theta), sn = sin(theta);
-            o = tap(c + vec2(d.x * cs - d.y * sn, d.x * sn + d.y * cs));
+            o = tapG(c + vec2(d.x * cs - d.y * sn, d.x * sn + d.y * cs));
         }
     } else if (uStyle == 19) {              // bulge
         float radius = min(res.x, res.y) * 0.45;
@@ -211,12 +246,19 @@ void main() {
         float r = length(d);
         if (r < radius) {
             float f = 1.0 - r / radius;
-            o = tap(c + d * (1.0 - strength * f * f));
+            o = tapG(c + d * (1.0 - strength * f * f));
         }
     } else if (uStyle == 20) {              // fade-in
-        o = frame * clamp01(pr);
+        if (uLayer == 1) gA = frameA * clamp01(pr);          // on a clip's layer it fades the clip itself, not to black
+        else o = frame * clamp01(pr);
     } else if (uStyle == 21) {              // fade-out
-        o = frame * clamp01(1.0 - pr);
+        if (uLayer == 1) gA = frameA * clamp01(1.0 - pr);
+        else o = frame * clamp01(1.0 - pr);
+    }
+    if (uLayer == 1) {
+        float alpha = clamp01(gA);
+        fragColor = vec4(clamp(o, 0.0, 1.0) * alpha, alpha);   // premultiplied again
+        return;
     }
     fragColor = vec4(clamp(o, 0.0, 1.0), 1.0);
 }

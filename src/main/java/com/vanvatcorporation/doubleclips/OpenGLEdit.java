@@ -395,6 +395,9 @@ public class OpenGLEdit {
             return progress < 0.5f ? clipACommand.blendMode : clipBCommand.blendMode;
         }
 
+        /** The own effect ({@link Clip#clipEffect}) of each side, applied to that side's layer before the two are blended; null = none. */
+        public EffectCommand clipAEffect, clipBEffect;
+
         public TransitionCommand(DrawCommand clipACommand, DrawCommand clipBCommand, String style, float progress) {
             this.clipACommand = clipACommand;
             this.clipBCommand = clipBCommand;
@@ -432,14 +435,30 @@ public class OpenGLEdit {
         public final DrawCommand simpleDraw;
         public final TransitionCommand transition;
         public final EffectCommand effect;
-        private FrameLayer(DrawCommand simpleDraw, TransitionCommand transition, EffectCommand effect) {
+        /**
+         * A clip's OWN effect ({@link Clip#clipEffect}), as a pair of markers around the layers that make up that clip (one
+         * layer, or a text clip's units): from the begin marker until the matching {@link #endClipEffect} everything is drawn
+         * into a transparent layer of its own, the effect then filters that layer alone, and the result goes onto the frame
+         * (with the clip's blend mode): the layers below stay untouched. A marker layer has no simpleDraw / transition / effect.
+         */
+        public final EffectCommand beginClipEffect;
+        public final boolean endClipEffect;
+        /** On a begin marker: the blend mode of the clip, applied when the finished layer goes onto the frame (0 = normal). */
+        public final int groupBlendMode;
+        private FrameLayer(DrawCommand simpleDraw, TransitionCommand transition, EffectCommand effect,
+                           EffectCommand beginClipEffect, boolean endClipEffect, int groupBlendMode) {
             this.simpleDraw = simpleDraw;
             this.transition = transition;
             this.effect = effect;
+            this.beginClipEffect = beginClipEffect;
+            this.endClipEffect = endClipEffect;
+            this.groupBlendMode = groupBlendMode;
         }
-        static FrameLayer of(DrawCommand d) { return new FrameLayer(d, null, null); }
-        static FrameLayer of(TransitionCommand t) { return new FrameLayer(null, t, null); }
-        static FrameLayer of(EffectCommand e) { return new FrameLayer(null, null, e); }
+        static FrameLayer of(DrawCommand d) { return new FrameLayer(d, null, null, null, false, 0); }
+        static FrameLayer of(TransitionCommand t) { return new FrameLayer(null, t, null, null, false, 0); }
+        static FrameLayer of(EffectCommand e) { return new FrameLayer(null, null, e, null, false, 0); }
+        static FrameLayer beginClipEffect(EffectCommand e, int blendMode) { return new FrameLayer(null, null, null, e, false, blendMode); }
+        static FrameLayer endClipEffect() { return new FrameLayer(null, null, null, null, true, 0); }
     }
 
     /**
@@ -480,7 +499,7 @@ public class OpenGLEdit {
                         canvasWidth, canvasHeight, stretchToFull, projection,
                         dataHit.style.frameAt(p), showA ? dataHit.window : null);
                 if (styled != null) {
-                    layers.add(FrameLayer.of(styled));
+                    addClipLayers(layers, showA ? dataHit.clipA : dataHit.clipB, java.util.Collections.singletonList(styled), outputTimeSeconds);
                     continue;
                 }
                 // An unsupported clip type (e.g. 3D): fall through to normal single-clip handling below.
@@ -491,7 +510,10 @@ public class OpenGLEdit {
                 DrawCommand cmdA = buildDrawCommand(window.clipA, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
                 DrawCommand cmdB = buildDrawCommand(window.clipB, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection);
                 if (cmdA != null && cmdB != null) {
-                    layers.add(FrameLayer.of(new TransitionCommand(cmdA, cmdB, window.style, window.progress)));
+                    TransitionCommand blend = new TransitionCommand(cmdA, cmdB, window.style, window.progress);
+                    blend.clipAEffect = ownEffectOf(window.clipA, outputTimeSeconds);
+                    blend.clipBEffect = ownEffectOf(window.clipB, outputTimeSeconds);
+                    layers.add(FrameLayer.of(blend));
                     continue;
                 }
                 // One side has an unsupported clip type (e.g. text/3D) - fall
@@ -511,17 +533,51 @@ public class OpenGLEdit {
             // Per-character / word / line text animation: one layer per unit, in reading order.
             List<DrawCommand> unitCommands = buildTextUnitCommands(activeClip, outputTimeSeconds, canvasWidth, canvasHeight, projection);
             if (unitCommands != null) {
-                for (DrawCommand unit : unitCommands) layers.add(FrameLayer.of(unit));
+                addClipLayers(layers, activeClip, unitCommands, outputTimeSeconds);
                 continue;
             }
             // A clip that ends in a data-driven transition runs its out animation over the transition's window.
             DataWindow outgoing = windowOfA(dataWindows, activeIndex);
             DrawCommand cmd = buildDrawCommand(activeClip, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection,
                     null, outgoing == null ? null : outgoing.window);
-            if (cmd != null) layers.add(FrameLayer.of(cmd));
+            if (cmd != null) addClipLayers(layers, activeClip, java.util.Collections.singletonList(cmd), outputTimeSeconds);
         }
 
         return layers;
+    }
+
+    /**
+     * Adds one clip's draw commands (one, or a text clip's units) as layers; when the clip has an effect of its own that shows
+     * now, they sit between begin / end markers so the compositor draws them into a layer the effect then filters alone.
+     */
+    private void addClipLayers(List<FrameLayer> layers, Clip clip, List<DrawCommand> commands, float outputTimeSeconds) {
+        EffectCommand own = ownEffectOf(clip, outputTimeSeconds);
+        if (own != null && !commands.isEmpty()) {
+            layers.add(FrameLayer.beginClipEffect(own, commands.get(0).blendMode));
+            for (DrawCommand command : commands) layers.add(FrameLayer.of(command));
+            layers.add(FrameLayer.endClipEffect());
+            return;
+        }
+        for (DrawCommand command : commands) layers.add(FrameLayer.of(command));
+    }
+
+    /**
+     * The clip's own effect ({@link Clip#clipEffect}) at {@code t}, or null when it has none, names one this version doesn't
+     * know, or its window (start = offset into the clip, length = duration, 0 = until the clip's end) isn't open now.
+     */
+    private EffectCommand ownEffectOf(Clip clip, float t) {
+        if (clip == null || clip.clipEffect == null || clip.clipEffect.style == null) return null;
+        if (clip.type == ClipType.AUDIO || clip.type == ClipType.EFFECT) return null;
+        EffectCatalog.Style style = EffectCatalog.find(clip.clipEffect.style);
+        if (style == null) return null;
+        float start = clip.clipEffect.offset == null ? 0f : Math.max(0f, clip.clipEffect.offset.floatValue());
+        if (start >= clip.duration) start = 0f; // it would never show: the window starts with the clip
+        float room = clip.duration - start;
+        float length = clip.clipEffect.duration > 0f ? Math.min(clip.clipEffect.duration, room) : room;
+        float elapsed = t - clip.startTime - start;
+        if (elapsed < 0f || elapsed > length) return null;
+        float progress = length > 1e-3f ? Math.max(0f, Math.min(1f, elapsed / length)) : 1f;
+        return new EffectCommand(clip, style.key, EffectCatalog.clampIntensity(style, clip.clipEffect.intensity()), progress, elapsed);
     }
 
     /** An active OVERLAP-mode, built-in-style (two-sided blend) transition on a track at some t. */

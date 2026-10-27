@@ -924,6 +924,11 @@ public class FFmpegEdit {
                     // The FFmpeg filter graph never draws effect clips; only the OpenGL export does (as an adjustment layer).
                     found.add("The effect \"" + EffectCatalog.find(clip.effect.style).title + "\" is skipped (only the OpenGL export draws effect clips)");
                 }
+                if (clip.clipEffect != null && clip.type != ClipType.AUDIO && clip.type != ClipType.EFFECT
+                        && EffectCatalog.find(clip.clipEffect.style) != null) {
+                    // A clip's own effect needs the clip on a layer of its own, which the FFmpeg filter graph doesn't do.
+                    found.add("The clip effect \"" + EffectCatalog.find(clip.clipEffect.style).title + "\" is skipped (only the OpenGL export draws a clip's own effect)");
+                }
                 if (clip.blendMode != null && clip.blendMode != com.vanvatcorporation.doubleclips.data.editing.ClipBlendMode.NORMAL) {
                     found.add("Clip blend modes are skipped (only the OpenGL export draws them; FFmpeg draws those clips normally)");
                 }

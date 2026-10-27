@@ -562,7 +562,14 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     }
 
     // Created lazily on first use, so a project with no transitions or blur pays nothing for them.
-    private final GlTarget[] scratch = new GlTarget[3]; // 0 and 1: transitions and blur; effects use all three
+    // 0, 1, 2: transitions, blur, blend and the effect clips' passes. 3: the layer of a clip that has its own effect
+    // (a "clip group"). 4, 5, 6: that effect's own working copies, so they never touch the group while it is being filtered.
+    private final GlTarget[] scratch = new GlTarget[7];
+    private static final int GROUP_SLOT = 3, GROUP_FX_BASE = 4;
+    /** Where "the main canvas" draws go: null = the real canvas; the clip group's layer while one is being built. */
+    private GlTarget baseTarget = null;
+    private GlTarget mainTarget;
+    private int copyProgram = 0, uCopyTexLoc;
     private int transitionProgram = 0, blurProgram = 0, streakProgram = 0, blendProgram = 0;
     private int uBlendLayerLoc, uBlendBackdropLoc, uBlendModeLoc;
     private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc, uTransAspectLoc, uTransCanvasLoc;
@@ -572,7 +579,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private int effectProgram = 0;
     private boolean effectsUnavailable = false;
     private int uFxTexLoc, uFxTex2Loc, uFxStyleLoc, uFxPassLoc, uFxIntensityLoc, uFxProgressLoc, uFxTimeLoc, uFxElapsedLoc,
-            uFxWanderLoc, uFxResolutionLoc, uFxRandLoc;
+            uFxWanderLoc, uFxResolutionLoc, uFxRandLoc, uFxLayerLoc;
 
     GlCompositor(int width, int height) {
         this.width = width;
@@ -585,6 +592,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         fbo = glGenFramebuffers();
+        mainTarget = new GlTarget(fbo, colorTex);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTex, 0);
         int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -649,6 +657,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
 
     @Override
     public void beginFrame() {
+        baseTarget = null;
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glViewport(0, 0, width, height);
         glClearColor(0f, 0f, 0f, 1f); // opaque black canvas base - the encoded output has no alpha anyway
@@ -734,7 +743,11 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     }
 
     private void bindMain() {
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        bindTarget(baseTarget != null ? baseTarget : mainTarget);
+    }
+
+    private void bindTarget(GlTarget t) {
+        glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
         glViewport(0, 0, width, height);
     }
 
@@ -960,6 +973,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uFxWanderLoc = glGetUniformLocation(effectProgram, "uWander");
             uFxResolutionLoc = glGetUniformLocation(effectProgram, "uResolution");
             uFxRandLoc = glGetUniformLocation(effectProgram, "uRand");
+            uFxLayerLoc = glGetUniformLocation(effectProgram, "uLayer");
             return true;
         } catch (RuntimeException | java.io.IOException e) {
             effectsUnavailable = true;
@@ -997,11 +1011,28 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     /**
      * An effect clip: copy the picture so far, then redraw it through the effect over the main canvas, which it
      * REPLACES (blending is off for these passes). "blur" is two Gaussian passes; "glow" keeps the bright parts,
-     * softens them with two Gaussian passes and adds them back; every other effect is one pass.
+     * softens them with two Gaussian passes and adds them back with a screen blend; every other effect is one pass.
      * (tests/glcheck runs this exact pass order against the CPU renderer on a software GL.)
      */
     @Override
     public void applyEffect(String style, float intensity, float progress, float time, float elapsed) {
+        applyEffectCore(mainTarget, 0, false, style, intensity, progress, time, elapsed);
+    }
+
+    /** The same effect on ONE clip's transparent layer in scratch canvas {@code slot} (premultiplied), in place. */
+    @Override
+    public void applyEffectToSlot(int slot, String style, float intensity, float progress, float time, float elapsed) {
+        applyEffectCore(scratchTarget(slot), GROUP_FX_BASE, true, style, intensity, progress, time, elapsed);
+        bindMain();
+    }
+
+    /**
+     * The effect passes, reading and writing {@code dst}: {@code base}, {@code base + 1} and {@code base + 2} are the
+     * scratch canvases the passes use as working copies. {@code layer}: dst holds one clip's transparent layer rather
+     * than the opaque canvas (the shader then keeps the alpha and writes premultiplied colour).
+     */
+    private void applyEffectCore(GlTarget dst, int base, boolean layer, String style, float intensity, float progress,
+                                 float time, float elapsed) {
         int index = EffectCatalog.indexOf(style);
         if (index < 0 || !prepareEffects()) return;
         float a = Math.max(intensity, 0f);
@@ -1010,21 +1041,21 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         try {
             glBindVertexArray(vao);
 
-            // 1. a copy of everything drawn so far (the effect reads it while it writes the canvas)
-            GlTarget copy = scratchTarget(0);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+            // 1. a copy of everything drawn so far (the effect reads it while it writes dst)
+            GlTarget copy = scratchTarget(base);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, dst.fbo);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copy.fbo);
             glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
             if (index == EFFECT_BLUR) {
                 float sigma = height * 0.014f * a;
-                if (sigma <= 0.1f) return; // nothing to soften: the canvas is already what it should be
+                if (sigma <= 0.1f) return; // nothing to soften: dst is already what it should be
                 ensureBlurProgram();
-                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(1).fbo);
+                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(base + 1).fbo);
                 glViewport(0, 0, width, height);
-                gaussianPass(0, 1f, 0f, sigma);
-                bindMain();
-                gaussianPass(1, 0f, 1f, sigma);
+                gaussianPass(base, 1f, 0f, sigma);
+                bindTarget(dst);
+                gaussianPass(base + 1, 0f, 1f, sigma);
                 return;
             }
 
@@ -1033,6 +1064,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             glUniform1i(uFxTexLoc, 0);
             glUniform1i(uFxTex2Loc, 1);
             glUniform1i(uFxStyleLoc, index);
+            glUniform1i(uFxLayerLoc, layer ? 1 : 0);
             glUniform1f(uFxIntensityLoc, a);
             glUniform1f(uFxProgressLoc, progress);
             glUniform1f(uFxTimeLoc, time);
@@ -1044,28 +1076,66 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             if (index == EFFECT_GLOW) {
                 float sigma = height * 0.025f * a;
                 ensureBlurProgram();
-                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(1).fbo);
+                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(base + 1).fbo);
                 glViewport(0, 0, width, height);
-                effectPass(1, 0, -1);                            // bright parts -> slot 1
-                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(2).fbo);
+                effectPass(1, base, -1);                         // bright parts -> base + 1
+                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(base + 2).fbo);
                 glViewport(0, 0, width, height);
-                gaussianPass(1, 1f, 0f, sigma);                  // soften sideways -> slot 2
-                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(1).fbo);
+                gaussianPass(base + 1, 1f, 0f, sigma);           // soften sideways -> base + 2
+                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(base + 1).fbo);
                 glViewport(0, 0, width, height);
-                gaussianPass(2, 0f, 1f, sigma);                  // soften up and down -> slot 1
-                bindMain();
+                gaussianPass(base + 2, 0f, 1f, sigma);           // soften up and down -> base + 1
+                bindTarget(dst);
                 glUseProgram(effectProgram);
-                effectPass(2, 0, 1);                             // picture + glow -> canvas
+                effectPass(2, base, base + 1);                   // picture + glow -> dst
                 return;
             }
 
-            bindMain();
-            effectPass(0, 0, -1);
+            bindTarget(dst);
+            effectPass(0, base, -1);
         } finally {
             glEnable(GL_BLEND); // draw() assumes it; beginFrame set it up once
             glUseProgram(program);
             glActiveTexture(GL_TEXTURE0);
         }
+    }
+
+    // ---- a clip with an effect of its own (a "clip group") -------------------------------------
+
+    @Override
+    public void beginClipGroup() {
+        // Everything drawn to "the main canvas" from here goes into a transparent layer of its own (bindMain follows baseTarget).
+        baseTarget = scratchTarget(GROUP_SLOT);
+        bindScratchCleared(GROUP_SLOT);
+        glEnable(GL_BLEND);
+        useStraightBlend();
+    }
+
+    @Override
+    public void endClipGroup(OpenGLEdit.EffectCommand fx, float time, int blendMode, boolean backdrop) {
+        baseTarget = null;
+        if (fx != null) applyEffectToSlot(GROUP_SLOT, fx.style, fx.intensity, fx.progress, time, fx.elapsed);
+        bindMain();
+        glEnable(GL_BLEND);
+        if (blendMode != 0 && backdrop) {
+            blendOntoMain(GROUP_SLOT, 0, blendMode);
+            return;
+        }
+        // The layer holds premultiplied colour: onto the canvas with src factor ONE (see "compositing convention").
+        if (copyProgram == 0) {
+            copyProgram = buildProgram(FULLSCREEN_VERTEX_SHADER,
+                    "#version 330 core\nin vec2 vUV;\nuniform sampler2D uTex;\nout vec4 fragColor;\n"
+                  + "void main() { fragColor = texture(uTex, vUV); }\n");
+            uCopyTexLoc = glGetUniformLocation(copyProgram, "uTex");
+        }
+        usePremultipliedBlend();
+        glUseProgram(copyProgram);
+        glBindVertexArray(vao);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(GROUP_SLOT).texture);
+        glUniform1i(uCopyTexLoc, 0);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        useStraightBlend();
     }
 
     @Override

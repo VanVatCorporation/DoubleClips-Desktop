@@ -97,6 +97,24 @@ public final class OpenGLTimelineExporter {
          */
         void applyEffect(String style, float intensity, float progress, float time, float elapsed);
 
+        /**
+         * The same effect on ONE clip's transparent layer (premultiplied) in scratch canvas {@code slot}, in place: only
+         * that clip is filtered. Used for the two sides of a transition that have an effect of their own.
+         */
+        void applyEffectToSlot(int slot, String style, float intensity, float progress, float time, float elapsed);
+
+        /**
+         * Starts a clip that has an effect of its own: from here until {@link #endClipGroup}, every draw (and blur / streak /
+         * transition result) that goes to "the main canvas" goes into a cleared, transparent layer instead.
+         */
+        void beginClipGroup();
+
+        /**
+         * Ends the group: filters the layer with {@code fx} (null = nothing) and puts it onto the main canvas, with the
+         * clip's blend mode against what is there when {@code backdrop} says something is ({@code blendMode} 0 = normal).
+         */
+        void endClipGroup(OpenGLEdit.EffectCommand fx, float time, int blendMode, boolean backdrop);
+
         /** Redirects {@link #draw} back onto the main canvas. */
         void endOffscreen();
 
@@ -146,15 +164,39 @@ public final class OpenGLTimelineExporter {
         // Whether anything has been drawn yet: a clip with nothing below it is drawn normally whatever its blend mode
         // (blending with the empty black canvas would only turn Multiply / Overlay clips black; same rule as iOS).
         boolean backdrop = false;
+        // A clip with an effect of its own is drawn into a layer of its own; inside it a clip's blend mode waits for the end.
+        boolean inGroup = false;
+        boolean backdropBeforeGroup = false;
+        OpenGLEdit.EffectCommand groupFx = null;
+        int groupBlend = 0;
 
         // Draw in EXACT layer order: it is the track stacking order, and plain,
         // blurred and transitioning layers must interleave correctly rather than
         // be grouped into separate passes (see OpenGLEdit.computeFrameForTimestamp).
         for (OpenGLEdit.FrameLayer layer : layers) {
+            if (layer.beginClipEffect != null) {
+                compositor.beginClipGroup();
+                inGroup = true;
+                backdropBeforeGroup = backdrop;
+                groupFx = layer.beginClipEffect;
+                groupBlend = layer.groupBlendMode;
+                backdrop = false; // inside, nothing is "below" the clip: the layer starts empty
+                continue;
+            }
+            if (layer.endClipEffect) {
+                if (inGroup) {
+                    compositor.endClipGroup(groupFx, outputTimeSeconds, groupBlend, backdropBeforeGroup);
+                    backdrop = true;
+                    inGroup = false;
+                    groupFx = null;
+                }
+                continue;
+            }
             if (layer.simpleDraw != null) {
                 OpenGLEdit.DrawCommand cmd = layer.simpleDraw;
                 boolean streak = cmd.post != null;
-                if (cmd.blendMode != 0 && backdrop) {
+                int blendMode = inGroup ? 0 : cmd.blendMode;
+                if (blendMode != 0 && backdrop) {
                     // Blended: the finished clip (streak look and blur included) is built in a scratch canvas, then mixed
                     // with the main canvas by the mode. Slots: 0 = the clip, 1 = streak result, 2 = blur result.
                     compositor.beginOffscreen(0);
@@ -168,7 +210,7 @@ public final class OpenGLTimelineExporter {
                             compositor.blurToSlot(slot, temp, 2, cmd.blurSigmaPixels * blurScale);
                             slot = 2;
                         }
-                        compositor.blendOntoMain(slot, slot == 0 ? 1 : 0, cmd.blendMode);
+                        compositor.blendOntoMain(slot, slot == 0 ? 1 : 0, blendMode);
                     }
                     continue;
                 }
@@ -208,8 +250,16 @@ public final class OpenGLTimelineExporter {
             OpenGLEdit.TransitionCommand transition = layer.transition;
             compositor.beginOffscreen(0);
             drawer.draw(transition.clipACommand, outputTimeSeconds);
+            if (transition.clipAEffect != null) {
+                OpenGLEdit.EffectCommand own = transition.clipAEffect; // the outgoing clip's own effect filters its side only
+                compositor.applyEffectToSlot(0, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
+            }
             compositor.beginOffscreen(1);
             drawer.draw(transition.clipBCommand, outputTimeSeconds);
+            if (transition.clipBEffect != null) {
+                OpenGLEdit.EffectCommand own = transition.clipBEffect;
+                compositor.applyEffectToSlot(1, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
+            }
             compositor.endOffscreen();
             int mode = transition.blendMode();
             if (mode != 0 && backdrop) {
@@ -311,7 +361,7 @@ public final class OpenGLTimelineExporter {
                 for (OpenGLEdit.FrameLayer layer : layers) {
                     if (layer.simpleDraw != null) {
                         stillActive.add(layer.simpleDraw.clip);
-                    } else {
+                    } else if (layer.transition != null) {
                         stillActive.add(layer.transition.clipACommand.clip);
                         stillActive.add(layer.transition.clipBCommand.clip);
                     }
