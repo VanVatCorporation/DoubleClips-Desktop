@@ -29,6 +29,8 @@ public class TemplateData implements Serializable {
     private int useCount;
     private int heartCount;
     private int bookmarkCount;
+    /** Comments on the template, as the server counts them (the list in `comments` is only filled when the tab is opened). */
+    private int commentCount;
     public boolean isLiked;
     public boolean isBookmarked;
     private ArrayList<TemplateComment> comments = new ArrayList<>();
@@ -51,6 +53,7 @@ public class TemplateData implements Serializable {
     public int getUseCount() { return useCount; }
     public int getHeartCount() { return heartCount; }
     public int getBookmarkCount() { return bookmarkCount; }
+    public int getCommentCount() { return commentCount; }
     /** The timeline's address, or "" when the server has none: a null, "null", or anything that is not an http(s) address counts as none. */
     public String getTemplateTimelineLink() { return cleanLink(templateTimelineLink); }
 
@@ -126,6 +129,8 @@ public class TemplateData implements Serializable {
     public void setHeartCount(int heartCount) { this.heartCount = heartCount; }
     public void setViewCount(int viewCount) { this.viewCount = viewCount; }
     public void setBookmarkCount(int bookmarkCount) { this.bookmarkCount = bookmarkCount; }
+    public void setUseCount(int useCount) { this.useCount = useCount; }
+    public void setCommentCount(int commentCount) { this.commentCount = commentCount; }
 
     public void setFfmpegCommand(String ffmpegCommand) {
         this.ffmpegCommand = ffmpegCommand;

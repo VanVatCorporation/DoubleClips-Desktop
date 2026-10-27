@@ -98,6 +98,13 @@ public class TemplatePreviewOverlay extends StackPane {
     private final VBox aboutBody = new VBox(12);
 
     // interactions
+    /** Someone changed this template's like / bookmark / counters (this overlay, or a list underneath): repaint. */
+    private final java.util.function.Consumer<String> stateListener = id -> {
+        if (id.equalsIgnoreCase(TemplatePreviewOverlay.this.data.getTemplateId())) {
+            refreshInteractions();
+            rebuildAbout();
+        }
+    };
     private final Button likeBtn = new Button();
     private final Button bookmarkBtn = new Button();
 
@@ -120,7 +127,8 @@ public class TemplatePreviewOverlay extends StackPane {
         loadTimeline();
         loadVideo();
         refreshInteractions();
-        TemplateRepository.getInstance().markSeen(data);
+        TemplateRepository.getInstance().postView(data);   // counted once per viewer per 30 minutes by the server
+        TemplateRepository.getInstance().addStateListener(stateListener);
 
         setFocusTraversable(true);
         sceneProperty().addListener((o, a, scene) -> { if (scene != null) Platform.runLater(this::requestFocus); });
@@ -261,7 +269,7 @@ public class TemplatePreviewOverlay extends StackPane {
         aboutBody.setPadding(new Insets(16, 4, 10, 4));
         rebuildAbout();
 
-        int n = data.getComments().size();
+        int n = Math.max(data.getCommentCount(), data.getComments().size());   // the server's count; the list fills when opened
         Tab commentsTab = new Tab("Comments" + (n > 0 ? " (" + n + ")" : ""), scroll(buildComments()));
 
         tabs.getTabs().addAll(clipsTab, aboutTab, commentsTab);
@@ -535,6 +543,7 @@ public class TemplatePreviewOverlay extends StackPane {
     // ------------------------------------------------------------------------------------------------ interactions
 
     private void refreshInteractions() {
+        TemplateRepository.getInstance().applyCached(data);   // the newest numbers the app knows
         style(likeBtn, data.isLiked ? MaterialDesignH.HEART : MaterialDesignH.HEART_OUTLINE, data.isLiked, data.getHeartCount(), "#ff3b30");
         style(bookmarkBtn, data.isBookmarked ? MaterialDesignB.BOOKMARK : MaterialDesignB.BOOKMARK_OUTLINE, data.isBookmarked, data.getBookmarkCount(), "#ffb300");
     }
@@ -555,30 +564,27 @@ public class TemplatePreviewOverlay extends StackPane {
         return false;
     }
 
+    // The repository answers instantly (the listener above repaints), asks the server for the WANTED state, replaces our
+    // numbers with the server's, and puts everything back (plus a message here) when it fails.
     private void toggleLike() {
         if (!requireLogin("like this template")) return;
-        data.isLiked = !data.isLiked;                                    // optimistic, rolled back when the server says no
-        data.setHeartCount(Math.max(0, data.getHeartCount() + (data.isLiked ? 1 : -1)));
-        refreshInteractions();
-        TemplateRepository.getInstance().toggleLike(data, ok -> {
-            if (ok) return;
-            data.isLiked = !data.isLiked;
-            data.setHeartCount(Math.max(0, data.getHeartCount() + (data.isLiked ? 1 : -1)));
-            refreshInteractions();
-        });
+        TemplateRepository repo = TemplateRepository.getInstance();
+        repo.applyCached(data);
+        repo.setLike(data, !data.isLiked, this::showActionError);
     }
 
     private void toggleBookmark() {
         if (!requireLogin("bookmark this template")) return;
-        data.isBookmarked = !data.isBookmarked;
-        data.setBookmarkCount(Math.max(0, data.getBookmarkCount() + (data.isBookmarked ? 1 : -1)));
-        refreshInteractions();
-        TemplateRepository.getInstance().toggleBookmark(data, ok -> {
-            if (ok) return;
-            data.isBookmarked = !data.isBookmarked;
-            data.setBookmarkCount(Math.max(0, data.getBookmarkCount() + (data.isBookmarked ? 1 : -1)));
-            refreshInteractions();
-        });
+        TemplateRepository repo = TemplateRepository.getInstance();
+        repo.applyCached(data);
+        repo.setBookmark(data, !data.isBookmarked, this::showActionError);
+    }
+
+    private void showActionError(String message) {
+        Alert a = new Alert(Alert.AlertType.INFORMATION, message);
+        a.setTitle("Couldn't update");
+        a.setHeaderText(null);
+        a.show();
     }
 
     /**
@@ -635,6 +641,7 @@ public class TemplatePreviewOverlay extends StackPane {
     private void close() {
         if (closed) return;
         closed = true;
+        TemplateRepository.getInstance().removeStateListener(stateListener);
         if (mediaPlayer != null) {
             mediaPlayer.stop();
             mediaPlayer.dispose();

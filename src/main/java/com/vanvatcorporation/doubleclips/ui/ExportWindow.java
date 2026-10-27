@@ -473,6 +473,7 @@ public class ExportWindow extends Stage {
 
     private void finishOpenGlExportSuccess(String finalPath) {
         finishExportRendering();
+        notifyExportSucceeded();
         taskStatusLabel.setText("Export Completed! ✓");
         taskProgressBar.setProgress(1.0);
         appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
@@ -826,6 +827,7 @@ public class ExportWindow extends Stage {
                                     }
 
                                     finishExportRendering();
+                                    notifyExportSucceeded();
                                     taskStatusLabel.setText("Export Completed! ✓");
                                     taskProgressBar.setProgress(1.0);
                                     appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
@@ -905,6 +907,15 @@ public class ExportWindow extends Stage {
         taskProgressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
         taskStatusLabel.setText("Preparing export…");
         globalStatusLabel.setText("Running…");
+    }
+
+    /** Set by a caller that wants to know when a render finished successfully (e.g. "Use template" counts a use). */
+    private Runnable onExportSucceeded;
+
+    public void setOnExportSucceeded(Runnable r) { this.onExportSucceeded = r; }
+
+    private void notifyExportSucceeded() {
+        if (onExportSucceeded != null) onExportSucceeded.run();
     }
 
     private void finishExportRendering() {

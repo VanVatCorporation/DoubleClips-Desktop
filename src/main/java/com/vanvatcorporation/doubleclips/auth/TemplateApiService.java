@@ -1,32 +1,47 @@
 package com.vanvatcorporation.doubleclips.auth;
 
-import com.vanvatcorporation.doubleclips.data.TemplateData;
-import okhttp3.ResponseBody;
+import com.google.gson.JsonObject;
 import retrofit2.Call;
 import retrofit2.http.Body;
 import retrofit2.http.GET;
 import retrofit2.http.POST;
+import retrofit2.http.Query;
 
-import java.util.List;
 import java.util.Map;
 
+/**
+ * The Templates backend (app.vanvatcorp.com, backend v2). Contract: docs/doubleclips-template-api-v2.md.
+ * A null @Query value is left out of the request. The account's token and the device id are added to every
+ * call by the interceptor in RetrofitClient.
+ */
 public interface TemplateApiService {
-    @GET("/doubleclips/api/fetch-templates")
-    Call<List<TemplateData>> fetchTemplates();
+    /** The per-account suggestion feed. */
+    @GET("/doubleclips/api/templates/feed")
+    Call<TemplatePage> feed(@Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer);
 
-    @GET("/doubleclips/api/fetch-liked-templates")
-    Call<List<String>> fetchLikedTemplateIds();
+    /** Server-side search (newest first). */
+    @GET("/doubleclips/api/templates")
+    Call<TemplatePage> search(@Query("q") String q, @Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer);
 
-    @GET("/doubleclips/api/fetch-bookmarked-templates")
-    Call<List<String>> fetchBookmarkedTemplateIds();
+    @GET("/doubleclips/api/templates/liked")
+    Call<TemplatePage> liked(@Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer);
 
-    // Body: {"username": ..., "templateId": ...} - the same posts the mobile apps make.
+    @GET("/doubleclips/api/templates/bookmarked")
+    Call<TemplatePage> bookmarked(@Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer);
+
+    // Body: { username, templateId, liked: true|false } - the wanted state, so a retry cannot undo itself.
     @POST("/doubleclips/api/toggle-like")
-    Call<ResponseBody> toggleLike(@Body Map<String, String> body);
+    Call<JsonObject> setLike(@Body Map<String, Object> body);
 
+    // Body: { username, templateId, bookmarked: true|false }
     @POST("/doubleclips/api/toggle-bookmark")
-    Call<ResponseBody> toggleBookmark(@Body Map<String, String> body);
+    Call<JsonObject> setBookmark(@Body Map<String, Object> body);
 
-    @POST("/doubleclips/api/seen-template")
-    Call<ResponseBody> seenTemplate(@Body Map<String, String> body);
+    // Body: { templateId, username? } - counted once per viewer per 30 minutes.
+    @POST("/doubleclips/api/increment-view")
+    Call<JsonObject> incrementView(@Body Map<String, Object> body);
+
+    // Body: { templateId, username? } - the template was actually used (exported).
+    @POST("/doubleclips/api/increment-use")
+    Call<JsonObject> incrementUse(@Body Map<String, Object> body);
 }

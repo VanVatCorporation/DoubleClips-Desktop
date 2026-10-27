@@ -15,12 +15,15 @@ import javafx.scene.paint.ImagePattern;
 import javafx.scene.shape.Circle;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignA;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignB;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignC;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignH;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignL;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 import com.vanvatcorporation.doubleclips.ui.overlays.LoginOverlay;
 import com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay;
+import com.vanvatcorporation.doubleclips.ui.overlays.TemplateCollectionOverlay;
+import com.vanvatcorporation.doubleclips.auth.TemplateFeedSource;
 import javafx.scene.Node;
 
 public class ProfilePane extends VBox {
@@ -116,7 +119,9 @@ public class ProfilePane extends VBox {
         accountSettingsGroup.getChildren().addAll(
                 createSettingButton("Statistics", new FontIcon(MaterialDesignP.POLL)),
                 new Separator(),
-                createSettingButton("Saved Templates", new FontIcon(MaterialDesignH.HEART)),
+                templatesButton("Liked Templates", new FontIcon(MaterialDesignH.HEART), TemplateFeedSource.liked()),
+                new Separator(),
+                templatesButton("Saved Templates", new FontIcon(MaterialDesignB.BOOKMARK), TemplateFeedSource.bookmarked()),
                 new Separator(),
                 createLogoutButton()
         );
@@ -173,6 +178,17 @@ public class ProfilePane extends VBox {
         btn.setAlignment(Pos.CENTER_LEFT);
         btn.setGraphicTextGap(15);
         btn.setPadding(new Insets(15, 20, 15, 20));
+        return btn;
+    }
+
+    /** A row that opens the account's Liked / Saved templates (paged from the server) over the app. */
+    private Button templatesButton(String text, FontIcon icon, TemplateFeedSource source) {
+        Button btn = createSettingButton(text, icon);
+        btn.setOnAction(e -> {
+            final TemplateCollectionOverlay[] ref = new TemplateCollectionOverlay[1];
+            ref[0] = new TemplateCollectionOverlay(source, v -> DoubleClipsDesktop.getInstance().hideOverlay(ref[0]));
+            DoubleClipsDesktop.getInstance().showOverlay(ref[0]);
+        });
         return btn;
     }
 

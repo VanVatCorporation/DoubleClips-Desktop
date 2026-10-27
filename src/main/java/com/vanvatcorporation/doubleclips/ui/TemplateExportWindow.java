@@ -340,6 +340,8 @@ public class TemplateExportWindow extends Stage {
                 exportButton.setDisable(false);
                 taskStatusLabel.setText("Export Completed!");
                 logTextArea.appendText("\n>>> EXPORT FINISHED SUCCESS <<<\n");
+                // The render succeeded: the template was used. (The server ignores an exact double-fire.)
+                com.vanvatcorporation.doubleclips.auth.TemplateRepository.getInstance().postUse(data);
                 
                 Alert alert = new Alert(Alert.AlertType.INFORMATION);
                 alert.initOwner(this);

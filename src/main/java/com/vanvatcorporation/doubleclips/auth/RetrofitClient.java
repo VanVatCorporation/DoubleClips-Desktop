@@ -41,6 +41,19 @@ public class RetrofitClient {
         OkHttpClient client = new OkHttpClient.Builder()
                 .cookieJar(cookieJar)
                 .addInterceptor(logging)
+                // After the logger on purpose: the token must not end up in the log. Only for the templates host.
+                .addInterceptor(chain -> {
+                    okhttp3.Request request = chain.request();
+                    if (!"app.vanvatcorp.com".equals(request.url().host())) return chain.proceed(request);
+                    okhttp3.Request.Builder builder = request.newBuilder().header("X-Device-Id", deviceId());
+                    String token = getAuthToken();
+                    // A valid token is the server's proof of WHO is liking / viewing: it wins over any username in the body.
+                    if (token != null && !token.isEmpty()) builder.header("Authorization", "Bearer " + token);
+                    okhttp3.Response response = chain.proceed(builder.build());
+                    String fresh = response.header("X-Refreshed-Token");
+                    if (fresh != null && !fresh.isEmpty()) replaceAuthToken(fresh);
+                    return response;
+                })
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
@@ -57,6 +70,17 @@ public class RetrofitClient {
                 .addConverterFactory(GsonConverterFactory.create())
                 .client(client)
                 .build();
+    }
+
+    /** A random id kept on this machine: lets the server dedupe views and avoid repeats for a signed-out user. */
+    public static String deviceId() {
+        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userRoot().node("com/vanvatcorporation/doubleclips");
+        String id = prefs.get("templateDeviceId", "");
+        if (id.isEmpty()) {
+            id = java.util.UUID.randomUUID().toString();
+            prefs.put("templateDeviceId", id);
+        }
+        return id;
     }
 
     public static synchronized RetrofitClient getInstance() {

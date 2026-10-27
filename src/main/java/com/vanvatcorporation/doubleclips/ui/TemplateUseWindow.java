@@ -563,6 +563,8 @@ public final class TemplateUseWindow extends Stage {
         lastPrepared = prepared;
         ExportWindow window = ExportWindow.show(DoubleClipsDesktop.getInstance().getPrimaryStage(), prepared.project, prepared.timeline, settings);
         activeExport = window;
+        // The render succeeded: the template was used.
+        window.setOnExportSucceeded(() -> com.vanvatcorporation.doubleclips.auth.TemplateRepository.getInstance().postUse(data));
         window.setOnHidden(e -> {
             activeExport = null;
             TemplateRenderer.cleanup(prepared.directory);
