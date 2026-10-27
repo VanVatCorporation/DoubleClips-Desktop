@@ -477,7 +477,7 @@ public class ExportWindow extends Stage {
                 videoFiles.add(new File(clip.getAbsolutePath(project)));
             }
 
-            String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), "template_timeline.json");
+            String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
 
             List<File> previewFiles = Arrays.asList(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.png")),
                     new File(IOHelper.CombinePath(project.getProjectPath(), "preview.mp4")));
@@ -813,7 +813,7 @@ public class ExportWindow extends Stage {
                                         videoFiles.add(new File(clip.getAbsolutePath(project)));
                                     }
 
-                                    String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), "template_timeline.json");
+                                    String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
 
                                     List<File> previewFiles = Arrays.asList(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.png")),
                                             new File(IOHelper.CombinePath(project.getProjectPath(), "preview.mp4")));
