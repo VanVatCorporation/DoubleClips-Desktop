@@ -23,8 +23,8 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
     @Expose public float valueSaturation;
     @Expose public float valueBrightness;
     @Expose public float valueTemperature;
-    // Synced from Android's VideoProperties. valueVolume is data-compat only (desktop keeps
-    // its own Clip.audioVolume); the two pivot fields are used by OpenGLEdit/FFmpegEdit.
+    // Synced from Android's VideoProperties. valueVolume is the clip's plain volume, the same field iOS and Android use
+    // (see VolumeCurve); the two pivot fields are used by OpenGLEdit/FFmpegEdit.
     /** Normalized pivot X within the clip [0.0 = left ... 1.0 = right]. PosX/PosY is the canvas
      *  position of the clip's UNSCALED top-left; scale and rotation happen around this pivot.
      *  Default 0.0 (top-left); Gson leaves it at the constructor default for older project JSON. */

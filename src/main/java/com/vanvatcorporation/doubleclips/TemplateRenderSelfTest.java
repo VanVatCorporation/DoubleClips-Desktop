@@ -195,12 +195,12 @@ public class TemplateRenderSelfTest {
         TemplateRetarget.fitVideo(c, 10, true, 4, 0, 0);
         check("video longer than the slot: capped at the slot, the rest trimmed off the end",
                 near(c.duration, 4, 1e-4) && c.startClipTrim == 0 && near(c.endClipTrim, 6, 1e-4) && c.originalDuration == 10, c.duration + " end " + c.endClipTrim);
-        check("video with sound: volume 1", c.isClipHasAudio && c.audioVolume == 1f, "");
+        check("video with sound: volume 1", c.isClipHasAudio && c.videoProperties.valueVolume == 1f, "");
 
         c = slotClip(ClipType.VIDEO, 4);
         TemplateRetarget.fitVideo(c, 10, false, 4, 3, 0);
         check("start trim kept, then capped at the slot", near(c.duration, 4, 1e-4) && c.startClipTrim == 3 && near(c.endClipTrim, 3, 1e-4), c.duration + " " + c.startClipTrim + " " + c.endClipTrim);
-        check("video without sound: muted", !c.isClipHasAudio && c.audioVolume == 0f, "");
+        check("video without sound: muted", !c.isClipHasAudio && c.videoProperties.valueVolume == 0f, "");
 
         c = slotClip(ClipType.VIDEO, 4);
         TemplateRetarget.fitVideo(c, 10, true, 4, 2, 5);
@@ -227,7 +227,7 @@ public class TemplateRenderSelfTest {
         c = slotClip(ClipType.IMAGE, 2.5f);
         TemplateRetarget.fitImage(c, 2.5);
         check("a still lasts the slot, no sound, no trims",
-                c.duration == 2.5f && c.originalDuration == 2.5f && c.startClipTrim == 0 && c.endClipTrim == 0 && !c.isClipHasAudio && c.audioVolume == 0f, "");
+                c.duration == 2.5f && c.originalDuration == 2.5f && c.startClipTrim == 0 && c.endClipTrim == 0 && !c.isClipHasAudio && c.videoProperties.valueVolume == 0f, "");
     }
 
     // ======================================================================================== resources
@@ -348,7 +348,7 @@ public class TemplateRenderSelfTest {
         Clip c1 = info.slots.get(0).clip, c2 = info.slots.get(1).clip;
         check("prepare: slot 1 is now the video: name, type, cover size, length",
                 c1.getClipName().equals("template-slot-1.mp4") && c1.type == ClipType.VIDEO && c1.width == 3413 && c1.height == 1920
-                        && near(c1.duration, 4, 1e-4) && c1.originalDuration == 10 && c1.audioVolume == 1f, c1.getClipName() + " " + c1.width + "x" + c1.height + " " + c1.duration);
+                        && near(c1.duration, 4, 1e-4) && c1.originalDuration == 10 && c1.videoProperties.valueVolume == 1f, c1.getClipName() + " " + c1.width + "x" + c1.height + " " + c1.duration);
         check("prepare: slot 2 is the photo, lasting its slot", c2.getClipName().equals("template-slot-2.png") && c2.type == ClipType.IMAGE
                 && c2.width == 500 && c2.height == 500 && c2.duration == 2f, c2.width + "x" + c2.height + " " + c2.duration);
         check("prepare: the timeline's duration is recomputed", near(p.timeline.duration, 6, 1e-4), String.valueOf(p.timeline.duration));

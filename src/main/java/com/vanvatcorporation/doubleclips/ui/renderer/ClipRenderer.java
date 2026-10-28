@@ -347,7 +347,7 @@ public class ClipRenderer {
 
                     if (read > 0) {
                         // Apply software volume scaling
-                        applyVolume(buf, read, clip.getAudioVolume());
+                        applyVolume(buf, read, com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip));
                         audioLine.flush();
                         audioLine.write(buf, 0, read);
                     }
@@ -381,7 +381,7 @@ public class ClipRenderer {
                     }
                     if (read < 0) break;
                     // Apply software volume scaling
-                    applyVolume(buf, read, clip.getAudioVolume());
+                    applyVolume(buf, read, com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip));
                     audioLine.write(buf, 0, read);
                 }
             } catch (Exception ignored) {}

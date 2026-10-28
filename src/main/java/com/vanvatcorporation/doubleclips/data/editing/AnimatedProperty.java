@@ -150,9 +150,9 @@ public class AnimatedProperty implements Serializable, UnknownKeysHolder {
         VideoProperties p = new VideoProperties(clip.videoProperties);
         if (keyframes.isEmpty()) return p;
         for (ValueType t : ValueType.CHANNELS) p.setValue(getValueAtTime(clip, playheadTime, t), t);
-        // The volume's plain value is the clip's audioVolume (valueVolume only mirrors it): a keyframe made from this look
-        // must carry that, not an old "all properties" keyframe's volume, unless the volume really is keyframed.
-        if (!VolumeCurve.isAnimated(clip)) p.setValue(clip.getAudioVolume(), ValueType.Volume);
+        // A keyframe made from this look must carry the clip's plain volume, not an old "all properties" keyframe's volume
+        // (always 1), unless the volume really is keyframed.
+        if (!VolumeCurve.isAnimated(clip)) p.setValue(VolumeCurve.plain(clip), ValueType.Volume);
         return p;
     }
 

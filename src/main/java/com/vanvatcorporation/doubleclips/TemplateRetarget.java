@@ -142,7 +142,7 @@ public final class TemplateRetarget {
         }
         clip.setDuration(Math.max(MIN_LENGTH, Math.min(clip.fittedDuration(), slot)));
         clip.isClipHasAudio = hasAudio;
-        clip.audioVolume = hasAudio ? 1f : 0f;
+        clip.videoProperties.valueVolume = hasAudio ? 1f : 0f;
     }
 
     /** A still lasts the slot's whole length, and has no sound. */
@@ -153,6 +153,6 @@ public final class TemplateRetarget {
         clip.endClipTrim = 0f;
         clip.setDuration(slot);
         clip.isClipHasAudio = false;
-        clip.audioVolume = 0f;
+        clip.videoProperties.valueVolume = 0f;
     }
 }

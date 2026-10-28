@@ -27,7 +27,7 @@ import java.util.function.Consumer;
  * clip and spawned a thread burst on every scrub).
  * <p>
  * It mixes what the OpenGL export's audio graph produces: each clip's source audio, trimmed to
- * [startClipTrim, startClipTrim + duration), placed at startTime, scaled by the clip's audioVolume,
+ * [startClipTrim, startClipTrim + duration), placed at startTime, scaled by the clip's volume (valueVolume, or its keyframes),
  * and summed (amix normalize=0). Video clips contribute only when they have audio and aren't muted;
  * audio clips always do. Reverse and clip speed aren't applied (the export doesn't change audio
  * speed either).
@@ -340,7 +340,7 @@ public final class AudioEngine {
             if (clip.type == ClipType.VIDEO && (clip.isMute() || !clip.isClipHasAudio())) continue;
             // A keyframed volume (VolumeCurve) is read at both ends of this chunk and ramped between them; else the plain one.
             boolean keyed = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.isAnimated(clip);
-            float gain = keyed ? 1f : clip.getAudioVolume();
+            float gain = keyed ? 1f : com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip);
             if (!keyed && gain <= 0f) continue;
 
             double c0 = clip.startTime, c1 = clip.startTime + clip.duration;

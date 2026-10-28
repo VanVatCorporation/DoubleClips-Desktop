@@ -21,14 +21,12 @@ import java.util.Locale;
  * The "Audio Volume" row of a video / audio clip's Properties tab, with the keyframe diamond beside it (the iOS design):
  * the loudness over the clip, 1 = as recorded, 0 = silent.
  *
- * <p>Not animated, the field edits the clip's plain {@link Clip#audioVolume}. The diamond keys the volume at the playhead
+ * <p>Not animated, the field edits the clip's plain volume ({@code videoProperties.valueVolume}, the same value iOS and Android use). The diamond keys the volume at the playhead
  * (the "volume" keyframe channel, the same one iOS and Android use, so the keys also show as knots on the clip and in the
  * Keyframes list with their easing); animated, the field edits the key at the playhead (adding one there when none is) and
  * follows the playhead. Taking the last key off leaves the plain volume at the value it had.
  *
- * <p>The plain volume is also written to {@code videoProperties.valueVolume}, which iOS and Android read as the clip's
- * static volume, so a project opened there sounds the same. Every change is ONE undo step that puts back the volume and
- * all keyframes.
+ * <p>Every change is ONE undo step that puts back the plain volume and all keyframes.
  */
 final class AudioVolumeRow {
 
@@ -85,7 +83,7 @@ final class AudioVolumeRow {
     /** The volume at a global time as it is typed: the keyframed value when some keyframe holds it, else the plain one. */
     private static float valueAt(Clip clip, float time) {
         if (VolumeCurve.isAnimated(clip)) return clip.keyframes.getValueAtTime(clip, time, ValueType.Volume);
-        return clip.getAudioVolume();
+        return VolumeCurve.plain(clip);
     }
 
     private static KeyState stateAt(Clip clip, float time) {
@@ -102,22 +100,19 @@ final class AudioVolumeRow {
     /** What one undo step puts back: the plain volume and every keyframe (the volume keys live in the clip's keyframes). */
     private static final class Snap {
         private final KeyframesSnapshot keys;
-        private final float audioVolume;
         private final boolean volumeKeyed;
 
-        private Snap(KeyframesSnapshot keys, float audioVolume, boolean volumeKeyed) {
+        private Snap(KeyframesSnapshot keys, boolean volumeKeyed) {
             this.keys = keys;
-            this.audioVolume = audioVolume;
             this.volumeKeyed = volumeKeyed;
         }
 
         static Snap of(Clip clip) {
-            return new Snap(KeyframesSnapshot.of(clip), clip.getAudioVolume(), clip.volumeKeyed);
+            return new Snap(KeyframesSnapshot.of(clip), clip.volumeKeyed);
         }
 
         void restore(Clip clip) {
-            keys.restore(clip); // also puts videoProperties (valueVolume) and every keyframe's channels back
-            clip.setAudioVolume(audioVolume);
+            keys.restore(clip); // also puts videoProperties (the plain volume) and every keyframe's channels back
             clip.volumeKeyed = volumeKeyed;
         }
     }
@@ -139,9 +134,7 @@ final class AudioVolumeRow {
         javafx.application.Platform.runLater(context::updatePropertiesPane);
     }
 
-    /** The plain volume, also where iOS and Android read it from. */
     private static void setPlain(Clip clip, float value) {
-        clip.setAudioVolume(value);
         clip.videoProperties.valueVolume = value;
     }
 
@@ -186,7 +179,7 @@ final class AudioVolumeRow {
             if (!VolumeCurve.isAnimated(clip)) {
                 // Start animating the volume from the plain value. Old "all properties" keyframes never meant a volume, so they
                 // let go of it first; the clip then follows only the keys made here.
-                float plain = clip.getAudioVolume();
+                float plain = VolumeCurve.plain(clip);
                 for (Keyframe k : new java.util.ArrayList<>(clip.keyframes.keyframes)) {
                     if (!k.holds(ValueType.Volume)) continue;
                     k.setHolds(ValueType.Volume, false);
@@ -198,7 +191,7 @@ final class AudioVolumeRow {
             }
             Keyframe at = clip.keyframes.getKeyframeAtTime(clip, time, ValueType.Volume);
             if (at != null) {
-                float held = at.value == null ? clip.getAudioVolume() : at.value.getValue(ValueType.Volume);
+                float held = at.value == null ? VolumeCurve.plain(clip) : at.value.getValue(ValueType.Volume);
                 boolean last = clip.keyframes.holderCount(ValueType.Volume) == 1;
                 clip.keyframes.removeKey(clip, time, ValueType.Volume);
                 if (last) {                      // no longer animated: the volume stays where it was

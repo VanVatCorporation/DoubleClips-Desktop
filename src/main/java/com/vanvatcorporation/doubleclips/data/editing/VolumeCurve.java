@@ -8,7 +8,7 @@ import java.util.Locale;
 import java.util.function.DoubleUnaryOperator;
 
 /**
- * A clip's loudness over its own length: the plain {@link Clip#audioVolume}, or, when some keyframe holds the clip's
+ * A clip's loudness over its own length: the plain {@code videoProperties.valueVolume} (the volume every platform shares), or, when some keyframe holds the clip's
  * "volume" channel (iOS's keyframed audio volume; the same channel Android's volume field keys), the value interpolated
  * through those keyframes like any other animated property. 1 = as recorded, 0 = silent, 2 = twice as loud.
  *
@@ -21,7 +21,7 @@ import java.util.function.DoubleUnaryOperator;
  * </ul>
  *
  * <p>Keyframe times are seconds into the clip on the TIMELINE (speed changes don't move them), the clock the audio mix
- * already runs on, so no speed mapping is needed. The static volume stays desktop's {@code audioVolume}; while the volume
+ * already runs on, so no speed mapping is needed. The static volume is {@code valueVolume}, as on iOS and Android; while the volume
  * is animated it is not read (the keyframes decide), and the last keyframe taken off leaves it with the value it had.
  */
 public final class VolumeCurve {
@@ -33,11 +33,16 @@ public final class VolumeCurve {
 
     private VolumeCurve() {}
 
+    /** The clip's plain volume ({@code valueVolume}). */
+    public static float plain(Clip clip) {
+        return clip == null || clip.videoProperties == null ? 1f : clip.videoProperties.valueVolume;
+    }
+
     /**
      * Is the clip's volume keyframed? A keyframe that lists the volume channel by name counts (written by the iOS and Android
      * builds, or by the Audio Volume diamond); the "all properties" keyframes older builds wrote for position, scale... count
      * only once the user has keyed the volume on this clip ({@link Clip#volumeKeyed}), or their stale volume (always 1) would
-     * replace the clip's own {@link Clip#audioVolume}.
+     * replace the clip's own {@code valueVolume}.
      */
     public static boolean isAnimated(Clip clip) {
         if (clip == null || clip.keyframes == null || clip.keyframes.keyframes == null) return false;
@@ -58,9 +63,9 @@ public final class VolumeCurve {
         boolean animated = false;
         try {
             animated = isAnimated(clip);
-            raw = animated ? clip.keyframes.getValueAtTime(clip, time, ValueType.Volume) : clip.getAudioVolume();
+            raw = animated ? clip.keyframes.getValueAtTime(clip, time, ValueType.Volume) : plain(clip);
         } catch (RuntimeException keyframesChanged) {
-            raw = clip.getAudioVolume();
+            raw = plain(clip);
         }
         if (Float.isNaN(raw) || Float.isInfinite(raw)) return 1f;
         return animated ? Math.min(Math.max(raw, 0f), MAX_GAIN) : Math.max(raw, 0f);
@@ -68,7 +73,7 @@ public final class VolumeCurve {
 
     /** What a waveform / thumbnail depends on: the plain volume, and every keyframe that holds the volume (time, value, easing). */
     public static String signature(Clip clip) {
-        StringBuilder sb = new StringBuilder().append(clip.getAudioVolume());
+        StringBuilder sb = new StringBuilder().append(plain(clip));
         if (isAnimated(clip)) {
             try {
                 for (Keyframe k : clip.keyframes.keyframesHolding(ValueType.Volume)) {

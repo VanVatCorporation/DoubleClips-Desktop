@@ -70,7 +70,7 @@ public class AudioUtils {
             while (framesRead < framesToRead) {
                 int read = ais.read(buf);
                 if (read < 0) break;
-                ClipRenderer.applyVolume(buf, read, keyedVolume ? 1f : clip.getAudioVolume());
+                ClipRenderer.applyVolume(buf, read, keyedVolume ? 1f : com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip));
                 // Process 16-bit PCM
                 for (int i = 0; i < read - 1; i += 2) {
                     short sample;
@@ -190,7 +190,7 @@ public class AudioUtils {
                 // Source frame (relative to the trim) at which each bar ends.
                 double[] edge = new double[bars];
                 for (int b = 0; b < bars; b++) edge[b] = speedMap.sourceOffset(clip.duration * (b + 1) / (double) bars) * rate;
-                float volume = clip.getAudioVolume();
+                float volume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip);
                 // A keyframed volume: each bar is as loud as the volume at its own moment.
                 final boolean keyedVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.isAnimated(clip);
                 final float[] barVolume = new float[bars];

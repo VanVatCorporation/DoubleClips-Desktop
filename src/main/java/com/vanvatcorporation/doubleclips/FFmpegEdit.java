@@ -705,7 +705,7 @@ public class FFmpegEdit {
                             .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration).append(",")
                             .append(keyedVolume)
                             .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
-                            .append(keyedVolume.isEmpty() ? "volume=" + clip.getAudioVolume() + "," : "")
+                            .append(keyedVolume.isEmpty() ? "volume=" + com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip) + "," : "")
                             .append("aformat=sample_fmts=s16").append(",")
                             .append("asetpts=PTS-STARTPTS")
                             .append(clip.isReverse() ? ",areverse" : "")
@@ -738,7 +738,7 @@ public class FFmpegEdit {
                         .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
                         // This handle the extension in silent to match the video
                         .append("apad=pad_dur=").append(freezeFrameDuration).append(",")
-                        .append(keyedVideoVolume.isEmpty() ? "volume=" + clip.getAudioVolume() + "," : "")
+                        .append(keyedVideoVolume.isEmpty() ? "volume=" + com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip) + "," : "")
                         .append("aformat=sample_fmts=s16").append(",")
                         .append("asetpts=PTS-STARTPTS")
                         .append(clip.isReverse() ? ",areverse" : "")
