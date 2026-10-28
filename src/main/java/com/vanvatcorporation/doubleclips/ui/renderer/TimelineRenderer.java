@@ -120,6 +120,41 @@ public class TimelineRenderer {
         client.requestFrame(timeline, lastTime, false);
     }
 
+    private javafx.event.EventHandler<javafx.scene.input.MouseEvent> colorPickFilter;
+
+    /**
+     * The eyedropper: the next press on the preview calls {@code onPicked} with the colour of the pixel under it (the frame
+     * the preview shows, every layer composited) and ends the pick; the click does nothing else. False when the preview has
+     * no picture to read (the legacy renderer), nothing is waiting then.
+     */
+    public boolean pickColor(java.util.function.Consumer<Color> onPicked) {
+        cancelColorPick();
+        if (client == null || client.image() == null) return false;
+        renderPane.setCursor(javafx.scene.Cursor.CROSSHAIR);
+        colorPickFilter = ev -> {
+            ev.consume();
+            if (ev.getEventType() != javafx.scene.input.MouseEvent.MOUSE_PRESSED) return;
+            javafx.scene.image.WritableImage frame = client == null ? null : client.image();
+            cancelColorPick();
+            if (frame == null || settings.videoWidth <= 0 || settings.videoHeight <= 0) return;
+            // the pane is in canvas pixels; the picture may be smaller (the preview can render at a lower size)
+            int x = (int) Math.floor(ev.getX() * frame.getWidth() / settings.videoWidth);
+            int y = (int) Math.floor(ev.getY() * frame.getHeight() / settings.videoHeight);
+            if (x < 0 || y < 0 || x >= frame.getWidth() || y >= frame.getHeight()) return;
+            onPicked.accept(frame.getPixelReader().getColor(x, y));
+        };
+        renderPane.addEventFilter(javafx.scene.input.MouseEvent.ANY, colorPickFilter);
+        return true;
+    }
+
+    public void cancelColorPick() {
+        if (colorPickFilter != null) {
+            renderPane.removeEventFilter(javafx.scene.input.MouseEvent.ANY, colorPickFilter);
+            colorPickFilter = null;
+        }
+        renderPane.setCursor(null);
+    }
+
     private void showGpuView() {
         if (client == null || client.image() == null) return;
         removeGpuView();
@@ -200,6 +235,19 @@ public class TimelineRenderer {
             clip.masks = masks == null || masks.isEmpty() ? null : masks;
             updateTime(time, true);
         }
+    }
+
+    /**
+     * Shows an in-progress chroma-key slider drag for a clip WITHOUT committing it: {@code keys} is the clip's whole key
+     * list as the drag would commit it, streamed to the preview worker (the real clip is untouched until the slider is let
+     * go). The legacy preview can't draw chroma keys, so there it does nothing.
+     */
+    public void showLiveChromaKeys(Clip clip, java.util.List<com.vanvatcorporation.doubleclips.data.editing.ChromaKey> keys, float time) {
+        if (!streamsLiveToWorker(clip)) return;
+        lastTime = time;
+        int clipIndex = timeline.tracks.get(clip.trackIndex).clips.indexOf(clip);
+        if (clipIndex < 0) return;
+        client.requestLiveChroma(clip.trackIndex, clipIndex, keys, time);
     }
 
     /** Puts values straight into the clip (the gizmo's commit, undo/redo and cancel use this). */

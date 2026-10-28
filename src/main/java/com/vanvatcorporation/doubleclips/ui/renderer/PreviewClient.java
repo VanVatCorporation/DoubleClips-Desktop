@@ -263,6 +263,21 @@ public final class PreviewClient {
                 + ",\"playing\":false}");
     }
 
+    /**
+     * Chroma-key slider in flight: streams one clip's WHOLE key list as the drag would commit it (see PreviewWorker
+     * "livechroma") and asks for a frame.
+     */
+    public void requestLiveChroma(int trackIndex, int clipIndex,
+                                  java.util.List<com.vanvatcorporation.doubleclips.data.editing.ChromaKey> keys, float timeSeconds) {
+        if (failed || closing) return;
+        lastTimelineJson = null; // the worker's copy is about to differ from the editor's
+        send("{\"cmd\":\"livechroma\",\"track\":" + trackIndex + ",\"clip\":" + clipIndex
+                + ",\"keys\":" + GSON.toJson(keys == null ? new java.util.ArrayList<>() : keys) + "}");
+        lastRenderNanos = System.nanoTime();
+        send("{\"cmd\":\"render\",\"seq\":" + seq.incrementAndGet() + ",\"t\":" + timeSeconds
+                + ",\"playing\":false}");
+    }
+
     // ── picker tiles (made by the worker's real renderer, see TileRenderer) ──────────────────
 
     private static final class PendingTile {

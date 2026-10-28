@@ -337,6 +337,11 @@ public class OpenGLEdit {
          * effect clips never carry one.
          */
         public com.vanvatcorporation.doubleclips.data.editing.ClipMask.Packed masks;
+        /**
+         * The clip's chroma keys (colours made transparent), packed for the fragment shader, or null for the overwhelming
+         * majority of draws. Set by buildDrawCommand; per-unit text draws and effect clips never carry one.
+         */
+        public com.vanvatcorporation.doubleclips.data.editing.ChromaKey.Packed chromaKeys;
         /** The clip's blend mode as the shader's id ({@link com.vanvatcorporation.doubleclips.data.editing.ClipBlendMode#glId}); 0 = normal "over". */
         public int blendMode;
 
@@ -1030,6 +1035,9 @@ public class OpenGLEdit {
             // The masks work in the clip's own scaled, still unrotated box (box = scaledW x scaledH from the MVP maths).
             command.masks = com.vanvatcorporation.doubleclips.data.editing.ClipMask.pack(
                     clip.resolvedMasks(outputTimeSeconds - clip.startTime), box[0], box[1]);
+        }
+        if (clip.hasChromaKeys() && (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE)) {
+            command.chromaKeys = com.vanvatcorporation.doubleclips.data.editing.ChromaKey.pack(clip, outputTimeSeconds);
         }
         return command;
     }

@@ -20,11 +20,12 @@ public class PropertyPanel extends VBox {
     private final MaskSection maskSection;
     private final BlendSection blendSection;
     private final ClipEffectSection clipEffectSection;
+    private final BackgroundSection backgroundSection;
     private final AudioVolumeRow audioVolumeRow;
 
-    /** The tabs of a selected clip's panel (CapCut style). Mask, Blend and Effect are for video, image and text clips only. */
+    /** The tabs of a selected clip's panel (CapCut style). Mask, Blend and Effect are for video, image and text clips; Background for video and image clips. */
     private enum Tab {
-        PROPERTIES("Properties"), MASK("Mask"), BLEND("Blend"), EFFECT("Effect"), ANIMATION("Animation");
+        PROPERTIES("Properties"), MASK("Mask"), BLEND("Blend"), EFFECT("Effect"), BACKGROUND("Background"), ANIMATION("Animation");
         final String title;
         Tab(String title) { this.title = title; }
     }
@@ -39,6 +40,7 @@ public class PropertyPanel extends VBox {
         this.maskSection = new MaskSection(context);
         this.blendSection = new BlendSection(context);
         this.clipEffectSection = new ClipEffectSection(context);
+        this.backgroundSection = new BackgroundSection(context);
         this.audioVolumeRow = new AudioVolumeRow(context);
         this.setPadding(new Insets(16));
         tabStrip.getStyleClass().add("editor-tab-strip");
@@ -60,9 +62,15 @@ public class PropertyPanel extends VBox {
     /** Shows the tabs this clip has and marks the active one (falls back to Properties when the clip lacks it). */
     private void syncTabStrip(Clip clip) {
         boolean visual = clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE || clip.type == ClipType.TEXT;
-        java.util.List<Tab> available = visual
-                ? java.util.Arrays.asList(Tab.values())
-                : java.util.Arrays.asList(Tab.PROPERTIES, Tab.ANIMATION);
+        java.util.List<Tab> available = new java.util.ArrayList<>();
+        if (visual) {
+            available.addAll(java.util.Arrays.asList(Tab.values()));
+            // Chroma keys and the cut-out work on a picture: not on text
+            if (clip.type == ClipType.TEXT) available.remove(Tab.BACKGROUND);
+        } else {
+            available.add(Tab.PROPERTIES);
+            available.add(Tab.ANIMATION);
+        }
         if (!available.contains(activeTab)) activeTab = Tab.PROPERTIES;
         tabStrip.getChildren().clear();
         ToggleGroup group = new ToggleGroup();
@@ -117,6 +125,7 @@ public class PropertyPanel extends VBox {
             case MASK: buildMaskTab(selectedClip); return;
             case BLEND: buildBlendTab(selectedClip); return;
             case EFFECT: buildClipEffectTab(selectedClip); return;
+            case BACKGROUND: buildBackgroundTab(selectedClip); return;
             case ANIMATION: buildAnimationTab(selectedClip); return;
             default: break;
         }
@@ -317,22 +326,6 @@ public class PropertyPanel extends VBox {
             }));
         }
 
-        if (selectedClip.type == ClipType.VIDEO || selectedClip.type == ClipType.IMAGE) {
-            fields.getChildren().add(buildTogglePropertyField("Remove Background", selectedClip.removeBackground, newValue -> {
-                boolean oldVal = selectedClip.removeBackground;
-                if (newValue == oldVal) return;
-                context.executePropertyChange("Toggle Remove Background", () -> {
-                    selectedClip.removeBackground = newValue;
-                    context.refreshTimelineUI();
-                    context.saveProject();
-                }, () -> {
-                    selectedClip.removeBackground = oldVal;
-                    context.refreshTimelineUI();
-                    context.saveProject();
-                });
-            }));
-        }
-
         getChildren().addAll(sectionTitle, fields);
 
         if (selectedClip.type != ClipType.EFFECT) {
@@ -355,6 +348,10 @@ public class PropertyPanel extends VBox {
 
     private void buildBlendTab(Clip clip) {
         getChildren().addAll(tabTitle("Blend"), blendSection.build(clip));
+    }
+
+    private void buildBackgroundTab(Clip clip) {
+        getChildren().addAll(tabTitle("Background"), backgroundSection.build(clip));
     }
 
     private void buildClipEffectTab(Clip clip) {

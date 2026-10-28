@@ -64,6 +64,13 @@ public class Clip implements Serializable, UnknownKeysHolder {
         return out;
     }
 
+    /** Does a chroma key that is switched on key this clip? */
+    public boolean hasChromaKeys() {
+        if (chromaKeys == null) return false;
+        for (ChromaKey k : chromaKeys) if (k != null && k.enabled) return true;
+        return false;
+    }
+
     public boolean hasMasks() {
         return masks != null && !masks.isEmpty();
     }
@@ -161,6 +168,11 @@ public class Clip implements Serializable, UnknownKeysHolder {
     @Expose public String templateGroup;
     @Expose public boolean isReverse;
     @Expose public boolean removeBackground;
+    /**
+     * Colours removed from this clip's picture (the "Background" tab), see {@link ChromaKey}: up to
+     * {@link ChromaKey#MAX_KEYS}, a pixel matching any of them goes transparent. null / empty = none. Desktop only.
+     */
+    @Expose public java.util.List<ChromaKey> chromaKeys;
     
     @Expose public AnimationClip inAnimation = null;
     @Expose public AnimationClip outAnimation = null;
@@ -239,6 +251,7 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.isMute = other.isMute;
         this.isReverse = other.isReverse;
         this.removeBackground = other.removeBackground;
+        this.chromaKeys = ChromaKey.copyAll(other.chromaKeys);
         this.isLockedForTemplate = other.isLockedForTemplate;
         this.templateGroup = other.templateGroup;
     }

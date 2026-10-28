@@ -37,6 +37,12 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
      * keyframe. iOS's and Android's valueStrength: same key, default 1.
      */
     @Expose public float valueStrength = 1;
+    /**
+     * What the chroma-key sliders (see {@link ChromaKey}) were in a keyframe, per key per slider (ValueType.chromaIndex()).
+     * Only keyframes ever carry them: the plain values live in the ChromaKey itself, so this stays null (and out of the
+     * file) for a clip's own properties and for any keyframe that doesn't key a slider.
+     */
+    @Expose public float[] valueChroma;
 
     public VideoProperties() {
         this.valuePosX = 0;
@@ -73,6 +79,7 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
         this.valuePivotY = other.valuePivotY;
         this.valueVolume = other.valueVolume;
         this.valueStrength = other.valueStrength;
+        this.valueChroma = other.valueChroma == null ? null : other.valueChroma.clone();
     }
 
     public float getValue(ValueType valueType) {
@@ -93,7 +100,9 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
             case Brightness: return valueBrightness;
             case Temperature: return valueTemperature;
             case Strength: return valueStrength;
-            default: return 1;
+            default:
+                if (valueType.isChroma()) return valueChroma == null ? 0f : valueChroma[valueType.chromaIndex()];
+                return 1;
         }
     }
 
@@ -114,17 +123,64 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
             case Brightness: valueBrightness = v; break;
             case Temperature: valueTemperature = v; break;
             case Strength: valueStrength = v; break;
+            default:
+                if (valueType.isChroma()) {
+                    if (valueChroma == null) {
+                        if (v == 0f) break; // nothing to keep: stay null
+                        valueChroma = new float[ChromaKey.MAX_KEYS * ChromaKey.PARAM_COUNT];
+                    }
+                    valueChroma[valueType.chromaIndex()] = v;
+                }
+                break;
         }
     }
 
     public enum ValueType {
-        PosX, PosY, Rot, RotInRadians, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength;
+        PosX, PosY, Rot, RotInRadians, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength,
+        // The chroma-key sliders, one per key per slider (a clip carries up to ChromaKey.MAX_KEYS keys): they are the LAST
+        // constants, in this order, which isChroma() / chromaIndex() rely on. Raising MAX_KEYS needs a group more here.
+        ChromaIntensity0, ChromaShadow0, ChromaFeather0, ChromaCleanUp0,
+        ChromaIntensity1, ChromaShadow1, ChromaFeather1, ChromaCleanUp1,
+        ChromaIntensity2, ChromaShadow2, ChromaFeather2, ChromaCleanUp2,
+        ChromaIntensity3, ChromaShadow3, ChromaFeather3, ChromaCleanUp3,
+        ChromaIntensity4, ChromaShadow4, ChromaFeather4, ChromaCleanUp4,
+        ChromaIntensity5, ChromaShadow5, ChromaFeather5, ChromaCleanUp5;
+
+        static {
+            // Fails at once, not as a keyframe that silently can't be made, when MAX_KEYS and the constants above disagree.
+            if (values().length - ChromaIntensity0.ordinal() != ChromaKey.MAX_KEYS * ChromaKey.PARAM_COUNT) {
+                throw new IllegalStateException("ValueType has " + (values().length - ChromaIntensity0.ordinal())
+                        + " chroma constants but ChromaKey.MAX_KEYS * PARAM_COUNT is " + ChromaKey.MAX_KEYS * ChromaKey.PARAM_COUNT);
+            }
+        }
+
+        /** One of the chroma-key sliders. */
+        public boolean isChroma() { return ordinal() >= ChromaIntensity0.ordinal(); }
+        /** 0 ... MAX_KEYS * PARAM_COUNT - 1: the slot in {@link VideoProperties#valueChroma}. */
+        public int chromaIndex() { return ordinal() - ChromaIntensity0.ordinal(); }
+        /** Which key of the clip's list (0-based) this chroma slider belongs to. */
+        public int chromaKey() { return chromaIndex() / ChromaKey.PARAM_COUNT; }
+        /** Which slider: ChromaKey.INTENSITY ... CLEAN_UP. */
+        public int chromaParam() { return chromaIndex() % ChromaKey.PARAM_COUNT; }
+
+        /** The channel of slider {@code param} (ChromaKey.INTENSITY ...) of key number {@code key} (0 ... MAX_KEYS - 1). */
+        public static ValueType chroma(int key, int param) {
+            if (key < 0 || key >= ChromaKey.MAX_KEYS || param < 0 || param >= ChromaKey.PARAM_COUNT) {
+                throw new IndexOutOfBoundsException("chroma key " + key + ", slider " + param);
+            }
+            return values()[ChromaIntensity0.ordinal() + key * ChromaKey.PARAM_COUNT + param];
+        }
 
         /** The properties a keyframe can hold one by one, in the order of {@link KeyframeChannels#ALL}
          *  (RotInRadians is only Rot expressed in radians, so it is not a property of its own). */
-        public static final ValueType[] CHANNELS = {
-                PosX, PosY, Rot, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength
-        };
+        public static final ValueType[] CHANNELS = channels();
+
+        private static ValueType[] channels() {
+            java.util.List<ValueType> list = new java.util.ArrayList<>(java.util.Arrays.asList(
+                    PosX, PosY, Rot, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength));
+            for (ValueType t : values()) if (t.isChroma()) list.add(t);
+            return list.toArray(new ValueType[0]);
+        }
 
         /** The name this property goes by in a keyframe's {@code channels} list - iOS's raw value ("posX", "scaleY"...). */
         public String channelName() {
@@ -145,7 +201,12 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
                 case Brightness: return "brightness";
                 case Temperature: return "temperature";
                 case Strength: return "strength";
-                default: return name();
+                default:
+                    if (isChroma()) {
+                        String[] params = {"Intensity", "Shadow", "Feather", "CleanUp"};
+                        return KeyframeChannels.CHROMA_PREFIX + params[chromaParam()] + chromaKey();
+                    }
+                    return name();
             }
         }
 
@@ -166,7 +227,12 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
                 case ScaleY: return "Scale Y";
                 case PivotX: return "Pivot X";
                 case PivotY: return "Pivot Y";
-                default: return name();
+                default:
+                    if (isChroma()) {
+                        String[] params = {"intensity", "shadow", "feather edge", "clean up edge"};
+                        return "Chroma " + (chromaKey() + 1) + " " + params[chromaParam()];
+                    }
+                    return name();
             }
         }
     }

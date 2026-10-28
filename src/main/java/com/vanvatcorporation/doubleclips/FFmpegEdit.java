@@ -930,6 +930,10 @@ public class FFmpegEdit {
                     // The FFmpeg filter graph never draws effect clips; only the OpenGL export does (as an adjustment layer).
                     found.add("The effect \"" + EffectCatalog.find(clip.effect.style).title + "\" is skipped (only the OpenGL export draws effect clips)");
                 }
+                if (clip.hasChromaKeys() && (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE)) {
+                    // The keying (shadow, feather and clean up edge included) is drawn by the OpenGL shader only.
+                    found.add("The chroma key" + (clip.chromaKeys.size() > 1 ? "s are" : " is") + " skipped (only the OpenGL export removes the background colour)");
+                }
                 if (clip.clipEffect != null && clip.type != ClipType.AUDIO && clip.type != ClipType.EFFECT
                         && EffectCatalog.find(clip.clipEffect.style) != null) {
                     // A clip's own effect needs the clip on a layer of its own, which the FFmpeg filter graph doesn't do.

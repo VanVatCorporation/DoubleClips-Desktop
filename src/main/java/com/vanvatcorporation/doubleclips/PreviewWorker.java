@@ -46,6 +46,9 @@ import static org.lwjgl.system.MemoryUtil.NULL;
  *                                                                         when k >= 0, in the worker's copy only)
  *   {"cmd":"livemasks","track":i,"clip":j,"masks":[ClipMask]}           (mask gesture in flight: replaces ONE clip's whole
  *                                                                         mask list, in the worker's copy only)
+ *   {"cmd":"livechroma","track":i,"clip":j,"keys":[ChromaKey]}          (chroma-key slider in flight: replaces ONE clip's whole
+ *                                                                         key list, with the keyframed sliders resolved at the
+ *                                                                         playhead, in the worker's copy only)
  *   {"cmd":"tile","req":n,"kind":"transition"|"effect","style":id,"frames":n,"side":px,"intensity":x}
  *                                                                        (picker tiles, see TileRenderer; answered with
  *                                                                         `frames` packets whose seq is tileSeq(req, i))
@@ -343,6 +346,13 @@ public final class PreviewWorker {
                             log("Ignoring an unusable live mask edit: " + e);
                         }
                         break;
+                    case "livechroma":
+                        try {
+                            applyLiveChroma(cmd);
+                        } catch (RuntimeException e) {
+                            log("Ignoring an unusable live chroma key edit: " + e);
+                        }
+                        break;
                     case "proxy":
                         proxyChange.set(cmd.get("on").getAsBoolean());
                         break;
@@ -406,6 +416,26 @@ public final class PreviewWorker {
             list.add(m);
         }
         track.clips.get(clipIndex).masks = list.isEmpty() ? null : list;
+    }
+
+    /** Like {@link #applyLiveMasks}, for a chroma-key slider: the clip's whole key list is replaced in the worker's copy. */
+    private static void applyLiveChroma(JsonObject cmd) {
+        Timeline tl = timeline;
+        if (tl == null) return;
+        int trackIndex = cmd.get("track").getAsInt();
+        int clipIndex = cmd.get("clip").getAsInt();
+        if (trackIndex < 0 || trackIndex >= tl.tracks.size()) return;
+        Track track = tl.tracks.get(trackIndex);
+        if (clipIndex < 0 || clipIndex >= track.clips.size()) return;
+        com.vanvatcorporation.doubleclips.data.editing.ChromaKey[] parsed =
+                GSON.fromJson(cmd.get("keys"), com.vanvatcorporation.doubleclips.data.editing.ChromaKey[].class);
+        java.util.List<com.vanvatcorporation.doubleclips.data.editing.ChromaKey> list = new java.util.ArrayList<>();
+        if (parsed != null) for (com.vanvatcorporation.doubleclips.data.editing.ChromaKey k : parsed) if (k != null) list.add(k);
+        Clip clip = track.clips.get(clipIndex);
+        clip.chromaKeys = list.isEmpty() ? null : list;
+        // The keys sent are the sliders AS THEY ARE at the playhead (keyframes resolved): the keyframed ones must not be
+        // read again by the worker, so it lets go of them in its copy (the editor's timeline replaces it after the drag).
+        com.vanvatcorporation.doubleclips.data.editing.ChromaKeyframes.flatten(clip);
     }
 
     private static void requestQuit() {

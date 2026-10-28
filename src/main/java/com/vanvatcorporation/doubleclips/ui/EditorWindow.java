@@ -84,6 +84,16 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     @Override
     public void syncPreview() { timelineRenderer.syncWorker(currentTime); }
+    @Override
+    public void showLiveChromaKeys(Clip clip, java.util.List<com.vanvatcorporation.doubleclips.data.editing.ChromaKey> keys) {
+        timelineRenderer.showLiveChromaKeys(clip, keys, currentTime);
+    }
+    @Override
+    public boolean pickColorFromPreview(java.util.function.Consumer<javafx.scene.paint.Color> onPicked) {
+        return timelineRenderer != null && timelineRenderer.pickColor(onPicked);
+    }
+    @Override
+    public void cancelColorPick() { if (timelineRenderer != null) timelineRenderer.cancelColorPick(); }
 
     // Editor State
     private float currentTime = 0f;

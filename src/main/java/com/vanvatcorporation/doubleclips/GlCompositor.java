@@ -66,6 +66,79 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         return sb.toString();
     }
 
+    /**
+     * Chroma keys (the clip's "Background" tab, see ChromaKey): colours made transparent. Works on the clip's own picture,
+     * before the colour grade and the masks. Per key the colour is compared in the chroma plane (BT.601 u, v: the same
+     * matrix the grade below uses), so how bright a pixel is matters little:
+     *  - intensity widens the distance that still counts as the key colour;
+     *  - shadow also counts the darker shades of it (the same chroma direction, down to a fraction of its size);
+     *  - feather widens the soft ramp from "removed" to "kept";
+     *  - clean up edge shrinks the kept area by a texel or two (the least kept of the pixel and its four neighbours) and
+     *    takes the key colour's tint off the pixels along that edge.
+     * A pixel is removed when ANY key removes it (the alphas multiply).
+     */
+    private static final String CHROMA_KEY_DECLS =
+            "#define MAX_KEYS " + com.vanvatcorporation.doubleclips.data.editing.ChromaKey.MAX_KEYS + "\n" +
+            "uniform int uKeyCount;\n" +
+            "uniform vec3 uKeyColor[MAX_KEYS];\n" +
+            "uniform vec4 uKeyParam[MAX_KEYS];\n" + // intensity, shadow, feather, clean up edge: 0..1
+            "const float KEY_TOLERANCE = 0.5;\n" +       // chroma distance removed at intensity 1
+            "const float KEY_SOFT_MIN = 0.02;\n" +       // softness of the edge at feather 0 ...
+            "const float KEY_SOFT_FEATHER = 0.3;\n" +    // ... plus this at feather 1
+            "const float KEY_SHADOW_SPAN = 0.8;\n" +     // at shadow 1 shades down to 20 % of the key's chroma still count
+            "const float KEY_CHOKE_TEXELS = 3.0;\n" +    // texels the edge can shrink by at clean up edge 1
+            "vec2 keyChroma(vec3 c) {\n" +
+            "    return vec2(dot(c, vec3(-0.14713, -0.28886, 0.43600)), dot(c, vec3(0.61500, -0.51499, -0.10001)));\n" +
+            "}\n" +
+            "float keyLuma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }\n" +
+            // 0 = this colour is the key (removed), 1 = kept
+            "float keyKeep(vec3 c, int i) {\n" +
+            "    vec4 prm = uKeyParam[i];\n" +
+            "    vec2 pc = keyChroma(c);\n" +
+            "    vec2 kc = keyChroma(uKeyColor[i]);\n" +
+            "    float d = length(pc - kc);\n" +
+            "    float kk = dot(kc, kc);\n" +
+            "    if (prm.y > 0.0 && kk > 0.00001 && keyLuma(c) <= keyLuma(uKeyColor[i]) * 1.1 + 0.02) {\n" +
+            "        float s = dot(pc, kc) / kk;\n" +                                  // how much of the key's chroma this pixel has
+            "        if (s >= 1.0 - prm.y * KEY_SHADOW_SPAN) d = min(d, length(pc - min(s, 1.0) * kc));\n" +
+            "    }\n" +
+            "    float tol = prm.x * KEY_TOLERANCE;\n" +
+            "    return smoothstep(tol, tol + KEY_SOFT_MIN + prm.z * KEY_SOFT_FEATHER, d);\n" +
+            "}\n" +
+            "vec4 applyChromaKeys(vec4 c, vec2 uv) {\n" +
+            "    vec3 rgb = c.rgb;\n" +
+            "    float alpha = c.a;\n" +
+            "    vec2 texel = 1.0 / vec2(textureSize(uTex, 0));\n" +
+            "    for (int i = 0; i < uKeyCount; i++) {\n" +
+            "        float clean = uKeyParam[i].w;\n" +
+            "        float keep = keyKeep(rgb, i);\n" +
+            "        float nearest = keep;\n" +                                         // the least kept of this pixel and its neighbours
+            "        if (clean > 0.0) {\n" +
+            "            vec2 o = texel * (0.5 + clean * KEY_CHOKE_TEXELS);\n" +
+            "            vec4 n0 = texture(uTex, uv + vec2(o.x, 0.0));\n" +
+            "            vec4 n1 = texture(uTex, uv - vec2(o.x, 0.0));\n" +
+            "            vec4 n2 = texture(uTex, uv + vec2(0.0, o.y));\n" +
+            "            vec4 n3 = texture(uTex, uv - vec2(0.0, o.y));\n" + // a neighbour that is already transparent isn't a keyed one
+            "            nearest = min(nearest, n0.a < 0.01 ? 1.0 : keyKeep(n0.rgb, i));\n" +
+            "            nearest = min(nearest, n1.a < 0.01 ? 1.0 : keyKeep(n1.rgb, i));\n" +
+            "            nearest = min(nearest, n2.a < 0.01 ? 1.0 : keyKeep(n2.rgb, i));\n" +
+            "            nearest = min(nearest, n3.a < 0.01 ? 1.0 : keyKeep(n3.rgb, i));\n" +
+            "            vec2 kc = keyChroma(uKeyColor[i]);\n" +
+            "            float kl = length(kc);\n" +
+            "            if (kl > 0.0001) {\n" +                                        // take the key colour's tint off the edge pixels
+            "                vec2 kn = kc / kl;\n" +
+            "                vec2 pc = keyChroma(rgb);\n" +
+            "                float y = keyLuma(rgb);\n" +
+            "                float amount = clean * max(1.0 - nearest, 1.0 - keep);\n" +
+            "                pc -= amount * max(0.0, dot(pc, kn)) * kn;\n" +
+            "                rgb = clamp(vec3(y + 1.13983 * pc.y, y - 0.39465 * pc.x - 0.58060 * pc.y, y + 2.03211 * pc.x), 0.0, 1.0);\n" +
+            "            }\n" +
+            "        }\n" +
+            "        alpha *= mix(keep, nearest, min(1.0, clean * 1.5));\n" +
+            "    }\n" +
+            "    return vec4(rgb, alpha);\n" +
+            "}\n";
+
     private static final String MASK_DECLS =
             "#define MAX_MASKS " + com.vanvatcorporation.doubleclips.data.editing.ClipMask.MAX_MASKS + "\n" +
             "uniform int uMaskCount;\n" +
@@ -183,6 +256,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "uniform float uUnfoldHeight;\n" +
             "uniform float uContrast;\n" +
             "uniform float uExposure;\n" + // iOS "exposure" channel: colour multiplier, 1 = none
+            CHROMA_KEY_DECLS +
             "out vec4 fragColor;\n" +
             "vec2 unfoldSourceQuadPos(vec2 q) {\n" +
             "    float srcY = clamp((q.y + 1.0) / uUnfoldHeight - 1.0, -1.0, 1.0);\n" +
@@ -199,6 +273,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "        sampleUv = vec2(s.x * 0.5 + 0.5, s.y * 0.5 + 0.5);\n" +
             "    }\n" +
             "    vec4 color = texture(uTex, sampleUv);\n" +
+            "    if (uKeyCount > 0) color = applyChromaKeys(color, sampleUv);\n" + // chroma keys first: the grade and masks act on what stays
             "    vec3 rgb = color.rgb;\n" +
             "    float y = dot(rgb, vec3(0.299, 0.587, 0.114));\n" +
             "    float u = dot(rgb, vec3(-0.14713, -0.28886, 0.43600));\n" +
@@ -552,7 +627,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private final int program;
     private final int uMvpLoc, uOpacityLoc, uTexLoc, uHueLoc, uSaturationLoc, uBrightnessLoc, uTemperatureLoc;
     private final int uUnfoldActiveLoc, uUnfoldTopXLoc, uUnfoldBottomXLoc, uUnfoldHeightLoc, uContrastLoc, uExposureLoc,
-            uMaskCountLoc, uBoxSizeLoc, uMaskALoc, uMaskBLoc, uMaskCLoc;
+            uMaskCountLoc, uBoxSizeLoc, uMaskALoc, uMaskBLoc, uMaskCLoc, uKeyCountLoc, uKeyColorLoc, uKeyParamLoc;
     private final int vao, vbo;
 
     /** A canvas-sized offscreen colour target (FBO + texture). */
@@ -620,6 +695,9 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         uMaskALoc = glGetUniformLocation(program, "uMaskA");
         uMaskBLoc = glGetUniformLocation(program, "uMaskB");
         uMaskCLoc = glGetUniformLocation(program, "uMaskC");
+        uKeyCountLoc = glGetUniformLocation(program, "uKeyCount");
+        uKeyColorLoc = glGetUniformLocation(program, "uKeyColor");
+        uKeyParamLoc = glGetUniformLocation(program, "uKeyParam");
 
         vao = glGenVertexArrays();
         glBindVertexArray(vao);
@@ -705,6 +783,14 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             glUniform3iv(uMaskCLoc, cmd.masks.c);
         } else {
             glUniform1i(uMaskCountLoc, 0);
+        }
+        // Chroma keys: like the masks, every draw says how many (the program is shared by all clips); 0 = none.
+        if (cmd.chromaKeys != null && cmd.chromaKeys.count > 0) {
+            glUniform1i(uKeyCountLoc, cmd.chromaKeys.count);
+            glUniform3fv(uKeyColorLoc, cmd.chromaKeys.color);
+            glUniform4fv(uKeyParamLoc, cmd.chromaKeys.param);
+        } else {
+            glUniform1i(uKeyCountLoc, 0);
         }
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);

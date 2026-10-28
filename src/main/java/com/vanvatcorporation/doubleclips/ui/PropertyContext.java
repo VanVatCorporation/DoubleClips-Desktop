@@ -40,6 +40,17 @@ public interface PropertyContext {
                        java.util.List<com.vanvatcorporation.doubleclips.data.editing.ClipMask> masks);
     /** Puts the preview back on the committed project after a live edit ended. */
     void syncPreview();
+    /** A chroma-key slider is being dragged: shows {@code keys} (the clip's whole list as the drag would commit it) in the preview without committing. */
+    void showLiveChromaKeys(com.vanvatcorporation.doubleclips.data.editing.Clip clip,
+                            java.util.List<com.vanvatcorporation.doubleclips.data.editing.ChromaKey> keys);
+    /**
+     * The eyedropper: the next click on the preview hands {@code onPicked} the colour of the pixel clicked (the frame as shown,
+     * every layer composited). Returns false when there is no preview picture to pick from. One shot: it ends with the click
+     * or with {@link #cancelColorPick()}.
+     */
+    boolean pickColorFromPreview(java.util.function.Consumer<javafx.scene.paint.Color> onPicked);
+    /** Ends an eyedropper that is still waiting for its click (nothing happens when none is). */
+    void cancelColorPick();
     /** Picker tile pictures made by the preview worker's real renderer (transitions and effects). */
     com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews tilePreviews();
 }
