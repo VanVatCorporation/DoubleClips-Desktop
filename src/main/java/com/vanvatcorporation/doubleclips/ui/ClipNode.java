@@ -130,12 +130,18 @@ public class ClipNode extends Pane {
         nameLabel.setMouseTransparent(true);
         nameLabel.setLayoutX(6);
         nameLabel.setLayoutY(3);
+        // A label never reaches past the clip's end: text that is too long is cut with "...". An overflowing label widened this
+        // node's bounds, and a click on the empty track right after the clip still hit it (see setPickOnBounds below).
+        nameLabel.maxWidthProperty().bind(javafx.beans.binding.Bindings.max(0.0, widthProperty().subtract(12)));
+        nameLabel.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
 
         timecodeLabel = new Label(formatDuration(clip.duration));
         timecodeLabel.getStyleClass().add("clip-timecode-label");
         timecodeLabel.setMouseTransparent(true);
         timecodeLabel.setLayoutX(6);
         timecodeLabel.setLayoutY(17);
+        timecodeLabel.maxWidthProperty().bind(javafx.beans.binding.Bindings.max(0.0, widthProperty().subtract(12)));
+        timecodeLabel.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
 
         // ── Single Image Overlay ──────────────────────────────────────────────
         singleImageOverlay = new ImageView();
@@ -176,13 +182,17 @@ public class ClipNode extends Pane {
         heightProperty().addListener((o, ov, nv) -> { if (nv.doubleValue() > 0) refreshThumbnails(); });
 
         getStyleClass().add("clip-node");
+        // Only the clip's own shape takes clicks, not the bounds of everything drawn inside it.
+        setPickOnBounds(false);
         refreshLabels();
     }
 
     /** Refresh name and duration labels. */
     public void refreshLabels() {
         nameLabel.setText(clip.getClipName());
-        timecodeLabel.setText(formatDuration(clip.duration));
+        // A feature being pre-processed (optical flow, motion blur...) shows its progress beside the duration.
+        String busy = com.vanvatcorporation.doubleclips.ClipProcessingTracker.get().clipLabel(clip);
+        timecodeLabel.setText(busy == null ? formatDuration(clip.duration) : formatDuration(clip.duration) + "   " + busy);
     }
 
     // ── Public API ─────────────────────────────────────────────────────────────

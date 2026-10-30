@@ -37,6 +37,9 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
      * keyframe. iOS's and Android's valueStrength: same key, default 1.
      */
     @Expose public float valueStrength = 1;
+    /** The motion blur's Blur / Blend sliders (see {@link ClipMotionBlur}), plain or keyframed like every property: 0 ... 100. */
+    @Expose public float valueMotionBlur = ClipMotionBlur.DEFAULT_BLUR;
+    @Expose public float valueMotionBlend = ClipMotionBlur.DEFAULT_BLEND;
     /**
      * What the chroma-key sliders (see {@link ChromaKey}) were in a keyframe, per key per slider (ValueType.chromaIndex()).
      * Only keyframes ever carry them: the plain values live in the ChromaKey itself, so this stays null (and out of the
@@ -60,6 +63,8 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
         this.valuePivotY = 0;
         this.valueVolume = 1;
         this.valueStrength = 1;
+        this.valueMotionBlur = ClipMotionBlur.DEFAULT_BLUR;
+        this.valueMotionBlend = ClipMotionBlur.DEFAULT_BLEND;
     }
 
     public VideoProperties(VideoProperties other) {
@@ -79,6 +84,8 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
         this.valuePivotY = other.valuePivotY;
         this.valueVolume = other.valueVolume;
         this.valueStrength = other.valueStrength;
+        this.valueMotionBlur = other.valueMotionBlur;
+        this.valueMotionBlend = other.valueMotionBlend;
         this.valueChroma = other.valueChroma == null ? null : other.valueChroma.clone();
     }
 
@@ -100,6 +107,8 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
             case Brightness: return valueBrightness;
             case Temperature: return valueTemperature;
             case Strength: return valueStrength;
+            case MotionBlur: return valueMotionBlur;
+            case MotionBlend: return valueMotionBlend;
             default:
                 if (valueType.isChroma()) return valueChroma == null ? 0f : valueChroma[valueType.chromaIndex()];
                 return 1;
@@ -123,6 +132,8 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
             case Brightness: valueBrightness = v; break;
             case Temperature: valueTemperature = v; break;
             case Strength: valueStrength = v; break;
+            case MotionBlur: valueMotionBlur = v; break;
+            case MotionBlend: valueMotionBlend = v; break;
             default:
                 if (valueType.isChroma()) {
                     if (valueChroma == null) {
@@ -137,6 +148,8 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
 
     public enum ValueType {
         PosX, PosY, Rot, RotInRadians, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength,
+        // The motion blur sliders: before the chroma constants, which have to stay the LAST ones.
+        MotionBlur, MotionBlend,
         // The chroma-key sliders, one per key per slider (a clip carries up to ChromaKey.MAX_KEYS keys): they are the LAST
         // constants, in this order, which isChroma() / chromaIndex() rely on. Raising MAX_KEYS needs a group more here.
         ChromaIntensity0, ChromaShadow0, ChromaFeather0, ChromaCleanUp0,
@@ -177,7 +190,7 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
 
         private static ValueType[] channels() {
             java.util.List<ValueType> list = new java.util.ArrayList<>(java.util.Arrays.asList(
-                    PosX, PosY, Rot, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength));
+                    PosX, PosY, Rot, ScaleX, ScaleY, PivotX, PivotY, Opacity, Speed, Volume, Hue, Saturation, Brightness, Temperature, Strength, MotionBlur, MotionBlend));
             for (ValueType t : values()) if (t.isChroma()) list.add(t);
             return list.toArray(new ValueType[0]);
         }
@@ -201,6 +214,8 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
                 case Brightness: return "brightness";
                 case Temperature: return "temperature";
                 case Strength: return "strength";
+                case MotionBlur: return "motionBlur";
+                case MotionBlend: return "motionBlend";
                 default:
                     if (isChroma()) {
                         String[] params = {"Intensity", "Shadow", "Feather", "CleanUp"};
@@ -227,6 +242,8 @@ public class VideoProperties implements Serializable, UnknownKeysHolder {
                 case ScaleY: return "Scale Y";
                 case PivotX: return "Pivot X";
                 case PivotY: return "Pivot Y";
+                case MotionBlur: return "Motion blur";
+                case MotionBlend: return "Motion blend";
                 default:
                     if (isChroma()) {
                         String[] params = {"intensity", "shadow", "feather edge", "clean up edge"};

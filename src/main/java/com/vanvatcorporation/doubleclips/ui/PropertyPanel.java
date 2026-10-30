@@ -21,12 +21,13 @@ public class PropertyPanel extends VBox {
     private final BlendSection blendSection;
     private final ClipEffectSection clipEffectSection;
     private final BackgroundSection backgroundSection;
+    private final MotionSection motionSection;
     private final EffectStrengthRow effectStrengthRow;
     private final AudioVolumeRow audioVolumeRow;
 
     /** The tabs of a selected clip's panel (CapCut style). Mask, Blend and Effect are for video, image and text clips; Background for video and image clips. */
     private enum Tab {
-        PROPERTIES("Properties"), MASK("Mask"), BLEND("Blend"), EFFECT("Effect"), BACKGROUND("Background"), ANIMATION("Animation");
+        PROPERTIES("Properties"), MASK("Mask"), BLEND("Blend"), EFFECT("Effect"), BACKGROUND("Background"), MOTION("Motion"), ANIMATION("Animation");
         final String title;
         Tab(String title) { this.title = title; }
     }
@@ -42,6 +43,7 @@ public class PropertyPanel extends VBox {
         this.blendSection = new BlendSection(context);
         this.clipEffectSection = new ClipEffectSection(context);
         this.backgroundSection = new BackgroundSection(context);
+        this.motionSection = new MotionSection(context);
         this.effectStrengthRow = new EffectStrengthRow(context);
         this.audioVolumeRow = new AudioVolumeRow(context);
         this.setPadding(new Insets(16));
@@ -69,6 +71,8 @@ public class PropertyPanel extends VBox {
             available.addAll(java.util.Arrays.asList(Tab.values()));
             // Chroma keys and the cut-out work on a picture: not on text
             if (clip.type == ClipType.TEXT) available.remove(Tab.BACKGROUND);
+            // Optical flow and motion blur follow a video's own motion: video clips only
+            if (clip.type != ClipType.VIDEO) available.remove(Tab.MOTION);
         } else {
             available.add(Tab.PROPERTIES);
             available.add(Tab.ANIMATION);
@@ -128,6 +132,7 @@ public class PropertyPanel extends VBox {
             case BLEND: buildBlendTab(selectedClip); return;
             case EFFECT: buildClipEffectTab(selectedClip); return;
             case BACKGROUND: buildBackgroundTab(selectedClip); return;
+            case MOTION: buildMotionTab(selectedClip); return;
             case ANIMATION: buildAnimationTab(selectedClip); return;
             default: break;
         }
@@ -354,6 +359,15 @@ public class PropertyPanel extends VBox {
 
     private void buildBackgroundTab(Clip clip) {
         getChildren().addAll(tabTitle("Background"), backgroundSection.build(clip));
+    }
+
+    private void buildMotionTab(Clip clip) {
+        getChildren().addAll(tabTitle("Motion"), motionSection.build(clip));
+    }
+
+    /** A clip feature that is pre-processed moved (see ClipProcessingTracker): the Motion tab's "Processing xx%" lines follow. Call on the FX thread. */
+    public void refreshProcessing() {
+        motionSection.refreshProcessing();
     }
 
     private void buildClipEffectTab(Clip clip) {

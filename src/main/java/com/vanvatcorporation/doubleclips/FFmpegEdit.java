@@ -492,7 +492,7 @@ public class FFmpegEdit {
 //                        String scaleZoompan = templateSettings.settings.isStretchToFull() ? ":s=" + scaleXCmd + "x" + scaleYCmd : "";
 
                         filterComplex
-                                .append("setpts='(PTS-STARTPTS)/").append(speedExpr).append("+").append(clip.startTime).append("/TB'").append(",")
+                                .append(speedAndShift(clip, speedExpr)).append(",")
                                 .append("scale=w='").append(scaleXStretchExpr).append("':h='").append(scaleYStretchExpr).append("':eval=")
                                 .append((scaleXStretchExpr.contains("t") || scaleYStretchExpr.contains("t")) ? "frame" : "init").append(",")
 //                                .append("pad=width=").append("'iw'").append(":height=").append("'ih'").append(":x=-1:y=-1:color=black:eval=frame,")
@@ -534,7 +534,7 @@ public class FFmpegEdit {
                                 .append(":b=").append(clip.videoProperties.getValue(VideoProperties.ValueType.Brightness)).append(",")
                                 .append("colortemperature=temperature=").append(clip.videoProperties.getValue(VideoProperties.ValueType.Temperature)).append(",")
                                 .append("format=yuva420p,colorchannelmixer=aa=").append(clip.videoProperties.getValue(VideoProperties.ValueType.Opacity)).append(",")
-                                .append("setpts='(PTS-STARTPTS)/").append(clip.videoProperties.getValue(VideoProperties.ValueType.Speed)).append("+").append(clip.startTime).append("/TB'").append(",");
+                                .append(speedAndShift(clip, String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.Speed)))).append(",");
                     }
 
 
@@ -918,6 +918,23 @@ public class FFmpegEdit {
 
         return cmd.toString();
     }
+
+    /**
+     * The speed + "start on the timeline" step of a video clip's filter chain. Normally one setpts; with the clip's optical flow
+     * on, the in-between frames are made at the clip's speed and between the two steps ({@code minterpolate=fps=N}, ffmpeg's
+     * default motion-compensated interpolation), so the new frames land on the stretched clip and the shift to its timeline
+     * position keeps working on the result.
+     */
+    private static String speedAndShift(Clip clip, String speedExpr) {
+        String shift = clip.startTime + "/TB";
+        if (clip.type != ClipType.VIDEO || !clip.hasOpticalFlow()) {
+            return "setpts='(PTS-STARTPTS)/" + speedExpr + "+" + shift + "'";
+        }
+        return "setpts='(PTS-STARTPTS)/" + speedExpr + "',minterpolate=fps="
+                + com.vanvatcorporation.doubleclips.data.editing.ClipOpticalFlow.format(clip.opticalFlow.effectiveFps())
+                + ",setpts='PTS+" + shift + "'";
+    }
+
     /**
      * Human-readable list of clip animations (or parts of them) the FFmpeg export will NOT reproduce:
      * an animation id that isn't installed, or channels FFmpeg can't express (see
@@ -959,6 +976,10 @@ public class FFmpegEdit {
                 if (clip.keyframes != null && clip.keyframes.holderCount(VideoProperties.ValueType.Speed) > 1) {
                     // The OpenGL export integrates the speed curve (Clip.timeMap); the filter graph only has setpts with the speed at each instant.
                     found.add("Speed curves are approximated (only the OpenGL export follows a changing speed exactly)");
+                }
+                if (clip.hasMotionBlur() && clip.type == ClipType.VIDEO) {
+                    // The streak follows the optical flow field, which only the OpenGL engine computes (a later delivery draws it there).
+                    found.add("Motion blur is skipped (it needs the OpenGL engine's optical flow; FFmpeg draws the clip sharp)");
                 }
                 if (clip.hasMasks()) {
                     // Masks are drawn by the OpenGL shader (GlCompositor); the FFmpeg filter graph has no counterpart yet.

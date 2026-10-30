@@ -821,7 +821,40 @@ public class EditorWindow extends Stage implements PropertyContext {
         return keybind.replace("Cmd+", "Meta+").replace("Ctrl+", "Control+");
     }
 
+    private ProcessingBadge processingBadge;
+    private Runnable processingListener;
+    private final java.util.concurrent.atomic.AtomicBoolean processingRefreshQueued = new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * Follows the processing tracker (a clip feature being pre-processed): the preview badge, the clip labels on the timeline and
+     * the Motion tab's "Processing xx%" line are redrawn. Jobs report from worker threads and often, so the redraws are
+     * coalesced into one FX-thread run at a time.
+     */
+    private void startProcessingWatch() {
+        if (processingListener != null) return;
+        processingListener = () -> {
+            if (!processingRefreshQueued.compareAndSet(false, true)) return;
+            Platform.runLater(() -> {
+                processingRefreshQueued.set(false);
+                refreshProcessingViews();
+            });
+        };
+        com.vanvatcorporation.doubleclips.ClipProcessingTracker.get().addListener(processingListener);
+    }
+
+    private void refreshProcessingViews() {
+        if (processingBadge != null) processingBadge.refresh();
+        for (Clip clip : timeline.getAllClips()) {
+            if (clip.viewRef instanceof ClipNode cn) cn.refreshLabels();
+        }
+        if (propertyPanel != null) propertyPanel.refreshProcessing();
+    }
+
     private void closeWindow() {
+        if (processingListener != null) {
+            com.vanvatcorporation.doubleclips.ClipProcessingTracker.get().removeListener(processingListener);
+            processingListener = null;
+        }
         if (voiceover != null) voiceover.shutdown();   // before the dock goes: a running take is dropped, not turned into a clip
         if (dock != null) dock.shutdown();
         stopPlayback();
@@ -1825,6 +1858,12 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
         }, timelineRenderer, videoSettings);
         canvas.getChildren().add(previewGizmo.getNode());
+        // "Applying N feature..." while a clip feature is being pre-processed (see ClipProcessingTracker)
+        processingBadge = new ProcessingBadge();
+        StackPane.setAlignment(processingBadge, Pos.TOP_LEFT);
+        StackPane.setMargin(processingBadge, new Insets(10));
+        canvas.getChildren().add(processingBadge);
+        startProcessingWatch();
         maskEditState.setOnChange(() -> { if (previewGizmo != null) previewGizmo.refresh(); });
 
         // Fits the picture into the canvas; runs when the canvas is resized AND when the project's canvas size changes.
@@ -1921,6 +1960,13 @@ public class EditorWindow extends Stage implements PropertyContext {
      *  - frame rate: the keyframes snap to the new frame grid (as when a project is opened), the clips follow in
      *    refreshTimelineUI, and the ruler and the timecodes count in the new frames.
      */
+    @Override
+    public void changeProjectFrameRate(int fps) {
+        if (fps < 1 || fps == videoSettings.frameRate) return;
+        videoSettings.frameRate = fps;
+        onVideoSettingsChanged(new VideoSettingsDialog.Change(false, true, false));
+    }
+
     public void onVideoSettingsChanged(VideoSettingsDialog.Change change) {
         ProjectRepository.getInstance().saveVideoSettings(project, videoSettings);
         fpsBadge.setText(String.valueOf(videoSettings.frameRate));

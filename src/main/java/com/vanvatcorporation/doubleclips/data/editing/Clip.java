@@ -71,6 +71,16 @@ public class Clip implements Serializable, UnknownKeysHolder {
         return false;
     }
 
+    /** Is this clip's optical flow switched on? */
+    public boolean hasOpticalFlow() {
+        return opticalFlow != null && opticalFlow.enabled;
+    }
+
+    /** Is this clip's motion blur switched on? */
+    public boolean hasMotionBlur() {
+        return motionBlur != null && motionBlur.enabled;
+    }
+
     public boolean hasMasks() {
         return masks != null && !masks.isEmpty();
     }
@@ -173,6 +183,10 @@ public class Clip implements Serializable, UnknownKeysHolder {
      * {@link ChromaKey#MAX_KEYS}, a pixel matching any of them goes transparent. null / empty = none. Desktop only.
      */
     @Expose public java.util.List<ChromaKey> chromaKeys;
+    /** Frame interpolation of this clip (the Motion tab), see {@link ClipOpticalFlow}; null = off. Desktop only. */
+    @Expose public ClipOpticalFlow opticalFlow;
+    /** Streaks along the clip's motion (the Motion tab), see {@link ClipMotionBlur}; null = off. Desktop only. */
+    @Expose public ClipMotionBlur motionBlur;
     
     @Expose public AnimationClip inAnimation = null;
     @Expose public AnimationClip outAnimation = null;
@@ -252,6 +266,8 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.isReverse = other.isReverse;
         this.removeBackground = other.removeBackground;
         this.chromaKeys = ChromaKey.copyAll(other.chromaKeys);
+        this.opticalFlow = other.opticalFlow == null ? null : new ClipOpticalFlow(other.opticalFlow);
+        this.motionBlur = other.motionBlur == null ? null : new ClipMotionBlur(other.motionBlur);
         this.isLockedForTemplate = other.isLockedForTemplate;
         this.templateGroup = other.templateGroup;
     }

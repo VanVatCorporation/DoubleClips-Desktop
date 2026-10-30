@@ -587,6 +587,14 @@ public final class OpenGLTimelineExporter {
                 if (clip == null) continue;
                 warnIfUnusable(clip.inAnimation, ClipAnimation.Direction.IN, warned, listener);
                 warnIfUnusable(clip.outAnimation, ClipAnimation.Direction.OUT, warned, listener);
+                // Optical flow and motion blur are in the data model and the panel, but the GL engine doesn't draw them yet:
+                // said once per feature, so a clip that has them doesn't export as if it did.
+                if (clip.hasOpticalFlow() && clip.type == ClipType.VIDEO && warned.add("feature:opticalFlow")) {
+                    log(listener, "Optical flow is not drawn by the OpenGL export yet - clips with it export without the in-between frames");
+                }
+                if (clip.hasMotionBlur() && clip.type == ClipType.VIDEO && warned.add("feature:motionBlur")) {
+                    log(listener, "Motion blur is not drawn by the OpenGL export yet - clips with it export sharp");
+                }
             }
         }
     }

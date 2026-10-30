@@ -32,6 +32,8 @@ public interface PropertyContext {
     void handleExportKeyframes();
     void updatePropertiesPane();
     com.vanvatcorporation.doubleclips.data.editing.VideoSettings getVideoSettings();
+    /** Makes {@code fps} the project's frame rate, taking effect at once like a change in the video settings (ruler, keyframe grid, saved). */
+    void changeProjectFrameRate(int fps);
     com.vanvatcorporation.doubleclips.data.ProjectData getProject();
     /** Which clip mask the canvas is editing (shared by the Mask panel and the preview gizmo). */
     MaskEditState maskEditState();
