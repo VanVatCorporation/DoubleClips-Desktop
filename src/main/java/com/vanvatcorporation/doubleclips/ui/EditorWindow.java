@@ -2625,7 +2625,8 @@ public class EditorWindow extends Stage implements PropertyContext {
         float visibleDuration = timeline.duration;
         long steps = (long) Math.ceil(visibleDuration / rulerInterval);
 
-        int framesInInterval = Math.max(1, Math.round(rulerInterval * fps));
+        // long and double: with a very high frame rate a second is more frames than an int holds
+        long framesInInterval = Math.max(1L, Math.round((double) rulerInterval * fps));
         float pixelsPerFrame = pixelsPerSecond / fps;
 
         for (long step = 0; step <= steps; step++) {
@@ -2637,18 +2638,19 @@ public class EditorWindow extends Stage implements PropertyContext {
 
             // Minor ticks (frames) between this major tick and the next
             if (step < steps) {
-                for (int f = 1; f < framesInInterval; f++) {
-                    long subFrame = frame + f;
-                    double subX = subFrame * (double) pixelsPerSecond / fps;
-
-                    // Only draw if there's enough space (at least 4px between minor ticks)
-                    if (pixelsPerFrame >= 4f) {
-                        // very zoomed in: every frame carries its own number inside its second
-                        addRulerMark(ruler, subX, subFrame, fps, false, pixelsPerFrame >= 40f && framesInInterval > 1);
-                    } else if (framesInInterval >= 10 && f % (framesInInterval / 2) == 0) {
-                        // Midpoint tick if too dense for every frame but wide enough for one
-                        addRulerMark(ruler, subX, subFrame, fps, false, false);
+                if (pixelsPerFrame >= 4f) {
+                    // Enough space for every frame (at least 4px between ticks); very zoomed in, each carries its own
+                    // number inside its second. The loop only runs when the frames are this wide, so it stays small.
+                    for (long f = 1; f < framesInInterval; f++) {
+                        long subFrame = frame + f;
+                        addRulerMark(ruler, subFrame * (double) pixelsPerSecond / fps, subFrame, fps, false,
+                                pixelsPerFrame >= 40f && framesInInterval > 1);
                     }
+                } else if (framesInInterval >= 10) {
+                    // Too dense for every frame, but wide enough for a midpoint tick. One tick, not a pass over every frame:
+                    // at a very high frame rate a single interval holds more frames than anyone could loop over.
+                    long mid = frame + framesInInterval / 2;
+                    addRulerMark(ruler, mid * (double) pixelsPerSecond / fps, mid, fps, false, false);
                 }
             }
         }

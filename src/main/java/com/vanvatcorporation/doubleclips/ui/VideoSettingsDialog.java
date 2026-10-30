@@ -20,8 +20,9 @@ import java.util.Objects;
  * because a new canvas size and a new frame rate each need the editor to rebuild something (see
  * EditorWindow#onVideoSettingsChanged); the caller saves them.
  *
- * <p>Typed numbers are kept inside what makes sense: the canvas at least 16 px and an even number of pixels (H.264's 4:2:0 needs
- * even sides), the frame rate 1 ... 240, the CRF 0 ... 51; an entry that isn't a number keeps the old value.
+ * <p>Typed numbers are kept inside what makes sense: the canvas at least {@link #MIN_SIDE} px and an even number of pixels
+ * (H.264's 4:2:0 needs even sides), the frame rate at least 1, the CRF 0 ... 51; an entry that isn't a number keeps the old
+ * value. The upper limits ({@link #MAX_SIDE}, {@link #MAX_FRAME_RATE}) are left open on purpose.
  */
 final class VideoSettingsDialog {
 

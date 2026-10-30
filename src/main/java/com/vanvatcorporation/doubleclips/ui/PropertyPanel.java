@@ -21,6 +21,7 @@ public class PropertyPanel extends VBox {
     private final BlendSection blendSection;
     private final ClipEffectSection clipEffectSection;
     private final BackgroundSection backgroundSection;
+    private final EffectStrengthRow effectStrengthRow;
     private final AudioVolumeRow audioVolumeRow;
 
     /** The tabs of a selected clip's panel (CapCut style). Mask, Blend and Effect are for video, image and text clips; Background for video and image clips. */
@@ -41,6 +42,7 @@ public class PropertyPanel extends VBox {
         this.blendSection = new BlendSection(context);
         this.clipEffectSection = new ClipEffectSection(context);
         this.backgroundSection = new BackgroundSection(context);
+        this.effectStrengthRow = new EffectStrengthRow(context);
         this.audioVolumeRow = new AudioVolumeRow(context);
         this.setPadding(new Insets(16));
         tabStrip.getStyleClass().add("editor-tab-strip");
@@ -406,10 +408,6 @@ public class PropertyPanel extends VBox {
 
     // ---- effect clips: which effect, and how strong ---------------------------------------------------------
 
-    private static String strengthText(float v) {
-        return String.format(java.util.Locale.ROOT, "%.2f", v);
-    }
-
     /**
      * An effect clip is an adjustment layer: it filters everything on the tracks above it for as long as it lasts.
      * Here: the effect (opens the tile picker with looping previews) and, for effects that have one, its strength.
@@ -436,27 +434,9 @@ public class PropertyPanel extends VBox {
             return;
         }
 
+        // The strength, with its keyframe diamond (see EffectStrengthRow).
         if (style.hasIntensity()) {
-            float value = com.vanvatcorporation.doubleclips.EffectCatalog.clampIntensity(style, fx.intensity());
-            Label strengthLabel = new Label(style.intensityLabel);
-            strengthLabel.getStyleClass().add("text-muted");
-            strengthLabel.setStyle("-fx-font-size: 11px;");
-            Label shown = new Label(strengthText(value));
-            shown.setStyle("-fx-font-size: 11px;");
-            Slider slider = new Slider(style.intensityMin, style.intensityMax, value);
-            slider.setMaxWidth(Double.MAX_VALUE);
-            HBox.setHgrow(slider, Priority.ALWAYS);
-            // Dragging only moves the number; the change is made (one undo step) when the slider is let go.
-            slider.valueProperty().addListener((o, was, now) -> {
-                shown.setText(strengthText(now.floatValue()));
-                if (!slider.isValueChanging()) commitEffectStrength(clip, now.floatValue());
-            });
-            slider.valueChangingProperty().addListener((o, was, changing) -> {
-                if (!changing) commitEffectStrength(clip, (float) slider.getValue());
-            });
-            HBox row = new HBox(8, slider, shown);
-            row.setAlignment(Pos.CENTER_LEFT);
-            fields.getChildren().add(new VBox(4, strengthLabel, row));
+            fields.getChildren().add(effectStrengthRow.build(clip, style));
         }
 
         Label hint = new Label("Filters everything on the tracks above this one while it lasts. Clips on tracks below it are drawn over the result. Drawn by the OpenGL engine.");
@@ -484,15 +464,6 @@ public class PropertyPanel extends VBox {
             context.saveProject();
             javafx.application.Platform.runLater(context::updatePropertiesPane);
         });
-    }
-
-    private void commitEffectStrength(Clip clip, float value) {
-        com.vanvatcorporation.doubleclips.EffectCatalog.Style style = com.vanvatcorporation.doubleclips.EffectCatalog.find(clip.effect.style);
-        float clamped = com.vanvatcorporation.doubleclips.EffectCatalog.clampIntensity(style, value);
-        if (Math.abs(clamped - clip.effect.intensity()) < 1e-4f) return; // the slider reports a change twice on release
-        EffectTemplate after = new EffectTemplate(clip.effect);
-        after.setIntensity(clamped);
-        commitEffect(clip, "Change Effect Strength", after, clip.getClipName());
     }
 
     private void showEffectBrowser(Clip clip) {
