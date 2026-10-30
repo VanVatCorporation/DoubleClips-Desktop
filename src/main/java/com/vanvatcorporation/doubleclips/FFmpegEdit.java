@@ -701,9 +701,16 @@ public class FFmpegEdit {
                     int delayMs = (int) (clip.startTime * 1000);
                     // A keyframed volume is one volume filter of the clip's own time, right after the trim (before the delay).
                     final String keyedVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.ffmpegStage(clip);
-                    filterComplex.append("[").append(inputLayerIndex).append(":a]")
-                            .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration).append(",")
-                            .append(keyedVolume)
+                    // At a speed other than 1 the source the clip consumes is cut and played at that speed first (as the preview does);
+                    // at speed 1 it is the plain atrim, exactly as before.
+                    final String speedLabel = "[asp" + audioClipCount + "]";
+                    final String speedStatements = com.vanvatcorporation.doubleclips.data.editing.AudioSpeedGraph.statements(
+                            "[" + inputLayerIndex + ":a]", speedLabel, "asp" + audioClipCount, clip.startClipTrim,
+                            clip.timeMapSnapshot(), clip.duration);
+                    if (speedStatements != null) filterComplex.append(speedStatements).append(speedLabel);
+                    else filterComplex.append("[").append(inputLayerIndex).append(":a]")
+                            .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration).append(",");
+                    filterComplex.append(keyedVolume)
                             .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
                             .append(keyedVolume.isEmpty() ? "volume=" + com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip) + "," : "")
                             .append("aformat=sample_fmts=s16").append(",")
@@ -732,9 +739,16 @@ public class FFmpegEdit {
 
                 // A keyframed volume is one volume filter of the clip's own time, right after the trim (before the delay).
                 final String keyedVideoVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.ffmpegStage(clip);
-                filterComplex.append("[").append(effectiveSourceInputIndex).append(":a]")
-                        .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration + extendMediaDuration).append(",")
-                        .append(keyedVideoVolume)
+                // At a speed other than 1 the source the clip consumes is cut and played at that speed first (as the preview does);
+                // the transition's extension stays silent padding (apad below). At speed 1: the plain atrim, exactly as before.
+                final String videoSpeedLabel = "[asp" + audioClipCount + "]";
+                final String videoSpeedStatements = com.vanvatcorporation.doubleclips.data.editing.AudioSpeedGraph.statements(
+                        "[" + effectiveSourceInputIndex + ":a]", videoSpeedLabel, "asp" + audioClipCount, clip.startClipTrim,
+                        clip.timeMapSnapshot(), clip.duration);
+                if (videoSpeedStatements != null) filterComplex.append(videoSpeedStatements).append(videoSpeedLabel);
+                else filterComplex.append("[").append(effectiveSourceInputIndex).append(":a]")
+                        .append("atrim=start=").append(clip.startClipTrim).append(":end=").append(clip.startClipTrim + clip.duration + extendMediaDuration).append(",");
+                filterComplex.append(keyedVideoVolume)
                         .append("adelay=").append(delayMs).append("|").append(delayMs).append(",")
                         // This handle the extension in silent to match the video
                         .append("apad=pad_dur=").append(freezeFrameDuration).append(",")

@@ -92,8 +92,9 @@ public final class VolumeCurve {
     /**
      * The filters that apply the keyframed volume to a clip's audio, or "" when the volume is not animated (the caller then
      * writes the plain {@code volume=} as before). Ends with a comma so it can sit in a chain. It must come right after the
-     * clip's {@code atrim}, before any {@code adelay} / {@code apad}: {@code asetpts=PTS-STARTPTS} makes {@code t} the
-     * time into the clip.
+     * clip's {@code atrim} (or, at a speed other than 1, its {@link AudioSpeedGraph} cut), before any {@code adelay} /
+     * {@code apad}: {@code asetpts=PTS-STARTPTS} makes {@code t} the time into the clip, on the TIMELINE, because the speed is
+     * already applied by then (the keys are timeline seconds, like the preview reads them).
      *
      * <p>A reversed clip is reversed LAST in the chain, so its curve is read backwards here and plays forwards after it.
      */
