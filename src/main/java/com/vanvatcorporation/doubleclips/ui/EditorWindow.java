@@ -785,7 +785,9 @@ public class EditorWindow extends Stage implements PropertyContext {
         int h = (int) (seconds / 3600);
         int m = (int) ((seconds % 3600) / 60);
         int s = (int) (seconds % 60);
-        int f = (int) ((seconds % 1) * 30); // 30fps assumption for display
+        int fps = rulerFps();
+        // floor to the frame the time is in (the epsilon keeps 2.4999999 s at 30 fps in frame 15, not 14)
+        int f = Math.min(fps - 1, (int) Math.floor((seconds - Math.floor(seconds)) * fps + 1e-4));
         return String.format("%02d:%02d:%02d:%02d", h, m, s, f);
     }
 
@@ -1825,7 +1827,9 @@ public class EditorWindow extends Stage implements PropertyContext {
         canvas.getChildren().add(previewGizmo.getNode());
         maskEditState.setOnChange(() -> { if (previewGizmo != null) previewGizmo.refresh(); });
 
-        canvas.layoutBoundsProperty().addListener((obs, oldBounds, newBounds) -> {
+        // Fits the picture into the canvas; runs when the canvas is resized AND when the project's canvas size changes.
+        relayoutPreview = () -> {
+            javafx.geometry.Bounds newBounds = canvas.getLayoutBounds();
             double w = newBounds.getWidth() - 32;
             double h = newBounds.getHeight() - 32;
             if (w <= 0 || h <= 0)
@@ -1840,7 +1844,8 @@ public class EditorWindow extends Stage implements PropertyContext {
             renderGroup.setLayoutX(newBounds.getWidth() / 2.0 - videoSettings.videoWidth / 2.0);
             renderGroup.setLayoutY(newBounds.getHeight() / 2.0 - videoSettings.videoHeight / 2.0);
             Platform.runLater(() -> { if (previewGizmo != null) previewGizmo.refresh(); });
-        });
+        };
+        canvas.layoutBoundsProperty().addListener((obs, oldBounds, newBounds) -> relayoutPreview.run());
 
         // Playback Controls Row
         HBox controls = new HBox(16);
@@ -1868,9 +1873,17 @@ public class EditorWindow extends Stage implements PropertyContext {
         HBox.setHgrow(pbRight, Priority.ALWAYS);
 
         // Quality labels (like CapCut)
-        Label fpsLabel = buildStatBadge("60");
-        Label resLabel = buildStatBadge("1080p");
+        // They show the project's real settings and open them: a change takes effect here at once (see onVideoSettingsChanged).
+        fpsBadge = buildStatBadge(String.valueOf(videoSettings.frameRate));
+        resBadge = buildStatBadge(resolutionBadgeText());
         Label hdrLabel = buildStatBadge("SDR");
+        for (Label badge : new Label[]{fpsBadge, resBadge, hdrLabel}) {
+            badge.setCursor(javafx.scene.Cursor.HAND);
+            badge.setTooltip(new javafx.scene.control.Tooltip("Video settings"));
+            badge.setOnMouseClicked(e -> openVideoSettings());
+        }
+        Label fpsLabel = fpsBadge;
+        Label resLabel = resBadge;
 
         Button fullScreenBtn = new Button();
         fullScreenBtn.setGraphic(new FontIcon(MaterialDesignF.FULLSCREEN));
@@ -1883,6 +1896,47 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         panel.getChildren().addAll(canvas, controls);
         return panel;
+    }
+
+    private Label fpsBadge, resBadge;
+    /** Re-fits the preview picture into its canvas (set when the canvas is built). */
+    private Runnable relayoutPreview;
+
+    /** "1080p": the shorter side of the canvas, so a vertical 1080 x 1920 also reads 1080p. */
+    private String resolutionBadgeText() {
+        return Math.min(videoSettings.videoWidth, videoSettings.videoHeight) + "p";
+    }
+
+    private void openVideoSettings() {
+        if (isPlaying) triggerPlayAction(); // a canvas that changes under a playing preview helps nobody
+        VideoSettingsDialog.Change change = VideoSettingsDialog.show(this, videoSettings);
+        if (change != null) onVideoSettingsChanged(change);
+    }
+
+    /**
+     * The project's video settings were changed (from the badges under the player, or from the export window): what each
+     * change touches is rebuilt now, so there is no need to leave the editor and come back.
+     *  - canvas size: the preview picture is resized and a new preview worker started at that size, the picture is re-fitted
+     *    into the canvas and the on-canvas gizmo follows;
+     *  - frame rate: the keyframes snap to the new frame grid (as when a project is opened), the clips follow in
+     *    refreshTimelineUI, and the ruler and the timecodes count in the new frames.
+     */
+    public void onVideoSettingsChanged(VideoSettingsDialog.Change change) {
+        ProjectRepository.getInstance().saveVideoSettings(project, videoSettings);
+        fpsBadge.setText(String.valueOf(videoSettings.frameRate));
+        resBadge.setText(resolutionBadgeText());
+        if (change.frameRate) {
+            for (Clip clip : timeline.getAllClips()) clip.keyframes.reassignKeyframes(videoSettings.frameRate);
+        }
+        if (change.size || change.frameRate) {
+            timelineRenderer.applyVideoSettings();
+        }
+        if (change.size && relayoutPreview != null) relayoutPreview.run();
+        refreshTimelineUI(); // the ruler, the clips on the new frame grid, the duration
+        currentTimeLabel.setText(formatTimecode(currentTime));
+        durationLabel.setText(formatTimecode(timeline.duration));
+        if (previewGizmo != null) previewGizmo.refresh();
+        saveProject();
     }
 
     private Label buildStatBadge(String text) {
@@ -2491,12 +2545,19 @@ public class EditorWindow extends Stage implements PropertyContext {
         }
     }
 
+    /** The project's frame rate, as the ruler and the timecodes count in it. */
+    private int rulerFps() {
+        return Math.max(1, videoSettings.frameRate);
+    }
+
     private float getRulerInterval(float pixelsPerSecond) {
-        // Preferred intervals in seconds
-        float[] intervals = {
-                1 / 30f, 2 / 30f, 5 / 30f, 10 / 30f, 15 / 30f, // Frames: 1, 2, 5, 10, 15
-                1f, 2f, 4f, 8f, 16f, 32f, 64f, 128f, 256f, 512f, 1024f // Seconds: Doubling
-        };
+        int fps = rulerFps();
+        // Preferred intervals in seconds: 1, 2, 5, 10, 15 frames (the ones shorter than a second), then whole seconds, doubling
+        java.util.List<Float> intervals = new java.util.ArrayList<>();
+        for (int frames : new int[]{1, 2, 5, 10, 15}) {
+            if (frames < fps) intervals.add(frames / (float) fps);
+        }
+        for (float seconds = 1f; seconds <= 1024f; seconds *= 2f) intervals.add(seconds);
 
         // Aim for at least 80 pixels between major ticks for readability
         float minSpacing = 80f;
@@ -2505,26 +2566,42 @@ public class EditorWindow extends Stage implements PropertyContext {
                 return interval;
             }
         }
-        return intervals[intervals.length - 1];
+        return intervals.get(intervals.size() - 1);
     }
 
-    private String formatRulerLabel(float t, float interval) {
-        int totalFrames = Math.round(t * 30f);
-        int sec = totalFrames / 30;
-        int f = totalFrames % 30;
-
-        if (interval >= 1.0f) {
-            if (sec == 0 && f == 0)
-                return "0s";
-            int m = sec / 60;
-            int s = sec % 60;
-            if (m > 0)
-                return m + "m" + s + "s";
+    /**
+     * The label of a tick at a frame of the timeline: the whole seconds as "0s", "1s", "1m5s", every other frame as its
+     * number inside its second ("1f" ... "29f" at 30 fps), so the frames count 0, 1, 2, 3 ... up to the next second.
+     */
+    private String rulerLabel(long frame, int fps) {
+        long sec = frame / fps;
+        int f = (int) (frame % fps);
+        if (f == 0) {
+            long m = sec / 60;
+            long s = sec % 60;
+            if (m > 0) return s == 0 ? m + "m" : m + "m" + s + "s";
             return s + "s";
-        } else {
-            if (f == 0)
-                return sec + "s";
-            return f + "f";
+        }
+        return f + "f";
+    }
+
+    /**
+     * One tick of the ruler. The start of a second is drawn to stand out (taller, thicker, bold label, always labelled);
+     * frames in between are plain, and minor ones fainter.
+     */
+    private void addRulerMark(Pane ruler, double x, long frame, int fps, boolean major, boolean labelled) {
+        boolean second = frame % fps == 0;
+        Line tick = new Line(x, second ? 2 : (major ? 10 : 18), x, 30);
+        tick.getStyleClass().add(major || second ? "ruler-tick-major" : "ruler-tick-minor");
+        if (second) tick.setStyle("-fx-stroke-width: 2;");
+        else if (!major) tick.setStyle("-fx-opacity: 0.5;");
+        ruler.getChildren().add(tick);
+
+        if (labelled || second) {
+            javafx.scene.text.Text label = new javafx.scene.text.Text(x + 3, 9, rulerLabel(frame, fps));
+            label.getStyleClass().add("ruler-text");
+            label.setStyle(second ? "-fx-font-weight: bold; -fx-fill: -color-fg-default;" : "-fx-opacity: 0.7;");
+            ruler.getChildren().add(label);
         }
     }
 
@@ -2543,55 +2620,34 @@ public class EditorWindow extends Stage implements PropertyContext {
         ruler.setPrefHeight(30);
         ruler.getChildren().clear(); // Clearing ruler ticks is okay, they are light
 
+        int fps = rulerFps();
         float rulerInterval = getRulerInterval(pixelsPerSecond);
-//        float visibleDuration = (float) (width / pixelsPerSecond);
         float visibleDuration = timeline.duration;
         long steps = (long) Math.ceil(visibleDuration / rulerInterval);
 
-        int framesInInterval = Math.round(rulerInterval * 30f);
-        float pixelsPerFrame = pixelsPerSecond / 30f;
+        int framesInInterval = Math.max(1, Math.round(rulerInterval * fps));
+        float pixelsPerFrame = pixelsPerSecond / fps;
 
         for (long step = 0; step <= steps; step++) {
-            float t = step * rulerInterval;
-            double x = t * pixelsPerSecond;
+            // counted in whole frames, so every tick and label is exact (no 1/30 s rounding)
+            long frame = step * framesInInterval;
+            double x = frame * (double) pixelsPerSecond / fps;
 
-            // Major tick
-            Line tick = new Line(x, 10, x, 30);
-            tick.getStyleClass().add("ruler-tick-major");
-            ruler.getChildren().add(tick);
-
-            // Label
-            String lbl = formatRulerLabel(t, rulerInterval);
-            javafx.scene.text.Text label = new javafx.scene.text.Text(x + 2, 9, lbl);
-            label.getStyleClass().add("ruler-text");
-            ruler.getChildren().add(label);
+            addRulerMark(ruler, x, frame, fps, true, true);
 
             // Minor ticks (frames) between this major tick and the next
             if (step < steps) {
                 for (int f = 1; f < framesInInterval; f++) {
-                    float subT = t + (f / 30f);
-                    double subX = subT * pixelsPerSecond;
+                    long subFrame = frame + f;
+                    double subX = subFrame * (double) pixelsPerSecond / fps;
 
                     // Only draw if there's enough space (at least 4px between minor ticks)
                     if (pixelsPerFrame >= 4f) {
-                        Line subTick = new Line(subX, 18, subX, 30);
-                        subTick.getStyleClass().add("ruler-tick-minor");
-                        subTick.setStyle("-fx-opacity: 0.5;");
-                        ruler.getChildren().add(subTick);
-
-                        // Optional: Frame labels if very zoomed in
-                        if (pixelsPerFrame >= 40f && framesInInterval > 1) {
-                            javafx.scene.text.Text subLabel = new javafx.scene.text.Text(subX + 1.5, 9, f + "f");
-                            subLabel.getStyleClass().add("ruler-text");
-                            subLabel.setStyle("-fx-opacity: 0.6;");
-                            ruler.getChildren().add(subLabel);
-                        }
+                        // very zoomed in: every frame carries its own number inside its second
+                        addRulerMark(ruler, subX, subFrame, fps, false, pixelsPerFrame >= 40f && framesInInterval > 1);
                     } else if (framesInInterval >= 10 && f % (framesInInterval / 2) == 0) {
                         // Midpoint tick if too dense for every frame but wide enough for one
-                        Line subTick = new Line(subX, 22, subX, 30);
-                        subTick.getStyleClass().add("ruler-tick-minor");
-                        subTick.setStyle("-fx-opacity: 0.4;");
-                        ruler.getChildren().add(subTick);
+                        addRulerMark(ruler, subX, subFrame, fps, false, false);
                     }
                 }
             }

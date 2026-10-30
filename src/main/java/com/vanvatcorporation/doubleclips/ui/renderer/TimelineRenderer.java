@@ -77,6 +77,7 @@ public class TimelineRenderer {
      */
     public void enableGpuPreview(boolean useProxy) {
         if (client != null) return;
+        gpuUseProxy = useProxy;
         client = new PreviewClient(new PreviewClient.Listener() {
             @Override public void onReady() { showGpuView(); }
             @Override public void onFrame() {
@@ -91,6 +92,35 @@ public class TimelineRenderer {
                 com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().isPreviewHardwareDecode(), useProxy,
                 settings.videoWidth, settings.videoHeight);
         if (timeline != null) buildTimeline(timeline);
+    }
+
+    private boolean gpuUseProxy;
+
+    /**
+     * The project's canvas size or frame rate changed (the editor's video settings): resizes the picture area (black box,
+     * clip, GPU picture) and, since the preview worker's canvas and timing are fixed when it starts, starts a new one at the
+     * new size. The timeline is rebuilt either way.
+     */
+    public void applyVideoSettings() {
+        renderPane.setPrefSize(settings.videoWidth, settings.videoHeight);
+        if (!renderPane.getChildren().isEmpty() && renderPane.getChildren().get(0) instanceof Rectangle black) {
+            black.setWidth(settings.videoWidth);
+            black.setHeight(settings.videoHeight);
+        }
+        if (renderPane.getClip() instanceof Rectangle clipRect) {
+            clipRect.setWidth(settings.videoWidth);
+            clipRect.setHeight(settings.videoHeight);
+        }
+        if (client != null) {
+            PreviewClient old = client;
+            client = null;
+            old.close();
+            removeGpuView();
+            enableGpuPreview(gpuUseProxy); // a new worker at the new size; it rebuilds the timeline and shows the frame when ready
+        } else if (timeline != null) {
+            buildTimeline(timeline);
+            updateTime(lastTime, true);
+        }
     }
 
     /** Switches back to the per-clip JavaFX preview (user turned the GPU preview off). */
@@ -108,6 +138,7 @@ public class TimelineRenderer {
 
     /** Proxy clips on/off for the GPU preview (the legacy preview is unaffected). */
     public void setUseProxy(boolean useProxy) {
+        gpuUseProxy = useProxy;
         if (client == null || !client.isUsable()) return;
         client.setUseProxy(useProxy);
         client.requestFrame(timeline, lastTime, false);

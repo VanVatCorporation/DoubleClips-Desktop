@@ -302,10 +302,9 @@ public class ExportWindow extends Stage {
      * export activity uses (its OpenGLEditNative is video-only too; FFmpeg
      * handles audio there as well).
      * <p>
-     * Template export isn't supported through this path yet - a template's
-     * output is a differently-shaped set of per-clip marker files, not a
-     * single mp4, which this pipeline doesn't produce. Falls back to FFmpeg
-     * for that case specifically rather than mishandling it silently.
+     * "Export as Template" runs through here too: the video it renders is the
+     * template's preview (the template itself is the timeline file plus a
+     * placeholder FFmpeg command, see {@link #finishTemplateExport()}).
      */
     private void exportClipViaOpenGl(boolean exportAsTemplate) {
 
@@ -466,53 +465,72 @@ public class ExportWindow extends Stage {
         worker.start();
     }
 
+    /**
+     * The second half of "Export as Template", for BOTH engines (the FFmpeg and the OpenGL export call it once the preview
+     * video has been rendered to the project's export file): the preview becomes preview.mp4, the template's own FFmpeg
+     * command (placeholder marks instead of real files; the phones render a template with it, the desktop renders it from
+     * the timeline file) is generated, and the uploader opens with the replaceable clips, the previews and the timeline.
+     * Runs on the FX thread. Stops with a message, instead of uploading something half made, when the preview can't be put
+     * in place or the command can't be generated.
+     */
+    private void finishTemplateExport() {
+        File exported = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
+        File preview = new File(project.getProjectPath(), Constants.DEFAULT_PREVIEW_CLIP_FILENAME);
+        try {
+            // File.renameTo gives up silently when preview.mp4 is already there (Windows), leaving the last upload's preview.
+            Files.move(exported.toPath(), preview.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            appendLog("Couldn't prepare the preview video: " + e.getMessage());
+            failTemplateExport();
+            return;
+        }
+
+        String ffmpegCommand;
+        try {
+            FFmpegEdit.RenderSettings renderSettings = new FFmpegEdit.RenderSettings(settings, timeline, new Clip[0], project, 0, false, true, false);
+            ffmpegCommand = FFmpegEdit.generateCmdFull(renderSettings);
+        } catch (Exception e) {
+            appendLog("Couldn't generate the template command: " + e.getMessage());
+            failTemplateExport();
+            return;
+        }
+
+        ArrayList<String> strVideoFiles = new ArrayList<>();
+        for (Clip clip : timeline.getLockedForTemplateClip()) strVideoFiles.add(new File(clip.getAbsolutePath(project)).getAbsolutePath());
+
+        ArrayList<String> strPreviewFiles = new ArrayList<>();
+        strPreviewFiles.add(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.png")).getAbsolutePath());
+        strPreviewFiles.add(preview.getAbsolutePath());
+
+        String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
+
+        finishExportRendering();
+        taskStatusLabel.setText("Export Completed! ✓");
+        taskProgressBar.setProgress(1.0);
+        appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
+        appendLog("\nPassing to the uploader...");
+
+        com.vanvatcorporation.doubleclips.ui.PostTemplateWindow.show(
+                (Stage) ExportWindow.this.getOwner(),
+                ffmpegCommand,
+                timeline.getAllReplacementClipCount(),
+                strVideoFiles,
+                strPreviewFiles,
+                timelineFilePath,
+                project.getProjectTitle()
+        );
+    }
+
+    private void failTemplateExport() {
+        finishExportRendering();
+        taskStatusLabel.setText("Export Failed ✗");
+        appendLog("\n>>> TEMPLATE EXPORT FAILED <<<");
+    }
+
     private void finishOpenGlExportSuccess(String finalPath, boolean asTemplate) {
 
-        if(asTemplate)
-        {
-            File intermediateFile = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
-
-            List<File> videoFiles = new ArrayList<>();
-            for(Clip clip : timeline.getLockedForTemplateClip()) {
-                videoFiles.add(new File(clip.getAbsolutePath(project)));
-            }
-
-            String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
-
-            List<File> previewFiles = Arrays.asList(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.png")),
-                    new File(IOHelper.CombinePath(project.getProjectPath(), "preview.mp4")));
-
-            int totalClips =  timeline.getAllReplacementClipCount();
-
-            new File(IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME))
-                    .renameTo(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.mp4")));
-
-            FFmpegEdit.RenderSettings renderSettings = new FFmpegEdit.RenderSettings(settings, timeline, new Clip[0], project, 0, false, true, false);
-            String ffmpegCommand = FFmpegEdit.generateCmdFull(renderSettings);
-
-            ArrayList<String> strVideoFiles = new ArrayList<>();
-            for (File file : videoFiles) strVideoFiles.add(file.getAbsolutePath());
-
-            ArrayList<String> strPreviewFiles = new ArrayList<>();
-            for (File file : previewFiles) strPreviewFiles.add(file.getAbsolutePath());
-
-            com.vanvatcorporation.doubleclips.ui.PostTemplateWindow.show(
-                    (Stage) ExportWindow.this.getOwner(),
-                    ffmpegCommand,
-                    totalClips,
-                    strVideoFiles,
-                    strPreviewFiles,
-                    timelineFilePath,
-                    project.getProjectTitle()
-            );
-
-
-
-            finishExportRendering();
-            taskStatusLabel.setText("Export Completed! ✓");
-            taskProgressBar.setProgress(1.0);
-            appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
-            appendLog("\nPassing to the uploader...");
+        if (asTemplate) {
+            finishTemplateExport();
         }
         else {
             finishExportRendering();
@@ -667,70 +685,12 @@ public class ExportWindow extends Stage {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void openVideoSettings() {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("Video Settings");
-        dialog.initOwner(this);
-        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-
-        GridPane grid = new GridPane();
-        grid.setHgap(12);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(16));
-
-        String[] labels = { "Width", "Height", "Frame Rate", "CRF", "Bitrate (Mbps)", "Clip Cap" };
-        TextField[] fields = {
-                makeField(String.valueOf(settings.videoWidth)),
-                makeField(String.valueOf(settings.videoHeight)),
-                makeField(String.valueOf(settings.frameRate)),
-                makeField(String.valueOf(settings.crf)),
-                makeField(String.valueOf(settings.bitrate)),
-                makeField(String.valueOf(settings.clipCap))
-        };
-        for (int i = 0; i < labels.length; i++) {
-            grid.add(new Label(labels[i]), 0, i);
-            grid.add(fields[i], 1, i);
-        }
-
-        // Preset
-        ComboBox<String> presetBox = new ComboBox<>();
-        presetBox.getItems().addAll("ultrafast","superfast","veryfast","faster","fast",
-                "medium","slow","slower","veryslow","placebo");
-        presetBox.setValue(settings.preset != null ? settings.preset : "medium");
-        grid.add(new Label("Preset"), 0, labels.length);
-        grid.add(presetBox, 1, labels.length);
-
-        // Tune
-        ComboBox<String> tuneBox = new ComboBox<>();
-        tuneBox.getItems().addAll("film","animation","grain","stillimage","fastdecode","zerolatency");
-        tuneBox.setValue(settings.tune != null ? settings.tune : "film");
-        grid.add(new Label("Tune"), 0, labels.length + 1);
-        grid.add(tuneBox, 1, labels.length + 1);
-
-        // Checkboxes
-        CheckBox stretchCB = new CheckBox("Stretch to Full");
-        stretchCB.setSelected(settings.isStretchToFull);
-        CheckBox hwAccelCB = new CheckBox("Hardware Acceleration");
-        hwAccelCB.setSelected(settings.useHardwareAccel);
-        grid.add(stretchCB, 0, labels.length + 2, 2, 1);
-        grid.add(hwAccelCB, 0, labels.length + 3, 2, 1);
-
-        dialog.getDialogPane().setContent(grid);
-
-        dialog.showAndWait().ifPresent(result -> {
-            if (result == ButtonType.OK) {
-                try { settings.videoWidth  = Integer.parseInt(fields[0].getText()); } catch (Exception ignored) {}
-                try { settings.videoHeight = Integer.parseInt(fields[1].getText()); } catch (Exception ignored) {}
-                try { settings.frameRate   = Integer.parseInt(fields[2].getText()); } catch (Exception ignored) {}
-                try { settings.crf         = Integer.parseInt(fields[3].getText()); } catch (Exception ignored) {}
-                try { settings.bitrate     = Integer.parseInt(fields[4].getText()); } catch (Exception ignored) {}
-                try { settings.clipCap     = Integer.parseInt(fields[5].getText()); } catch (Exception ignored) {}
-                settings.preset           = presetBox.getValue();
-                settings.tune             = tuneBox.getValue();
-                settings.isStretchToFull  = stretchCB.isSelected();
-                settings.useHardwareAccel = hwAccelCB.isSelected();
-                appendLog("Video settings updated.");
-            }
-        });
+        VideoSettingsDialog.Change change = VideoSettingsDialog.show(this, settings);
+        if (change == null) return;
+        appendLog("Video settings updated.");
+        ProjectRepository.getInstance().saveVideoSettings(project, settings);
+        // The editor under this window holds the same settings: it rebuilds its canvas / ruler now, not at the next visit.
+        if (getOwner() instanceof EditorWindow editor) editor.onVideoSettingsChanged(change);
     }
 
     private TextField makeField(String value) {
@@ -804,51 +764,8 @@ public class ExportWindow extends Stage {
                             // onSuccess
                             () -> Platform.runLater(() -> {
 
-                                if(asTemplate)
-                                {
-                                    File intermediateFile = new File(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME);
-
-                                    List<File> videoFiles = new ArrayList<>();
-                                    for(Clip clip : timeline.getLockedForTemplateClip()) {
-                                        videoFiles.add(new File(clip.getAbsolutePath(project)));
-                                    }
-
-                                    String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
-
-                                    List<File> previewFiles = Arrays.asList(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.png")),
-                                            new File(IOHelper.CombinePath(project.getProjectPath(), "preview.mp4")));
-
-                                    int totalClips =  timeline.getAllReplacementClipCount();
-
-                                    new File(IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_EXPORT_CLIP_FILENAME))
-                                            .renameTo(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.mp4")));
-
-                                    FFmpegEdit.RenderSettings renderSettings = new FFmpegEdit.RenderSettings(settings, timeline, new Clip[0], project, 0, false, true, false);
-                                    String ffmpegCommand = FFmpegEdit.generateCmdFull(renderSettings);
-
-                                    ArrayList<String> strVideoFiles = new ArrayList<>();
-                                    for (File file : videoFiles) strVideoFiles.add(file.getAbsolutePath());
-
-                                    ArrayList<String> strPreviewFiles = new ArrayList<>();
-                                    for (File file : previewFiles) strPreviewFiles.add(file.getAbsolutePath());
-
-                                    com.vanvatcorporation.doubleclips.ui.PostTemplateWindow.show(
-                                            (Stage) ExportWindow.this.getOwner(),
-                                            ffmpegCommand,
-                                            totalClips,
-                                            strVideoFiles,
-                                            strPreviewFiles,
-                                            timelineFilePath,
-                                            project.getProjectTitle()
-                                    );
-
-
-
-                                    finishExportRendering();
-                                    taskStatusLabel.setText("Export Completed! ✓");
-                                    taskProgressBar.setProgress(1.0);
-                                    appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
-                                    appendLog("\nPassing to the uploader...");
+                                if (asTemplate) {
+                                    finishTemplateExport();
                                 }
                                 else {
 
