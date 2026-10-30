@@ -450,12 +450,18 @@ public class ExportWindow extends Stage {
                 // be hidden behind that preference right when it's needed most.
                 java.io.StringWriter stackTrace = new java.io.StringWriter();
                 e.printStackTrace(new java.io.PrintWriter(stackTrace));
+                // The settings have no upper limit, so a canvas / frame rate the machine can't handle ends up here: say so in
+                // plain words (the stack trace stays for the rest).
+                final OpenGlExportDiagnosis.Advice advice = OpenGlExportDiagnosis.diagnose(width, height, frameRate,
+                        e.getClass().getName() + " " + e.getMessage() + "\n" + stackTrace);
                 String detail = "\n>>> OPENGL EXPORT ERROR <<<\n" + e.getMessage()
+                        + (advice == null ? "" : "\n\n>>> LIKELY CAUSE: " + advice.summary + "\n>>> WHAT TO DO: " + advice.fix)
                         + "\n----- exception stack trace -----\n" + stackTrace
                         + "----------------------------------";
                 Platform.runLater(() -> {
                     appendLog(detail);
                     failOpenGlExport();
+                    if (advice != null) showOpenGlFailureAdvice(advice);
                 });
             } finally {
                 activeOpenGlExport = null;
@@ -565,6 +571,23 @@ public class ExportWindow extends Stage {
         }
 
 
+    }
+
+    /**
+     * The popup for a failure the user can fix in the video settings (the full reason is already in the log): what probably
+     * happened, what to change, and a button straight into Video Settings.
+     */
+    private void showOpenGlFailureAdvice(OpenGlExportDiagnosis.Advice advice) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.initOwner(this);
+        alert.setTitle("OpenGL export failed");
+        alert.setHeaderText("The video could not be exported");
+        alert.setContentText(advice.summary + "\n\n" + advice.fix + "\n\nThe full details are in the log.");
+        javafx.scene.control.ButtonType settingsButton = new javafx.scene.control.ButtonType("Video Settings…",
+                javafx.scene.control.ButtonBar.ButtonData.LEFT);
+        alert.getButtonTypes().setAll(settingsButton, javafx.scene.control.ButtonType.CLOSE);
+        java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
+        if (answer.isPresent() && answer.get() == settingsButton) openVideoSettings();
     }
 
     private void failOpenGlExport() {
