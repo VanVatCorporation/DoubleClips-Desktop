@@ -86,6 +86,15 @@ public final class OpenGLTimelineExporter {
         }
 
         /**
+         * Draws a clip's frame {@code next} smeared along the motion since the frame {@code prev} before it (motion blur, for a
+         * clip without optical flow; one with optical flow gets it inside {@link #drawInterpolated}). {@code pairId} and the
+         * buffers are as there. Without motion blur support it just draws {@code next}.
+         */
+        default void drawMotionBlurred(Layer layer, long pairId, ByteBuffer prev, ByteBuffer next, OpenGLEdit.DrawCommand command) {
+            draw(layer, next, command);
+        }
+
+        /**
          * Redirects {@link #draw} into scratch canvas {@code slot} (0 or 1), cleared to
          * transparent. Each scratch canvas is the size of the output canvas. Used for
          * the two sides of a transition and for the clip a blur is applied to.
@@ -558,8 +567,8 @@ public final class OpenGLTimelineExporter {
                 try {
                     OpenGLFrameIO.ClipFrameSource source = new OpenGLFrameIO.ClipFrameSource(
                             ffmpegPath, path, clip.width, clip.height, cmd.localSourceTimeSeconds, frameRate);
-                    if (clip.hasOpticalFlow() && compositor.supportsOpticalFlow()) {
-                        source.keepPrevious(); // optical flow draws between this frame and the one before
+                    if ((clip.hasOpticalFlow() || clip.hasMotionBlur()) && compositor.supportsOpticalFlow()) {
+                        source.keepPrevious(); // optical flow draws between this frame and the one before, motion blur smears along the motion since it
                     }
                     video = new VideoLayer(source, compositor.createLayer(source.getWidth(), source.getHeight()));
                     videoLayers.put(clip, video);
@@ -598,6 +607,16 @@ public final class OpenGLTimelineExporter {
                 }
             }
 
+            // Motion blur without optical flow: the frame smeared along the motion since the frame before it (the first frame of a
+            // clip has none, so it stays sharp).
+            if (!flow && cmd.motionBlurOn && video.source.hasKeptPrevious() && video.source.hasPrevious()
+                    && compositor.supportsOpticalFlow()) {
+                compositor.drawMotionBlurred(video.layer, video.source.currentFrameIndex(), video.source.previousFrame(),
+                        video.source.frame(), cmd);
+                video.uploadedOnce = false;
+                return true;
+            }
+
             ByteBuffer upload = (video.source.frameChanged() || !video.uploadedOnce) ? video.source.frame() : null;
             video.uploadedOnce = true;
             compositor.draw(video.layer, upload, cmd);
@@ -623,11 +642,6 @@ public final class OpenGLTimelineExporter {
                 if (clip == null) continue;
                 warnIfUnusable(clip.inAnimation, ClipAnimation.Direction.IN, warned, listener);
                 warnIfUnusable(clip.outAnimation, ClipAnimation.Direction.OUT, warned, listener);
-                // Motion blur is in the data model and the panel, but the GL engine doesn't draw it yet (the next delivery): said once,
-                // so a clip that has it doesn't export as if it did.
-                if (clip.hasMotionBlur() && clip.type == ClipType.VIDEO && warned.add("feature:motionBlur")) {
-                    log(listener, "Motion blur is not drawn by the OpenGL export yet - clips with it export sharp");
-                }
             }
         }
     }

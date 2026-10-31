@@ -267,6 +267,14 @@ final class PreviewFramePool {
                 return true;
             }
         }
+        // Motion blur without optical flow: the frame smeared along the motion since the frame before it.
+        if (!flow && cmd.motionBlurOn && stream.source.hasPrevious() && compositor.supportsOpticalFlow()) {
+            compositor.drawMotionBlurred(stream.layer, index + stream.epoch * EPOCH_STEP, stream.source.previousFrame(),
+                    stream.source.frame(), cmd);
+            stream.lastWasFlow = true;
+            stream.uploadedIndex = Long.MIN_VALUE;
+            return true;
+        }
         if (stream.lastWasFlow) {
             stream.lastWasFlow = false;
             stream.epoch++;

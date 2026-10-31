@@ -492,7 +492,7 @@ public class FFmpegEdit {
 //                        String scaleZoompan = templateSettings.settings.isStretchToFull() ? ":s=" + scaleXCmd + "x" + scaleYCmd : "";
 
                         filterComplex
-                                .append(speedAndShift(clip, speedExpr)).append(",")
+                                .append(speedAndShift(clip, speedExpr, (int) templateSettings.settings.getFrameRate())).append(",")
                                 .append("scale=w='").append(scaleXStretchExpr).append("':h='").append(scaleYStretchExpr).append("':eval=")
                                 .append((scaleXStretchExpr.contains("t") || scaleYStretchExpr.contains("t")) ? "frame" : "init").append(",")
 //                                .append("pad=width=").append("'iw'").append(":height=").append("'ih'").append(":x=-1:y=-1:color=black:eval=frame,")
@@ -534,7 +534,8 @@ public class FFmpegEdit {
                                 .append(":b=").append(clip.videoProperties.getValue(VideoProperties.ValueType.Brightness)).append(",")
                                 .append("colortemperature=temperature=").append(clip.videoProperties.getValue(VideoProperties.ValueType.Temperature)).append(",")
                                 .append("format=yuva420p,colorchannelmixer=aa=").append(clip.videoProperties.getValue(VideoProperties.ValueType.Opacity)).append(",")
-                                .append(speedAndShift(clip, String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.Speed)))).append(",");
+                                .append(speedAndShift(clip, String.valueOf(clip.videoProperties.getValue(VideoProperties.ValueType.Speed)),
+                                        (int) templateSettings.settings.getFrameRate())).append(",");
                     }
 
 
@@ -923,16 +924,65 @@ public class FFmpegEdit {
      * The speed + "start on the timeline" step of a video clip's filter chain. Normally one setpts; with the clip's optical flow
      * on, the in-between frames are made at the clip's speed and between the two steps ({@code minterpolate=fps=N}, ffmpeg's
      * default motion-compensated interpolation), so the new frames land on the stretched clip and the shift to its timeline
-     * position keeps working on the result.
+     * position keeps working on the result. Motion blur ({@link #motionBlurFilters}) goes between the same two steps.
      */
-    private static String speedAndShift(Clip clip, String speedExpr) {
+    private static String speedAndShift(Clip clip, String speedExpr, int projectFps) {
         String shift = clip.startTime + "/TB";
-        if (clip.type != ClipType.VIDEO || !clip.hasOpticalFlow()) {
+        boolean flow = clip.type == ClipType.VIDEO && clip.hasOpticalFlow();
+        String blur = clip.type == ClipType.VIDEO ? motionBlurFilters(clip, projectFps) : "";
+        if (!flow && blur.isEmpty()) {
             return "setpts='(PTS-STARTPTS)/" + speedExpr + "+" + shift + "'";
         }
-        return "setpts='(PTS-STARTPTS)/" + speedExpr + "',minterpolate=fps="
-                + com.vanvatcorporation.doubleclips.data.editing.ClipOpticalFlow.format(clip.opticalFlow.effectiveFps())
-                + ",setpts='PTS+" + shift + "'";
+        StringBuilder sb = new StringBuilder("setpts='(PTS-STARTPTS)/" + speedExpr + "'");
+        if (flow) {
+            sb.append(",minterpolate=fps=")
+                    .append(com.vanvatcorporation.doubleclips.data.editing.ClipOpticalFlow.format(clip.opticalFlow.effectiveFps()));
+        }
+        sb.append(blur).append(",setpts='PTS+").append(shift).append("'");
+        return sb.toString();
+    }
+
+    /** How many sub-frames per project frame the FFmpeg motion blur works with (more = smoother streaks, much slower). */
+    private static final int BLUR_SUBFRAMES = 4;
+    /** FFmpeg repeats the blend at most this many times for the clip's Speed setting. */
+    private static final int BLUR_MAX_REPEATS = 4;
+
+    /**
+     * An APPROXIMATION of the clip's motion blur for the FFmpeg engine, which has no counterpart of the OpenGL engine's
+     * flow-guided streak: the clip is interpolated to {@value #BLUR_SUBFRAMES} times the project frame rate
+     * ({@code minterpolate}, motion compensated), the sub-frames inside the exposure are averaged ({@code tmix}) and the result
+     * goes back to the project rate. Returns "" (nothing) or a string that starts with a comma.
+     *
+     * <p>What carries over: Blur (how many of the sub-frames are averaged, read ONCE at the clip's start: no keyframes), Blend
+     * (how much weight the newest sub-frame keeps, so the picture stays sharper) and Speed (the blend repeated, up to
+     * {@value #BLUR_MAX_REPEATS} times). The streak always trails behind the motion: the Direction setting is not used.
+     */
+    private static String motionBlurFilters(Clip clip, int projectFps) {
+        if (!clip.hasMotionBlur() || projectFps < 1) return "";
+        float blur = clip.keyframes != null
+                ? clip.keyframes.getValueAtTime(clip, clip.startTime, VideoProperties.ValueType.MotionBlur)
+                : clip.videoProperties.getValue(VideoProperties.ValueType.MotionBlur);
+        float blend = clip.keyframes != null
+                ? clip.keyframes.getValueAtTime(clip, clip.startTime, VideoProperties.ValueType.MotionBlend)
+                : clip.videoProperties.getValue(VideoProperties.ValueType.MotionBlend);
+        float length = Math.max(0f, Math.min(1f, blur / 100f));
+        float keep = Math.max(0f, Math.min(1f, blend / 100f));
+        int frames = Math.round(length * BLUR_SUBFRAMES);
+        if (length <= 0f || frames < 2) return ""; // Blur 0, or so little of the frame that there is nothing to average
+        StringBuilder weights = new StringBuilder();
+        for (int i = 0; i < frames; i++) {
+            double w = (1.0 - keep) / frames + (i == frames - 1 ? keep : 0.0); // the newest sub-frame keeps the Blend
+            if (i > 0) weights.append(' ');
+            weights.append(String.format(java.util.Locale.ROOT, "%.4f", w));
+        }
+        int repeats = Math.min(BLUR_MAX_REPEATS, clip.motionBlur.effectivePasses());
+        StringBuilder sb = new StringBuilder();
+        sb.append(",minterpolate=fps=").append(projectFps * BLUR_SUBFRAMES).append(":mi_mode=mci");
+        for (int r = 0; r < repeats; r++) {
+            sb.append(",tmix=frames=").append(frames).append(":weights='").append(weights).append("'");
+        }
+        sb.append(",fps=").append(projectFps);
+        return sb.toString();
     }
 
     /**
@@ -978,8 +1028,9 @@ public class FFmpegEdit {
                     found.add("Speed curves are approximated (only the OpenGL export follows a changing speed exactly)");
                 }
                 if (clip.hasMotionBlur() && clip.type == ClipType.VIDEO) {
-                    // The streak follows the optical flow field, which only the OpenGL engine computes (a later delivery draws it there).
-                    found.add("Motion blur is skipped (it needs the OpenGL engine's optical flow; FFmpeg draws the clip sharp)");
+                    // The OpenGL engine streaks along the optical flow; FFmpeg can only blend interpolated sub-frames.
+                    found.add("Motion blur is approximated (minterpolate + frame blending, trailing only, Blur/Blend read at the clip's "
+                            + "start, up to " + BLUR_MAX_REPEATS + " repeats; the OpenGL engine draws the real one, and this is slow)");
                 }
                 if (clip.hasMasks()) {
                     // Masks are drawn by the OpenGL shader (GlCompositor); the FFmpeg filter graph has no counterpart yet.

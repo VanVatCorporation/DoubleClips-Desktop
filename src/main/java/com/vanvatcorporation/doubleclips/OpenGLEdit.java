@@ -344,6 +344,14 @@ public class OpenGLEdit {
         public com.vanvatcorporation.doubleclips.data.editing.ChromaKey.Packed chromaKeys;
         /** The clip's blend mode as the shader's id ({@link com.vanvatcorporation.doubleclips.data.editing.ClipBlendMode#glId}); 0 = normal "over". */
         public int blendMode;
+        /**
+         * Motion blur at this frame (see ClipMotionBlur), set by buildDrawCommand for a VIDEO clip that has it on; the sliders are
+         * already read at the playhead (keyframes): {@code motionBlur} and {@code motionBlend} are 0 ... 1, {@code motionDirection}
+         * is 0 both / 1 forward / 2 backward, {@code motionPasses} how many times the blur is applied.
+         */
+        public boolean motionBlurOn;
+        public float motionBlur, motionBlend;
+        public int motionDirection, motionPasses = 1;
 
         public DrawCommand(Clip clip, float localSourceTimeSeconds, float[] mvpMatrix, float opacity,
                             float hueDegrees, float saturation, float brightness, float temperatureKelvin, float blurSigmaPixels,
@@ -1043,6 +1051,14 @@ public class OpenGLEdit {
         }
         if (clip.hasChromaKeys() && (clip.type == ClipType.VIDEO || clip.type == ClipType.IMAGE)) {
             command.chromaKeys = com.vanvatcorporation.doubleclips.data.editing.ChromaKey.pack(clip, outputTimeSeconds);
+        }
+        if (clip.type == ClipType.VIDEO && clip.hasMotionBlur()) {
+            float length = Math.max(0f, Math.min(1f, readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.MotionBlur) / 100f));
+            command.motionBlur = length;
+            command.motionBlend = Math.max(0f, Math.min(1f, readAtTime(clip, outputTimeSeconds, VideoProperties.ValueType.MotionBlend) / 100f));
+            command.motionDirection = clip.motionBlur.direction().ordinal();
+            command.motionPasses = clip.motionBlur.effectivePasses();
+            command.motionBlurOn = length > 0f; // Blur 0: nothing to smear
         }
         return command;
     }

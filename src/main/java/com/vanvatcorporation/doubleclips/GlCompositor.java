@@ -759,11 +759,28 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     @Override
     public void drawInterpolated(OpenGLTimelineExporter.Layer layer, long pairId, ByteBuffer prev, ByteBuffer next, double alpha,
                                  OpenGLEdit.DrawCommand cmd) {
+        drawFlowPicture(layer, pairId, prev, next, alpha, true, cmd);
+    }
+
+    @Override
+    public void drawMotionBlurred(OpenGLTimelineExporter.Layer layer, long pairId, ByteBuffer prev, ByteBuffer next,
+                                  OpenGLEdit.DrawCommand cmd) {
+        drawFlowPicture(layer, pairId, prev, next, 1.0, false, cmd);
+    }
+
+    /**
+     * The clip's picture made on the optical flow machinery (between two frames, and/or smeared along the motion), then drawn
+     * like any decoded frame.
+     */
+    private void drawFlowPicture(OpenGLTimelineExporter.Layer layer, long pairId, ByteBuffer prev, ByteBuffer next, double alpha,
+                                 boolean interpolate, OpenGLEdit.DrawCommand cmd) {
         GlLayer gl = (GlLayer) layer;
         if (!supportsOpticalFlow()) {
             draw(layer, next, cmd);
             return;
         }
+        OpticalFlowGl.Blur blur = cmd.motionBlurOn
+                ? new OpticalFlowGl.Blur(cmd.motionBlur, cmd.motionBlend, cmd.motionDirection, cmd.motionPasses) : null;
         // The flow passes use the framebuffer, viewport and blend state of their own: put back what the caller had (the canvas,
         // a scratch layer, the clip group...) before drawing the clip.
         int fboBefore = glGetInteger(GL_FRAMEBUFFER_BINDING);
@@ -773,7 +790,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         boolean made = false;
         try {
             if (gl.flow == null) gl.flow = opticalFlow.createState(gl.width, gl.height, gl.texture);
-            opticalFlow.render(gl.flow, pairId, prev, next, alpha);
+            opticalFlow.render(gl.flow, pairId, prev, next, alpha, interpolate, blur);
             made = true;
         } catch (RuntimeException e) {
             opticalFlowBroken = true; // a GPU that can't do it: every clip draws its nearer frame from now on
