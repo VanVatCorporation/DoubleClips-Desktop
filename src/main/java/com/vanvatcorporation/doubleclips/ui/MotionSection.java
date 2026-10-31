@@ -48,6 +48,8 @@ final class MotionSection {
     /** The "Processing xx%" labels of the section on screen, and the clip it was built for. */
     private Label opticalBusy, blurBusy;
     private Clip shown;
+    /** A dialog about the project frame rate being lower is open or about to open. */
+    private boolean asking;
 
     MotionSection(PropertyContext context) {
         this.context = context;
@@ -88,16 +90,19 @@ final class MotionSection {
             b.getChildren().add(note("Makes smooth in-between frames when the clip is slowed down, by following how things move."));
             return b;
         }
-        final float current = clip.opticalFlow.effectiveFps();
-        TextField fps = new TextField(ClipOpticalFlow.format(current));
+        TextField fps = new TextField(ClipOpticalFlow.format(clip.opticalFlow.effectiveFps()));
         fps.setPrefWidth(90);
+        // Enter and losing focus both apply the box, and the panel is rebuilt after the first: the second call must see the value
+        // the first one stored (read live from the clip, not remembered when the box was made), or it would apply it twice.
         wire(fps, () -> {
+            if (clip.opticalFlow == null) return;
+            float live = clip.opticalFlow.effectiveFps();
             float typed = parseFloat(fps, Float.NaN);
             if (Float.isNaN(typed) || Float.isInfinite(typed) || typed <= 0f) {
-                fps.setText(ClipOpticalFlow.format(current)); // not a usable frame rate: show what is kept
+                fps.setText(ClipOpticalFlow.format(live)); // not a usable frame rate: show what is kept
                 return;
             }
-            if (Math.abs(typed - current) < 1e-4f) return;
+            if (Math.abs(typed - live) < 1e-4f) return;
             Window owner = windowOf(fps);
             commitChange(clip, "Change Optical Flow Frame Rate", () -> clip.opticalFlow.fps = typed);
             askAboutProjectRate(clip, owner);
@@ -123,23 +128,30 @@ final class MotionSection {
      * Change (the project takes the highest optical flow rate among all the clips, rounded up to a whole frame rate).
      */
     private void askAboutProjectRate(Clip clip, Window owner) {
+        if (asking) return; // one dialog at a time, whatever fires twice
         final int project = context.getVideoSettings().frameRate;
         if (!clip.hasOpticalFlow() || !clip.opticalFlow.exceedsProject(project)) return;
         final float wanted = ClipOpticalFlow.highestFps(context.getTimeline().getAllClips());
         final int target = Math.max(project + 1, (int) Math.ceil(wanted - 0.001f));
+        asking = true;
         javafx.application.Platform.runLater(() -> {
-            ButtonType ok = new ButtonType("OK", ButtonBar.ButtonData.CANCEL_CLOSE);
-            ButtonType change = new ButtonType("Change", ButtonBar.ButtonData.OK_DONE);
-            Alert alert = new Alert(Alert.AlertType.WARNING,
-                    "This clip's optical flow makes " + ClipOpticalFlow.format(clip.opticalFlow.effectiveFps()) + " frames per second, but the project plays at "
-                            + project + " fps, so the extra frames will not be shown.\n\n"
-                            + "Change the project to " + target + " fps (the highest optical flow rate among your clips)?",
-                    ok, change);
-            alert.setTitle("Optical flow");
-            alert.setHeaderText("The project frame rate is lower");
-            if (owner != null) alert.initOwner(owner);
-            Optional<ButtonType> answer = alert.showAndWait();
-            if (answer.isPresent() && answer.get() == change) context.changeProjectFrameRate(target);
+            try {
+                ButtonType cancel = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+                ButtonType change = new ButtonType("Change to " + target + " fps", ButtonBar.ButtonData.OK_DONE);
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                        "This clip's optical flow makes " + ClipOpticalFlow.format(clip.opticalFlow.effectiveFps())
+                                + " frames per second, but the project plays at " + project + " fps, so the extra frames will not be shown.\n\n"
+                                + "Change the project to " + target + " fps, the highest optical flow rate among your clips? "
+                                + "Cancel keeps it at " + project + " fps.",
+                        change, cancel);
+                alert.setTitle("Optical flow");
+                alert.setHeaderText("The project frame rate is lower");
+                if (owner != null) alert.initOwner(owner);
+                Optional<ButtonType> answer = alert.showAndWait();
+                if (answer.isPresent() && answer.get() == change) context.changeProjectFrameRate(target);
+            } finally {
+                asking = false;
+            }
         });
     }
 
@@ -169,17 +181,18 @@ final class MotionSection {
         });
         b.getChildren().add(row("Direction", direction));
 
-        final int currentPasses = clip.motionBlur.effectivePasses();
-        TextField passes = new TextField(String.valueOf(currentPasses));
+        TextField passes = new TextField(String.valueOf(clip.motionBlur.effectivePasses()));
         passes.setPrefWidth(70);
         wire(passes, () -> {
+            if (clip.motionBlur == null) return;
+            int live = clip.motionBlur.effectivePasses(); // live, for the same reason as the frame rate box
             float typed = parseFloat(passes, Float.NaN);
             int times = Float.isNaN(typed) || Float.isInfinite(typed) ? -1 : Math.round(typed);
             if (times < 1) {
-                passes.setText(String.valueOf(currentPasses)); // not a whole number of 1 or more: show what is kept
+                passes.setText(String.valueOf(live)); // not a whole number of 1 or more: show what is kept
                 return;
             }
-            if (times == currentPasses) return;
+            if (times == live) return;
             commitChange(clip, "Change Motion Blur Speed", () -> clip.motionBlur.passes = times);
         });
         b.getChildren().add(row("Speed (times)", passes));
