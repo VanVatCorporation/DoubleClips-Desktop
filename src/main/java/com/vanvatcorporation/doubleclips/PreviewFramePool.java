@@ -97,6 +97,10 @@ final class PreviewFramePool {
         String lastLoggedErrors = "";
         long lastUsedFrame = -1;
         long lastUsedNanos;
+        /** The layer's picture was last made by optical flow (between two frames), not by uploading one decoded frame. */
+        boolean lastWasFlow;
+        /** Counts the switches from optical flow back to plain frames, so the flow starts afresh instead of trusting a stale layer. */
+        long epoch;
 
         VideoStream(String path, int width, int height, double fps, OpenGLTimelineExporter.Layer layer) {
             this.path = path;
@@ -184,7 +188,7 @@ final class PreviewFramePool {
         Clip clip = cmd.clip;
         if (clip.type != ClipType.VIDEO) return;
         try {
-            acquire(videoPath(clip), decodeSize(clip), sourceTimeFor(clip, cmd));
+            acquire(videoPath(clip), decodeSize(clip), sourceTimeFor(clip, cmd), clip.hasOpticalFlow() ? 1 : 0);
         } catch (IOException | RuntimeException ignored) {
             // reported properly if the clip is actually drawn
         }
@@ -225,9 +229,12 @@ final class PreviewFramePool {
     private boolean drawVideo(Clip clip, OpenGLEdit.DrawCommand cmd, float outputTimeSeconds) {
         String path = videoPath(clip);
         double target = sourceTimeFor(clip, cmd);
+        // Optical flow draws the picture between two frames: the stream is kept one frame ahead (the frame after the one the
+        // time falls in), with the frame before it kept too.
+        final boolean flow = clip.hasOpticalFlow() && compositor.supportsOpticalFlow();
         VideoStream stream;
         try {
-            stream = acquire(path, decodeSize(clip), target);
+            stream = acquire(path, decodeSize(clip), target, flow ? 1 : 0);
         } catch (IOException | RuntimeException e) {
             if (reported.add(clip)) log.accept("Could not open a clip for preview: " + e.getMessage());
             return false;
@@ -235,7 +242,7 @@ final class PreviewFramePool {
 
         stream.lastUsedFrame = frameCounter;
         stream.lastUsedNanos = System.nanoTime();
-        if (!stream.source.advanceToTime(target)) {
+        if (!stream.source.advanceToTime(flow ? target + 1.0 / stream.fps : target)) {
             if (reported.add(clip)) {
                 String detail = stream.source.errorTail();
                 log.accept("A clip produced no frames in preview (t=" + outputTimeSeconds + "s)"
@@ -247,11 +254,32 @@ final class PreviewFramePool {
         if ((frameCounter & 15) == 0) logDecodeErrors(stream, clip);
 
         long index = stream.source.currentFrameIndex();
+        if (flow) {
+            double position = OpticalFlowMath.framePosition(target, stream.fps);
+            long first = (long) Math.floor(position);
+            // The two frames around the time: the one before the stream's current frame, and the current one. At the end of the
+            // file (no frame after the last one) the last frame is simply held below.
+            if (stream.source.hasPrevious() && index == first + 1) {
+                compositor.drawInterpolated(stream.layer, index + stream.epoch * EPOCH_STEP, stream.source.previousFrame(),
+                        stream.source.frame(), position - first, cmd);
+                stream.lastWasFlow = true;
+                stream.uploadedIndex = Long.MIN_VALUE; // the layer no longer holds one plain decoded frame
+                return true;
+            }
+        }
+        if (stream.lastWasFlow) {
+            stream.lastWasFlow = false;
+            stream.epoch++;
+            stream.uploadedIndex = Long.MIN_VALUE;
+        }
         ByteBuffer upload = index != stream.uploadedIndex ? stream.source.frame() : null;
         stream.uploadedIndex = index;
         compositor.draw(stream.layer, upload, cmd);
         return true;
     }
+
+    /** Room for the frame index in a flow pair id: the epoch goes above it. */
+    private static final long EPOCH_STEP = 1L << 40;
 
     /**
      * The time in the ORIGINAL file for this draw. A reversed clip's DrawCommand time refers to the
@@ -293,9 +321,14 @@ final class PreviewFramePool {
         return fps;
     }
 
-    private VideoStream acquire(String path, int[] size, double targetSec) throws IOException {
+    /**
+     * @param lookahead frames the stream has to be AHEAD of the time (1 for optical flow, which reads the frame after the one the
+     *                  time falls in); it is still opened at the time itself, so the frame before is decoded too
+     */
+    private VideoStream acquire(String path, int[] size, double targetSec, int lookahead) throws IOException {
         double fps = fpsFor(path);
         long wanted = (long) Math.floor(targetSec * fps + 1e-4);
+        long wantedAhead = wanted + lookahead;
 
         // 1. A stream that is at the wanted frame, or a little behind it (closest wins).
         VideoStream best = null;
@@ -303,7 +336,7 @@ final class PreviewFramePool {
         for (VideoStream s : streams) {
             if (!s.path.equals(path) || s.width != size[0] || s.height != size[1]) continue;
             long position = s.positionIndex();
-            long distance = wanted - position;
+            long distance = wantedAhead - position;
             if (s.source.hasEnded() && s.source.currentFrameIndex() >= 0 && distance >= 0) {
                 distance = 0; // ran off the end of the file: hold its last frame
             }
@@ -359,7 +392,10 @@ final class PreviewFramePool {
         // mid-GOP can leave corrupted reference state - noisy, torn, triangular frames until the next
         // keyframe. Software decoding handles that correctly, so every seeked stream uses it.
         boolean hardware = hwaccel && Math.floor(Math.max(0.0, targetSec) * fps + 1e-4) <= 0;
-        return new OpenGLFrameIO.ClipFrameSource(ffmpegPath, path, size[0], size[1], targetSec, fps, true, hardware);
+        OpenGLFrameIO.ClipFrameSource source =
+                new OpenGLFrameIO.ClipFrameSource(ffmpegPath, path, size[0], size[1], targetSec, fps, true, hardware);
+        source.keepPrevious(); // a clip with optical flow draws between this frame and the one before (a pointer swap, no copy)
+        return source;
     }
 
     /**

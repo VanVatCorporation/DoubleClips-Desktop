@@ -148,6 +148,7 @@ public final class PreviewWorker {
                 for (String problem : ClipAnimationAssets.loadAll()) log("Animation file problem - " + problem);
 
                 GlCompositor compositor = new GlCompositor(previewW, previewH);
+                compositor.setOpticalFlowQuality(OpticalFlowMath.PREVIEW_FLOW_SIDE); // the preview has to keep up with playback
                 PreviewFramePool pool = new PreviewFramePool(compositor, projectData, ffmpegPath, hwaccel, proxy,
                         PreviewWorker::log);
                 pool.setCanvas(canvasW, previewW / (float) canvasW);

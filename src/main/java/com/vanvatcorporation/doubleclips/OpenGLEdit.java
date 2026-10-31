@@ -993,6 +993,11 @@ public class OpenGLEdit {
         // is the INTEGRAL of the speed over the elapsed output time (Clip.timeMap, iOS's ClipTimeMap), not the speed at this
         // instant times the elapsed time: that is only right for a constant speed, and drifts for a ramp.
         float elapsedOutput = outputTimeSeconds - clip.startTime;
+        // Optical flow makes its frames on a grid of its own frame rate (ffmpeg's minterpolate=fps=N does the same): the clip's time
+        // is the start of the grid frame this moment falls in, and the picture for that time is drawn between two source frames.
+        if (!isText && clip.type == ClipType.VIDEO && clip.hasOpticalFlow()) {
+            elapsedOutput = (float) OpticalFlowMath.snapToGrid(elapsedOutput, clip.opticalFlow.effectiveFps());
+        }
         // Reversed clips are decoded from a pre-rendered, already-reversed
         // intermediate that OpenGLEditNative builds for just the used trim
         // range (see the Android port notes) - that file starts at local time

@@ -69,6 +69,22 @@ public final class OpenGLTimelineExporter {
          */
         void draw(Layer layer, ByteBuffer newPixels, OpenGLEdit.DrawCommand command);
 
+        /** Can {@link #drawInterpolated} make pictures between two frames on this GPU (optical flow)? */
+        default boolean supportsOpticalFlow() {
+            return false;
+        }
+
+        /**
+         * Draws a clip whose picture is {@code alpha} (0 ... 1) of the way from frame {@code prev} to frame {@code next}, made by
+         * optical flow. {@code pairId} identifies the two frames: the same id means the same pair, so the compositor uploads
+         * them once however many pictures are made between them. Both buffers are width*height*4 RGBA (top row first), valid
+         * for this call only. Without optical flow it just draws {@code next}.
+         */
+        default void drawInterpolated(Layer layer, long pairId, ByteBuffer prev, ByteBuffer next, double alpha,
+                                      OpenGLEdit.DrawCommand command) {
+            draw(layer, next, command);
+        }
+
         /**
          * Redirects {@link #draw} into scratch canvas {@code slot} (0 or 1), cleared to
          * transparent. Each scratch canvas is the size of the output canvas. Used for
@@ -542,6 +558,9 @@ public final class OpenGLTimelineExporter {
                 try {
                     OpenGLFrameIO.ClipFrameSource source = new OpenGLFrameIO.ClipFrameSource(
                             ffmpegPath, path, clip.width, clip.height, cmd.localSourceTimeSeconds, frameRate);
+                    if (clip.hasOpticalFlow() && compositor.supportsOpticalFlow()) {
+                        source.keepPrevious(); // optical flow draws between this frame and the one before
+                    }
                     video = new VideoLayer(source, compositor.createLayer(source.getWidth(), source.getHeight()));
                     videoLayers.put(clip, video);
                 } catch (IOException | RuntimeException e) {
@@ -552,7 +571,11 @@ public final class OpenGLTimelineExporter {
                 }
             }
 
-            if (!video.source.advanceToTime(cmd.localSourceTimeSeconds)) {
+            // Optical flow: the picture between two frames, so the decode is kept one frame ahead of the time (the frame after
+            // the one the time falls in) and the frame before it is kept too.
+            final boolean flow = clip.hasOpticalFlow() && video.source.hasKeptPrevious() && compositor.supportsOpticalFlow();
+            final double sourceFps = video.source.getSourceFps();
+            if (!video.source.advanceToTime(flow ? cmd.localSourceTimeSeconds + 1.0 / sourceFps : cmd.localSourceTimeSeconds)) {
                 // Only when the decoder never produced a single frame. Once per clip.
                 if (reported.add(clip)) {
                     String detail = video.source.errorTail();
@@ -560,6 +583,19 @@ public final class OpenGLTimelineExporter {
                             + (detail.isEmpty() ? "" : ": " + detail));
                 }
                 return false;
+            }
+
+            if (flow) {
+                double position = OpticalFlowMath.framePosition(cmd.localSourceTimeSeconds, sourceFps);
+                long first = (long) Math.floor(position);
+                long index = video.source.currentFrameIndex();
+                // No frame after the last one: at the very end of the file the last frame is held (the plain path below).
+                if (video.source.hasPrevious() && index == first + 1) {
+                    compositor.drawInterpolated(video.layer, index, video.source.previousFrame(), video.source.frame(),
+                            position - first, cmd);
+                    video.uploadedOnce = false; // the layer holds a made picture, not a decoded frame
+                    return true;
+                }
             }
 
             ByteBuffer upload = (video.source.frameChanged() || !video.uploadedOnce) ? video.source.frame() : null;
@@ -587,11 +623,8 @@ public final class OpenGLTimelineExporter {
                 if (clip == null) continue;
                 warnIfUnusable(clip.inAnimation, ClipAnimation.Direction.IN, warned, listener);
                 warnIfUnusable(clip.outAnimation, ClipAnimation.Direction.OUT, warned, listener);
-                // Optical flow and motion blur are in the data model and the panel, but the GL engine doesn't draw them yet:
-                // said once per feature, so a clip that has them doesn't export as if it did.
-                if (clip.hasOpticalFlow() && clip.type == ClipType.VIDEO && warned.add("feature:opticalFlow")) {
-                    log(listener, "Optical flow is not drawn by the OpenGL export yet - clips with it export without the in-between frames");
-                }
+                // Motion blur is in the data model and the panel, but the GL engine doesn't draw it yet (the next delivery): said once,
+                // so a clip that has it doesn't export as if it did.
                 if (clip.hasMotionBlur() && clip.type == ClipType.VIDEO && warned.add("feature:motionBlur")) {
                     log(listener, "Motion blur is not drawn by the OpenGL export yet - clips with it export sharp");
                 }

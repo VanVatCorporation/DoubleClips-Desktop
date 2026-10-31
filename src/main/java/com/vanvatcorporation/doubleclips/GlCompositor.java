@@ -25,6 +25,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private static final class GlLayer implements OpenGLTimelineExporter.Layer {
         final int texture;
         final int width, height;
+        /** The optical flow textures of a clip drawn between two frames; created on first use. */
+        OpticalFlowGl.State flow;
 
         GlLayer(int texture, int width, int height) {
             this.texture = texture;
@@ -730,7 +732,59 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
 
     @Override
     public void destroyLayer(OpenGLTimelineExporter.Layer layer) {
-        glDeleteTextures(((GlLayer) layer).texture);
+        GlLayer gl = (GlLayer) layer;
+        if (gl.flow != null && opticalFlow != null) opticalFlow.destroyState(gl.flow);
+        gl.flow = null;
+        glDeleteTextures(gl.texture);
+    }
+
+    // ---- optical flow: a clip drawn between two decoded frames -------------------------------------------------
+
+    private OpticalFlowGl opticalFlow;
+    private int opticalFlowSide = OpticalFlowMath.EXPORT_FLOW_SIDE;
+    private boolean opticalFlowBroken = false;
+
+    /** How fine the motion search is (long side, in pixels, of its finest level): the preview uses a coarser one than an export. */
+    void setOpticalFlowQuality(int flowSide) {
+        if (opticalFlow == null) opticalFlowSide = flowSide;
+    }
+
+    @Override
+    public boolean supportsOpticalFlow() {
+        if (opticalFlowBroken) return false;
+        if (opticalFlow == null) opticalFlow = new OpticalFlowGl(opticalFlowSide);
+        return opticalFlow.ready();
+    }
+
+    @Override
+    public void drawInterpolated(OpenGLTimelineExporter.Layer layer, long pairId, ByteBuffer prev, ByteBuffer next, double alpha,
+                                 OpenGLEdit.DrawCommand cmd) {
+        GlLayer gl = (GlLayer) layer;
+        if (!supportsOpticalFlow()) {
+            draw(layer, next, cmd);
+            return;
+        }
+        // The flow passes use the framebuffer, viewport and blend state of their own: put back what the caller had (the canvas,
+        // a scratch layer, the clip group...) before drawing the clip.
+        int fboBefore = glGetInteger(GL_FRAMEBUFFER_BINDING);
+        int[] viewport = new int[4];
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        boolean blendBefore = glIsEnabled(GL_BLEND);
+        boolean made = false;
+        try {
+            if (gl.flow == null) gl.flow = opticalFlow.createState(gl.width, gl.height, gl.texture);
+            opticalFlow.render(gl.flow, pairId, prev, next, alpha);
+            made = true;
+        } catch (RuntimeException e) {
+            opticalFlowBroken = true; // a GPU that can't do it: every clip draws its nearer frame from now on
+            System.err.println("LOG Optical flow failed, clips with it draw the nearer frame: " + e.getMessage());
+        } finally {
+            glBindFramebuffer(GL_FRAMEBUFFER, fboBefore);
+            glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+            if (blendBefore) glEnable(GL_BLEND);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        draw(layer, made ? null : next, cmd);
     }
 
     @Override
@@ -1270,6 +1324,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         if (streakProgram != 0) glDeleteProgram(streakProgram);
         if (blendProgram != 0) glDeleteProgram(blendProgram);
         if (effectProgram != 0) glDeleteProgram(effectProgram);
+        if (opticalFlow != null) opticalFlow.close();
         glDeleteTextures(colorTex);
         glDeleteFramebuffers(fbo);
         glDeleteBuffers(vbo);

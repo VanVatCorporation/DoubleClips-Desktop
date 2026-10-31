@@ -159,6 +159,12 @@ public final class OpenGLFrameIO {
         // corrupt 'current', the last complete frame that gets held.
         private ByteBuffer current;
         private ByteBuffer next;
+        /**
+         * The frame before {@code current}, kept only after {@link #keepPrevious()} (a clip with optical flow draws between two
+         * frames). A third buffer, so rotating never touches the two that matter.
+         */
+        private ByteBuffer previous;
+        private boolean previousValid = false;
 
         private final StderrTail stderr;
         private long framesRead = 0;
@@ -226,7 +232,12 @@ public final class OpenGLFrameIO {
             command.add("-vf");
             // fps on the SOURCE's own rate with round=down: each grid slot holds the
             // latest source frame at or before it, i.e. "greatest pts <= target".
-            command.add(String.format(Locale.US, "scale=%d:%d,fps=fps=%.5f:round=down", this.width, this.height, sourceFps));
+            // settb + setpts: half a millisecond added to every timestamp, before the fps filter. A file whose timestamps are
+            // rounded to the millisecond (every .mkv, OBS recordings...) has frame k a hair EARLIER than k / fps, and round=down then
+            // files it under slot k - 1: frames came out duplicated and skipped (1,1,2,4,4,5,7...). The shift keeps every frame in
+            // its own slot and changes nothing for files with exact timestamps. (setpts works on integers of the stream's
+            // timebase, so the timebase is made 1 / 1000000 first.)
+            command.add(String.format(Locale.US, "scale=%d:%d,settb=1/1000000,setpts=PTS+500,fps=fps=%.5f:round=down", this.width, this.height, sourceFps));
             command.add("-pix_fmt");
             command.add("rgba");
             command.add("-f");
@@ -266,15 +277,51 @@ public final class OpenGLFrameIO {
                         return;
                     }
                 }
-                ByteBuffer tmp = current;
-                current = next;
-                next = tmp;
+                if (previous != null) {
+                    // current -> previous, next -> current, the old previous becomes the scratch buffer
+                    ByteBuffer recycled = previous;
+                    previous = current;
+                    previousValid = hasFrame;
+                    current = next;
+                    next = recycled;
+                } else {
+                    ByteBuffer tmp = current;
+                    current = next;
+                    next = tmp;
+                }
                 framesRead++;
                 hasFrame = true;
                 changed = true;
             } catch (IOException e) {
                 ended = true;
             }
+        }
+
+        /**
+         * Keeps the frame before the current one too, see {@link #previousFrame()}. Call right after opening, before the
+         * first {@link #advanceToTime}; costs one more frame-sized buffer.
+         */
+        public void keepPrevious() {
+            if (previous == null) {
+                previous = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder());
+                previousValid = false;
+            }
+        }
+
+        /** Was {@link #keepPrevious()} called (so a frame can ever be kept)? */
+        public boolean hasKeptPrevious() {
+            return previous != null;
+        }
+
+        /** True when {@link #previousFrame()} holds a decoded frame (needs {@link #keepPrevious()} and two frames read). */
+        public boolean hasPrevious() {
+            return previous != null && previousValid;
+        }
+
+        /** The frame before {@link #frame()}: width*height*4 bytes of RGBA, top row first. Valid until the next advanceToTime(). */
+        public ByteBuffer previousFrame() {
+            previous.clear();
+            return previous;
         }
 
         /** True if the last advanceToTime() decoded a new frame (so the GL texture needs re-uploading). */
