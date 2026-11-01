@@ -1,5 +1,8 @@
 package com.vanvatcorporation.doubleclips;
 
+import com.vanvatcorporation.doubleclips.i18n.AppLanguage;
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import atlantafx.base.theme.CupertinoDark;
 import atlantafx.base.theme.CupertinoLight;
 import com.jthemedetecor.OsThemeDetector;
@@ -63,6 +66,12 @@ public class DoubleClipsDesktop extends Application {
             }
         });
 
+        // The language (Settings > General > Language): set before any screen is built, and followed when the user changes it.
+        I18n.setLanguage(AppLanguage.resolve(AppSettings.getInstance().getLanguage(), AppLanguage.systemLanguages()));
+        AppSettings.getInstance().languageProperty().addListener((obs, oldVal, newVal) ->
+                I18n.setLanguage(AppLanguage.resolve(newVal, AppLanguage.systemLanguages())));
+        I18n.addChangeListener(this::rebuildMainLayout);
+
         // Use the AtlantaFX theme - set this early
         updateTheme(AppSettings.getInstance().getThemeMode());
 
@@ -85,9 +94,9 @@ public class DoubleClipsDesktop extends Application {
         stage.setOnCloseRequest(event -> {
             if (isGlobalProcessing) {
                 Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-                alert.setTitle("Processing in progress");
-                alert.setHeaderText("A task is currently running.");
-                alert.setContentText("Closing the app now may cause data loss or corruption. Are you sure you want to exit?");
+                alert.setTitle(I18n.t("Processing in progress"));
+                alert.setHeaderText(I18n.t("A task is currently running."));
+                alert.setContentText(I18n.t("Closing the app now may cause data loss or corruption. Are you sure you want to exit?"));
                 
                 if (alert.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
                     event.consume();
@@ -159,13 +168,29 @@ public class DoubleClipsDesktop extends Application {
 
     private final java.util.Map<String, Node> paneCache = new java.util.HashMap<>();
 
+    /**
+     * The language changed: the main window is built again in the new one (its panes too). Overlays that are open (the
+     * settings card, a dialog) stay on top. Windows opened from here (the editor, export...) read the language when they are
+     * created, so an open one keeps the language it was opened in.
+     */
+    private void rebuildMainLayout() {
+        if (rootLayer == null || rootLayer.getChildren().isEmpty()) return; // the window isn't built yet
+        java.util.List<Node> overlays = new java.util.ArrayList<>(rootLayer.getChildren());
+        overlays.remove(0); // the first child is the main layout
+        paneCache.clear();
+        java.util.List<Node> all = new java.util.ArrayList<>();
+        all.add(createMainLayout());
+        all.addAll(overlays);
+        rootLayer.getChildren().setAll(all);
+    }
+
     private Region createMainLayout() {
         BorderPane root = new BorderPane();
         
         javafx.scene.control.MenuBar menuBar = new javafx.scene.control.MenuBar();
         menuBar.setUseSystemMenuBar(true);
-        javafx.scene.control.Menu appMenu = new javafx.scene.control.Menu("File");
-        javafx.scene.control.MenuItem settingsItem = new javafx.scene.control.MenuItem("Preferences...");
+        javafx.scene.control.Menu appMenu = new javafx.scene.control.Menu(I18n.t("File"));
+        javafx.scene.control.MenuItem settingsItem = new javafx.scene.control.MenuItem(I18n.t("Preferences..."));
         settingsItem.setOnAction(ev -> {
             final com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[] overlayRef = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[1];
             overlayRef[0] = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay(v -> {
@@ -183,7 +208,7 @@ public class DoubleClipsDesktop extends Application {
         sidebar.setPrefWidth(280);
 
         // "Start Creating" button lives in the sidebar (top), as in the sketch
-        Button startCreatingBtn = new Button("Start Creating\nTap to create a new project");
+        Button startCreatingBtn = new Button(I18n.t("Start Creating\nTap to create a new project"));
         startCreatingBtn.getStyleClass().add("start-creating-button");
         startCreatingBtn.setMaxWidth(Double.MAX_VALUE);
         startCreatingBtn.setGraphic(new FontIcon(MaterialDesignP.PLUS));
@@ -193,11 +218,11 @@ public class DoubleClipsDesktop extends Application {
         ToggleGroup navGroup = new ToggleGroup();
 
         // Nav buttons: text-only, bold, left-aligned (no icons) — matching the sketch
-        ToggleButton homeBtn = createNavButton("Home", navGroup);
-        ToggleButton templateBtn = createNavButton("Template", navGroup);
-        ToggleButton searchBtn = createNavButton("Search", navGroup);
-        ToggleButton storageBtn = createNavButton("Storage", navGroup);
-        ToggleButton profileBtn = createNavButton("Profile", navGroup);
+        ToggleButton homeBtn = createNavButton(I18n.t("Home"), navGroup);
+        ToggleButton templateBtn = createNavButton(I18n.t("Template"), navGroup);
+        ToggleButton searchBtn = createNavButton(I18n.t("Search"), navGroup);
+        ToggleButton storageBtn = createNavButton(I18n.t("Storage"), navGroup);
+        ToggleButton profileBtn = createNavButton(I18n.t("Profile"), navGroup);
 
         homeBtn.setSelected(true);
 

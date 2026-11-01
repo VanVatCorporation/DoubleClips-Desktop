@@ -1,5 +1,9 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+import com.vanvatcorporation.doubleclips.ExportEstimate;
+import javafx.scene.layout.GridPane;
+
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
 import com.vanvatcorporation.doubleclips.FFmpegEditNative;
@@ -61,25 +65,25 @@ public class ExportWindow extends Stage {
 
     // ── Render engine row (mirrors Android ExportActivity's renderEngineRadioGroup) ─
     private final ToggleGroup renderEngineGroup = new ToggleGroup();
-    private final RadioButton ffmpegEngineRadio = new RadioButton("FFmpeg (CPU)");
-    private final RadioButton openGlEngineRadio = new RadioButton("OpenGL (GPU) — Recommended");
+    private final RadioButton ffmpegEngineRadio = new RadioButton(I18n.t("FFmpeg (CPU)"));
+    private final RadioButton openGlEngineRadio = new RadioButton(I18n.t("OpenGL (GPU) — Recommended"));
 
     // ── Advanced section ────────────────────────────────────────────────────
     private final TextArea commandTextArea = new TextArea();
 
     // ── Log / Progress section ───────────────────────────────────────────────
-    private final Label      taskStatusLabel  = new Label("Current Task: 0%");
+    private final Label      taskStatusLabel  = new Label(I18n.t("Current Task: 0%"));
     private final ProgressBar taskProgressBar  = new ProgressBar(0);
-    private final Label      globalStatusLabel = new Label("Remaining Tasks: 0 / 0");
+    private final Label      globalStatusLabel = new Label(I18n.t("Remaining Tasks: 0 / 0"));
     private final ProgressBar globalProgressBar = new ProgressBar(0);
     private final TextArea   logTextArea      = new TextArea();
-    private final CheckBox   logCheckBox      = new CheckBox("Enable Log");
-    private final CheckBox   truncateCheckBox = new CheckBox("Truncate Log");
-    private final CheckBox   scrollLockCheckBox = new CheckBox("Scroll Lock");
+    private final CheckBox   logCheckBox      = new CheckBox(I18n.t("Enable Log"));
+    private final CheckBox   truncateCheckBox = new CheckBox(I18n.t("Truncate Log"));
+    private final CheckBox   scrollLockCheckBox = new CheckBox(I18n.t("Scroll Lock"));
 
     // ── Action buttons ────────────────────────────────────────────────────────
-    private final Button exportButton           = new Button("Export");
-    private final Button exportAsTemplateButton = new Button("Export as Template");
+    private final Button exportButton           = new Button(I18n.t("Export"));
+    private final Button exportAsTemplateButton = new Button(I18n.t("Export as Template"));
 
     // ── State ─────────────────────────────────────────────────────────────────
     private boolean isExporting = false;
@@ -132,14 +136,18 @@ public class ExportWindow extends Stage {
         body.setPadding(new Insets(20));
 
         body.getChildren().addAll(
-                buildSection("Advanced", buildAdvancedPane()),
-                buildSection("Log & Progress", buildLogPane())
+                buildSection(I18n.t("Output"), buildOutputPane()),
+                buildSection(I18n.t("Advanced"), buildAdvancedPane()),
+                buildSection(I18n.t("Log & Progress"), buildLogPane())
         );
 
         scroll.setContent(body);
         root.getChildren().add(scroll);
 
         // ── Scene ──────────────────────────────────────────────────────────
+        refreshOutputSummary();
+        focusedProperty().addListener((obs, was, focused) -> { if (focused) refreshOutputSummary(); });
+
         Scene scene = new Scene(root);
         scene.getStylesheets().add(
                 DoubleClipsDesktop.class.getResource("/style.css").toExternalForm());
@@ -168,7 +176,7 @@ public class ExportWindow extends Stage {
         settingsBtn.getStyleClass().add("button-transparent");
         settingsBtn.setOnAction(e -> openVideoSettings());
 
-        Label title = new Label("Export");
+        Label title = new Label(I18n.t("Export"));
         title.setStyle("-fx-font-weight: bold; -fx-font-size: 16px;");
 
         Region spacer = new Region();
@@ -179,7 +187,7 @@ public class ExportWindow extends Stage {
         exportAsTemplateButton.getStyleClass().add("export-template-button");
         exportAsTemplateButton.setOnAction(e -> {
             if(AuthRepository.getInstance().getCurrentUser() == null) {
-                new AlertDialog.Builder().setTitle("Login required").setMessage("Please login to post template").create().show();
+                new AlertDialog.Builder().setTitle(I18n.t("Login required")).setMessage(I18n.t("Please login to post template")).create().show();
                 return;
             }
             exportClipViaChosenEngine(true);
@@ -248,7 +256,7 @@ public class ExportWindow extends Stage {
 
             Alert gapAlert = new Alert(Alert.AlertType.CONFIRMATION);
             gapAlert.initOwner(this);
-            gapAlert.setTitle("Some animation effects are not available");
+            gapAlert.setTitle(I18n.t("Some animation effects are not available"));
             gapAlert.setHeaderText(null);
             gapAlert.setContentText(gapMessage.toString());
             ButtonType continueFfmpeg = new ButtonType("Continue with FFmpeg");
@@ -273,7 +281,7 @@ public class ExportWindow extends Stage {
 
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.initOwner(this);
-        alert.setTitle("OpenGL export not complete yet");
+        alert.setTitle(I18n.t("OpenGL export not complete yet"));
         alert.setHeaderText(null);
         alert.setContentText(message.toString());
 
@@ -385,7 +393,7 @@ public class ExportWindow extends Stage {
                 // pipe can't play backward, so each reversed VIDEO clip's used range is
                 // reversed into a temp file first. Fails the export rather than letting
                 // GL quietly play that clip forward.
-                Platform.runLater(() -> taskStatusLabel.setText("Preparing clips…"));
+                Platform.runLater(() -> taskStatusLabel.setText(I18n.t("Preparing clips…")));
                 reversedClipPaths.putAll(OpenGLEditNative.renderReversedIntermediates(timeline, project, gl::isCancelled, listener));
                 if (gl.isCancelled()) {
                     cleanupOpenGlTemp(videoOnlyPath, audioOnlyPath, reversedClipPaths);
@@ -393,7 +401,7 @@ public class ExportWindow extends Stage {
                     return;
                 }
 
-                Platform.runLater(() -> taskStatusLabel.setText("Compositing video (OpenGL)…"));
+                Platform.runLater(() -> taskStatusLabel.setText(I18n.t("Compositing video (OpenGL)…")));
                 gl.exportTimeline(timeline, settings, project.getProjectPath(), width, height, frameRate, videoOnlyPath,
                         reversedClipPaths, listener);
 
@@ -413,14 +421,14 @@ public class ExportWindow extends Stage {
                 }
 
                 Platform.runLater(() -> {
-                    taskStatusLabel.setText("Mixing audio…");
+                    taskStatusLabel.setText(I18n.t("Mixing audio…"));
                     appendLog("OpenGL: mixing audio...");
                 });
                 FFmpegEdit.runAnyCommand(audioCmd, "OpenGL export — audio pass",
                         () -> {
                             Platform.runLater(() -> {
                                 taskProgressBar.setProgress(0.92);
-                                taskStatusLabel.setText("Finalizing…");
+                                taskStatusLabel.setText(I18n.t("Finalizing…"));
                                 appendLog("OpenGL: muxing...");
                             });
                             String muxCmd = OpenGLEditNative.buildMuxCommand(videoOnlyPath, audioOnlyPath, finalPath);
@@ -511,7 +519,7 @@ public class ExportWindow extends Stage {
         String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
 
         finishExportRendering();
-        taskStatusLabel.setText("Export Completed! ✓");
+        taskStatusLabel.setText(I18n.t("Export Completed! ✓"));
         taskProgressBar.setProgress(1.0);
         appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
         appendLog("\nPassing to the uploader...");
@@ -529,7 +537,7 @@ public class ExportWindow extends Stage {
 
     private void failTemplateExport() {
         finishExportRendering();
-        taskStatusLabel.setText("Export Failed ✗");
+        taskStatusLabel.setText(I18n.t("Export Failed ✗"));
         appendLog("\n>>> TEMPLATE EXPORT FAILED <<<");
     }
 
@@ -541,13 +549,13 @@ public class ExportWindow extends Stage {
         else {
             finishExportRendering();
             notifyExportSucceeded();
-            taskStatusLabel.setText("Export Completed! ✓");
+            taskStatusLabel.setText(I18n.t("Export Completed! ✓"));
             taskProgressBar.setProgress(1.0);
             appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
             appendLog("Location: " + finalPath);
 
             FileChooser fc = new FileChooser();
-            fc.setTitle("Save Exported Video");
+            fc.setTitle(I18n.t("Save Exported Video"));
             fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
             fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
             File userDest = fc.showSaveDialog(this);
@@ -564,8 +572,8 @@ public class ExportWindow extends Stage {
 
             Alert alert = new Alert(Alert.AlertType.INFORMATION);
             alert.initOwner(this);
-            alert.setTitle("Export Complete");
-            alert.setHeaderText("Success!");
+            alert.setTitle(I18n.t("Export Complete"));
+            alert.setHeaderText(I18n.t("Success!"));
             alert.setContentText("Your video has been exported to:\n" + shownPath);
             alert.showAndWait();
         }
@@ -580,8 +588,8 @@ public class ExportWindow extends Stage {
     private void showOpenGlFailureAdvice(OpenGlExportDiagnosis.Advice advice) {
         Alert alert = new Alert(Alert.AlertType.ERROR);
         alert.initOwner(this);
-        alert.setTitle("OpenGL export failed");
-        alert.setHeaderText("The video could not be exported");
+        alert.setTitle(I18n.t("OpenGL export failed"));
+        alert.setHeaderText(I18n.t("The video could not be exported"));
         alert.setContentText(advice.summary + "\n\n" + advice.fix + "\n\nThe full details are in the log.");
         javafx.scene.control.ButtonType settingsButton = new javafx.scene.control.ButtonType("Video Settings…",
                 javafx.scene.control.ButtonBar.ButtonData.LEFT);
@@ -592,13 +600,13 @@ public class ExportWindow extends Stage {
 
     private void failOpenGlExport() {
         finishExportRendering();
-        taskStatusLabel.setText("Export Failed ✗");
+        taskStatusLabel.setText(I18n.t("Export Failed ✗"));
         appendLog("\n>>> EXPORT FAILED <<<");
     }
 
     private void cancelOpenGlExport() {
         finishExportRendering();
-        taskStatusLabel.setText("Export Cancelled");
+        taskStatusLabel.setText(I18n.t("Export Cancelled"));
         taskProgressBar.setProgress(0);
         appendLog("\n>>> EXPORT CANCELLED <<<");
     }
@@ -634,6 +642,68 @@ public class ExportWindow extends Stage {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    //  Output summary (what will be made, and how big)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private final Label outputResolution = new Label();
+    private final Label outputFrameRate = new Label();
+    private final Label outputQualityName = new Label();
+    private final Label outputQuality = new Label();
+    private final Label outputDuration = new Label();
+    private final Label outputEstimate = new Label();
+    private final Label outputEstimateNote = new Label();
+
+    /** The numbers the export will use and the estimated size of the file (like the iOS export screen). */
+    private javafx.scene.Node buildOutputPane() {
+        GridPane grid = new GridPane();
+        grid.setHgap(24);
+        grid.setVgap(8);
+        int row = 0;
+        row = addOutputRow(grid, row, new Label(I18n.t("Resolution")), outputResolution);
+        row = addOutputRow(grid, row, new Label(I18n.t("Frame rate")), outputFrameRate);
+        row = addOutputRow(grid, row, outputQualityName, outputQuality);
+        row = addOutputRow(grid, row, new Label(I18n.t("Duration")), outputDuration);
+        row = addOutputRow(grid, row, new Label(I18n.t("Format")), new Label("MP4 \u00B7 H.264 + AAC"));
+        Label estimateName = new Label(I18n.t("Estimated size"));
+        outputEstimate.setStyle("-fx-font-weight: bold;");
+        addOutputRow(grid, row, estimateName, outputEstimate);
+
+        outputEstimateNote.setWrapText(true);
+        outputEstimateNote.getStyleClass().add("text-muted");
+        outputEstimateNote.setStyle("-fx-font-size: 11px;");
+        return new VBox(8, grid, outputEstimateNote);
+    }
+
+    private static int addOutputRow(GridPane grid, int row, Label name, Label value) {
+        name.getStyleClass().add("text-muted");
+        grid.add(name, 0, row);
+        grid.add(value, 1, row);
+        return row + 1;
+    }
+
+    /** Re-reads the video settings and the timeline length: called when the window opens, regains focus or the settings change. */
+    private void refreshOutputSummary() {
+        boolean hardware = false;
+        try {
+            hardware = settings.isUseHardwareAccel() && FFmpegEditNative.getHardwareAcceleratedName() != null;
+        } catch (RuntimeException ignored) {
+            // no way to probe the encoders: assume the software one
+        }
+        ExportEstimate estimate = ExportEstimate.of(settings.videoWidth, settings.videoHeight, settings.frameRate,
+                settings.getCRF(), settings.getBitrate(), hardware, timeline.duration);
+        outputResolution.setText(settings.videoWidth + " \u00D7 " + settings.videoHeight);
+        outputFrameRate.setText(settings.frameRate + " fps");
+        outputQualityName.setText(I18n.t(hardware ? "Bitrate (HW)" : "Quality (CRF)"));
+        outputQuality.setText(hardware ? settings.getBitrate() + " Mbps" : String.valueOf(settings.getCRF()));
+        outputDuration.setText(ExportEstimate.formatDuration(timeline.duration));
+        outputEstimate.setText("\u2248 " + ExportEstimate.formatBytes(estimate.bytes));
+        outputEstimateNote.setText(estimate.isRough()
+                ? I18n.t("The encoder chooses the bitrate, so this depends on the content.") : "");
+        outputEstimateNote.setManaged(estimate.isRough());
+        outputEstimateNote.setVisible(estimate.isRough());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     //  Advanced pane
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -642,19 +712,19 @@ public class ExportWindow extends Stage {
 
         HBox btns = new HBox(8);
 
-        Button genCmdBtn = new Button("Generate Command");
+        Button genCmdBtn = new Button(I18n.t("Generate Command"));
         genCmdBtn.setGraphic(new FontIcon(MaterialDesignC.CODE_TAGS));
         genCmdBtn.getStyleClass().add("secondary-action-button");
         genCmdBtn.setOnAction(e -> commandTextArea.setText(generateCommand()));
 
-        Button genTemplateCmdBtn = new Button("Generate Template Command");
+        Button genTemplateCmdBtn = new Button(I18n.t("Generate Template Command"));
         genTemplateCmdBtn.setGraphic(new FontIcon(MaterialDesignC.CODE_TAGS_CHECK));
         genTemplateCmdBtn.getStyleClass().add("secondary-action-button");
         genTemplateCmdBtn.setOnAction(e -> generateTemplateCommand());
 
         btns.getChildren().addAll(genCmdBtn, genTemplateCmdBtn);
 
-        commandTextArea.setPromptText("FFmpeg command will appear here…");
+        commandTextArea.setPromptText(I18n.t("FFmpeg command will appear here…"));
         commandTextArea.setWrapText(true);
         commandTextArea.setPrefHeight(180);
         commandTextArea.getStyleClass().add("export-command-area");
@@ -712,6 +782,7 @@ public class ExportWindow extends Stage {
         if (change == null) return;
         appendLog("Video settings updated.");
         ProjectRepository.getInstance().saveVideoSettings(project, settings);
+        refreshOutputSummary();
         // The editor under this window holds the same settings: it rebuilds its canvas / ruler now, not at the next visit.
         if (getOwner() instanceof EditorWindow editor) editor.onVideoSettingsChanged(change);
     }
@@ -797,7 +868,7 @@ public class ExportWindow extends Stage {
 
                                     // Ask for output file location
                                     FileChooser fc = new FileChooser();
-                                    fc.setTitle("Save Exported Video");
+                                    fc.setTitle(I18n.t("Save Exported Video"));
                                     fc.setInitialFileName(project.getProjectTitle() + "_export.mp4");
                                     fc.getExtensionFilters().add(
                                             new FileChooser.ExtensionFilter("MP4 Video", "*.mp4"));
@@ -817,15 +888,15 @@ public class ExportWindow extends Stage {
 
                                     finishExportRendering();
                                     notifyExportSucceeded();
-                                    taskStatusLabel.setText("Export Completed! ✓");
+                                    taskStatusLabel.setText(I18n.t("Export Completed! ✓"));
                                     taskProgressBar.setProgress(1.0);
                                     appendLog("\n>>> EXPORT FINISHED SUCCESSFULLY <<<");
                                     appendLog("Location: " + finalPath);
 
                                     Alert alert = new Alert(Alert.AlertType.INFORMATION);
                                     alert.initOwner(this);
-                                    alert.setTitle("Export Complete");
-                                    alert.setHeaderText("Success!");
+                                    alert.setTitle(I18n.t("Export Complete"));
+                                    alert.setHeaderText(I18n.t("Success!"));
                                     alert.setContentText("Your video has been exported to:\n" + finalPath);
                                     alert.showAndWait();
                                 }
@@ -835,7 +906,7 @@ public class ExportWindow extends Stage {
                     // onFail
                     () -> Platform.runLater(() -> {
                         finishExportRendering();
-                        taskStatusLabel.setText("Export Failed ✗");
+                        taskStatusLabel.setText(I18n.t("Export Failed ✗"));
                         appendLog("\n>>> EXPORT FAILED <<<");
                     }),
                     // onLog
@@ -894,8 +965,8 @@ public class ExportWindow extends Stage {
         exportButton.setDisable(true);
         exportAsTemplateButton.setDisable(true);
         taskProgressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-        taskStatusLabel.setText("Preparing export…");
-        globalStatusLabel.setText("Running…");
+        taskStatusLabel.setText(I18n.t("Preparing export…"));
+        globalStatusLabel.setText(I18n.t("Running…"));
     }
 
     /** Set by a caller that wants to know when a render finished successfully (e.g. "Use template" counts a use). */
@@ -911,7 +982,7 @@ public class ExportWindow extends Stage {
         isExporting = false;
         exportButton.setDisable(false);
         exportAsTemplateButton.setDisable(false);
-        globalStatusLabel.setText("Done");
+        globalStatusLabel.setText(I18n.t("Done"));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

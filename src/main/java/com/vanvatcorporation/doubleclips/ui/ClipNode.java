@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.Keyframe;
 import javafx.scene.control.Label;
@@ -588,7 +590,7 @@ public class ClipNode extends Pane {
                     e.consume();
                 });
                 javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu();
-                javafx.scene.control.MenuItem delete = new javafx.scene.control.MenuItem("Delete mask keyframe");
+                javafx.scene.control.MenuItem delete = new javafx.scene.control.MenuItem(I18n.t("Delete mask keyframe"));
                 delete.setOnAction(e -> editMaskKeys(maskIndex, key, (m, k) -> m.removeKeyframe(k)));
                 menu.getItems().add(delete);
                 knot.setOnContextMenuRequested(e -> {

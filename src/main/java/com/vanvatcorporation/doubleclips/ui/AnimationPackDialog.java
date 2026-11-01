@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.ClipAnimationAssets;
 import com.vanvatcorporation.doubleclips.ClipAnimationPacks;
 import javafx.geometry.Insets;
@@ -35,7 +37,7 @@ public final class AnimationPackDialog {
      */
     public static void show(Window owner, Runnable onChanged) {
         Dialog<Void> dialog = new Dialog<>();
-        dialog.setTitle("Animation packs");
+        dialog.setTitle(I18n.t("Animation packs"));
         if (owner != null) dialog.initOwner(owner);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
 
@@ -54,13 +56,13 @@ public final class AnimationPackDialog {
         Runnable reload = () -> list.getItems().setAll(ClipAnimationAssets.installedPacks());
         reload.run();
 
-        Button importButton = new Button("Import pack...");
-        Button removeButton = new Button("Remove");
+        Button importButton = new Button(I18n.t("Import pack..."));
+        Button removeButton = new Button(I18n.t("Remove"));
         removeButton.disableProperty().bind(list.getSelectionModel().selectedItemProperty().isNull());
 
         importButton.setOnAction(e -> {
             FileChooser chooser = new FileChooser();
-            chooser.setTitle("Select Animation Pack (.zip)");
+            chooser.setTitle(I18n.t("Select Animation Pack (.zip)"));
             chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Animation pack (.zip)", "*.zip"));
             File file = chooser.showOpenDialog(dialog.getDialogPane().getScene().getWindow());
             if (file == null) return;
@@ -71,10 +73,10 @@ public final class AnimationPackDialog {
                         : "Installed \"" + installed.pack.name + "\".";
                 reload.run();
                 onChanged.run();
-                info(dialog, "Animation pack", what + "\n\n" + installed.pack.animationCount()
+                info(dialog, I18n.t("Animation pack"), what + "\n\n" + installed.pack.animationCount()
                         + " animation(s) are now in the in / out dropdowns.");
             } catch (ClipAnimationPacks.PackException ex) {
-                error(dialog, "Couldn't install the pack", ex.getMessage());
+                error(dialog, I18n.t("Couldn't install the pack"), ex.getMessage());
             }
         });
 
@@ -84,7 +86,7 @@ public final class AnimationPackDialog {
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                     "Clips that use its animations keep them selected but will export without them until the pack is installed again.",
                     ButtonType.OK, ButtonType.CANCEL);
-            confirm.setTitle("Remove pack");
+            confirm.setTitle(I18n.t("Remove pack"));
             confirm.setHeaderText("Remove \"" + pack.name + "\"?");
             confirm.initOwner(dialog.getDialogPane().getScene().getWindow());
             confirm.showAndWait().filter(b -> b == ButtonType.OK).ifPresent(b -> {
@@ -93,7 +95,7 @@ public final class AnimationPackDialog {
                     reload.run();
                     onChanged.run();
                 } catch (ClipAnimationPacks.PackException ex) {
-                    error(dialog, "Couldn't remove the pack", ex.getMessage());
+                    error(dialog, I18n.t("Couldn't remove the pack"), ex.getMessage());
                 }
             });
         });

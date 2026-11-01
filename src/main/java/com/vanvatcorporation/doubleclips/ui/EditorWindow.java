@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -299,8 +301,8 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         MenuBar menuBar = new MenuBar();
         menuBar.setUseSystemMenuBar(true);
-        Menu appMenu = new Menu("File");
-        MenuItem settingsItem = new MenuItem("Preferences...");
+        Menu appMenu = new Menu(I18n.t("File"));
+        MenuItem settingsItem = new MenuItem(I18n.t("Preferences..."));
         settingsItem.setOnAction(ev -> {
             final com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[] overlayRef = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay[1];
             overlayRef[0] = new com.vanvatcorporation.doubleclips.ui.overlays.SettingsOverlay(v -> {
@@ -882,7 +884,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         );
         panel.setPrefWidth(260);
 
-        Label title = new Label("Preview Options");
+        Label title = new Label(I18n.t("Preview Options"));
         title.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
 
         // ── Separator helper ──────────────────────────────────────────────
@@ -898,7 +900,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         // ── Preview FPS ───────────────────────────────────────────────────
         HBox fpsRow = new HBox(8);
         fpsRow.setAlignment(Pos.CENTER_LEFT);
-        Label fpsLabel = new Label("Playback FPS:");
+        Label fpsLabel = new Label(I18n.t("Playback FPS:"));
         fpsLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         fpsLabel.setPrefWidth(130);
         javafx.scene.control.Spinner<Double> fpsSpinner = new javafx.scene.control.Spinner<>(
@@ -907,14 +909,14 @@ public class EditorWindow extends Stage implements PropertyContext {
         fpsSpinner.setEditable(true);
         fpsSpinner.setPrefWidth(90);
         fpsSpinner.valueProperty().addListener((obs, o, n) -> previewFpsRuntime = n.floatValue());
-        Label fpsHint = new Label("(-1 = original)");
+        Label fpsHint = new Label(I18n.t("(-1 = original)"));
         fpsHint.setStyle("-fx-text-fill: -color-fg-subtle; -fx-font-size: 10px;");
         fpsRow.getChildren().addAll(fpsLabel, fpsSpinner);
 
         // ── Playback Speed ────────────────────────────────────────────────
         HBox speedRow = new HBox(8);
         speedRow.setAlignment(Pos.CENTER_LEFT);
-        Label speedLabel = new Label("Playback speed:");
+        Label speedLabel = new Label(I18n.t("Playback speed:"));
         speedLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         speedLabel.setPrefWidth(130);
         javafx.scene.control.Spinner<Double> speedSpinner = new javafx.scene.control.Spinner<>(
@@ -951,7 +953,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         // ── Reverse Playback toggle ────────────────────────────────────────
         HBox reverseRow = new HBox(8);
         reverseRow.setAlignment(Pos.CENTER_LEFT);
-        Label reverseLabel = new Label("Reverse playback:");
+        Label reverseLabel = new Label(I18n.t("Reverse playback:"));
         reverseLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         reverseLabel.setPrefWidth(160);
         CheckBox reverseCheck = new CheckBox();
@@ -962,7 +964,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         // ── Keep playing when clip selected ───────────────────────────────
         HBox keepRow = new HBox(8);
         keepRow.setAlignment(Pos.CENTER_LEFT);
-        Label keepLabel = new Label("Keep playing on select:");
+        Label keepLabel = new Label(I18n.t("Keep playing on select:"));
         keepLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         keepLabel.setPrefWidth(160);
         CheckBox keepCheck = new CheckBox();
@@ -973,7 +975,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         // ── Audio bar width ───────────────────────────────────────────────
         HBox audioWidthRow = new HBox(8);
         audioWidthRow.setAlignment(Pos.CENTER_LEFT);
-        Label audioWidthLabel = new Label("Audio bar width:");
+        Label audioWidthLabel = new Label(I18n.t("Audio bar width:"));
         audioWidthLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         audioWidthLabel.setPrefWidth(130);
         javafx.scene.control.Spinner<Integer> audioWidthSpinner = new javafx.scene.control.Spinner<>(
@@ -987,7 +989,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         // ── Audio bar gap ─────────────────────────────────────────────────
         HBox audioGapRow = new HBox(8);
         audioGapRow.setAlignment(Pos.CENTER_LEFT);
-        Label audioGapLabel = new Label("Audio bar gap:");
+        Label audioGapLabel = new Label(I18n.t("Audio bar gap:"));
         audioGapLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         audioGapLabel.setPrefWidth(130);
         javafx.scene.control.Spinner<Integer> audioGapSpinner = new javafx.scene.control.Spinner<>(
@@ -1003,22 +1005,22 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         HBox gpuRow = new HBox(8);
         gpuRow.setAlignment(Pos.CENTER_LEFT);
-        Label gpuLabel = new Label("GPU preview:");
+        Label gpuLabel = new Label(I18n.t("GPU preview:"));
         gpuLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         gpuLabel.setPrefWidth(160);
         CheckBox gpuCheck = new CheckBox();
         gpuCheck.setSelected(appSettings.isGpuPreview() && timelineRenderer.isGpuPreviewActive());
-        gpuCheck.setTooltip(new Tooltip("Composite the preview with the same OpenGL engine as the OpenGL export"));
+        gpuCheck.setTooltip(new Tooltip(I18n.t("Composite the preview with the same OpenGL engine as the OpenGL export")));
         gpuRow.getChildren().addAll(gpuLabel, gpuCheck);
 
         HBox proxyRow = new HBox(8);
         proxyRow.setAlignment(Pos.CENTER_LEFT);
-        Label proxyLabel = new Label("Use proxy clips:");
+        Label proxyLabel = new Label(I18n.t("Use proxy clips:"));
         proxyLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         proxyLabel.setPrefWidth(160);
         CheckBox proxyCheck = new CheckBox();
         proxyCheck.setSelected(appSettings.isPreviewUseProxy());
-        proxyCheck.setTooltip(new Tooltip("Off: preview plays the original clips. On: the lighter proxy copies made at import (GPU preview only)"));
+        proxyCheck.setTooltip(new Tooltip(I18n.t("Off: preview plays the original clips. On: the lighter proxy copies made at import (GPU preview only)")));
         proxyCheck.disableProperty().bind(gpuCheck.selectedProperty().not());
         proxyCheck.selectedProperty().addListener((obs, o, n) -> {
             appSettings.setPreviewUseProxy(n);
@@ -1028,12 +1030,12 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         HBox hwRow = new HBox(8);
         hwRow.setAlignment(Pos.CENTER_LEFT);
-        Label hwLabel = new Label("Hardware decoding:");
+        Label hwLabel = new Label(I18n.t("Hardware decoding:"));
         hwLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         hwLabel.setPrefWidth(160);
         CheckBox hwCheck = new CheckBox();
         hwCheck.setSelected(appSettings.isPreviewHardwareDecode());
-        hwCheck.setTooltip(new Tooltip("Experimental. Only used when a clip starts from its beginning; seeks always decode in software, because hardware decoding after a seek can corrupt frames"));
+        hwCheck.setTooltip(new Tooltip(I18n.t("Experimental. Only used when a clip starts from its beginning; seeks always decode in software, because hardware decoding after a seek can corrupt frames")));
         hwCheck.disableProperty().bind(gpuCheck.selectedProperty().not());
         hwCheck.selectedProperty().addListener((obs, o, n) -> {
             appSettings.setPreviewHardwareDecode(n);
@@ -1107,7 +1109,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         Region spacer2 = new Region();
         spacer2.setPrefWidth(32);
 
-        Button exportBtn = new Button("Export");
+        Button exportBtn = new Button(I18n.t("Export"));
         exportBtn.getStyleClass().add("export-button");
         exportBtn.setGraphic(new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
         exportBtn.setOnAction(e -> ExportWindow.show(this, project, timeline, videoSettings));
@@ -1157,7 +1159,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         importBar.setAlignment(Pos.CENTER_LEFT);
         importBar.getStyleClass().add("editor-import-bar");
 
-        Button importBtn = new Button("Import");
+        Button importBtn = new Button(I18n.t("Import"));
         importBtn.setGraphic(new FontIcon(MaterialDesignP.PLUS));
         importBtn.getStyleClass().add("import-media-button");
 
@@ -1176,7 +1178,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         VBox.setVgrow(mediaGrid, Priority.ALWAYS);
         mediaGrid.getStyleClass().add("media-grid");
 
-        Label emptyLabel = new Label("No media yet.\nClick Import to add files.");
+        Label emptyLabel = new Label(I18n.t("No media yet.\nClick Import to add files."));
         emptyLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-text-alignment: center;");
         emptyLabel.setAlignment(Pos.CENTER);
         mediaGrid.getChildren().add(emptyLabel);
@@ -1206,7 +1208,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         dropIcon.setFitWidth(150);
         dropIcon.setPreserveRatio(true);
 
-        Label dropLabel = new Label("Drop here to import media");
+        Label dropLabel = new Label(I18n.t("Drop here to import media"));
         dropLabel.setStyle("-fx-text-fill: white; -fx-font-size: 16px; -fx-font-weight: bold;");
 
         mediaDropOverlay.getChildren().addAll(dropIcon, dropLabel);
@@ -1235,9 +1237,9 @@ public class EditorWindow extends Stage implements PropertyContext {
         MenuButton moreBtn = new MenuButton();
         moreBtn.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignD.DOTS_HORIZONTAL));
         moreBtn.getStyleClass().add("button-transparent");
-        MenuItem solidItem = new MenuItem("Solid colour...");
+        MenuItem solidItem = new MenuItem(I18n.t("Solid colour..."));
         solidItem.setOnAction(e -> mediaActions.solidColor());
-        MenuItem unusedItem = new MenuItem("Delete unused files...");
+        MenuItem unusedItem = new MenuItem(I18n.t("Delete unused files..."));
         unusedItem.setOnAction(e -> mediaActions.deleteUnused(com.vanvatcorporation.doubleclips.ProjectLibrary.unused(
                 libraryItems(), com.vanvatcorporation.doubleclips.ProjectLibrary.usage(timeline))));
         moreBtn.getItems().addAll(solidItem, unusedItem);
@@ -1369,13 +1371,13 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void attachMediaMenu(VBox box, com.vanvatcorporation.doubleclips.ProjectLibrary.Item item) {
         ContextMenu menu = new ContextMenu();
-        MenuItem add = new MenuItem("Add to timeline");
+        MenuItem add = new MenuItem(I18n.t("Add to timeline"));
         add.setOnAction(e -> mediaActions.addToTimeline(item));
-        MenuItem rename = new MenuItem("Rename...");
+        MenuItem rename = new MenuItem(I18n.t("Rename..."));
         rename.setOnAction(e -> mediaActions.rename(item));
-        MenuItem replace = new MenuItem("Replace file...");
+        MenuItem replace = new MenuItem(I18n.t("Replace file..."));
         replace.setOnAction(e -> mediaActions.replace(item));
-        MenuItem delete = new MenuItem("Delete");
+        MenuItem delete = new MenuItem(I18n.t("Delete"));
         delete.setOnAction(e -> mediaActions.delete(item));
         menu.getItems().addAll(add, new SeparatorMenuItem(), rename, replace, new SeparatorMenuItem(), delete);
         box.setOnContextMenuRequested(e -> {
@@ -1413,7 +1415,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         @Override
         public void rebuildProxies(File file, ClipType type, MediaHelper.MediaInfo info, Runnable done) {
-            runWithProgress("Processing Media", () -> generateProxies(file, file.getName(), type, info, (d, t) -> { }), done);
+            runWithProgress(I18n.t("Processing Media"), () -> generateProxies(file, file.getName(), type, info, (d, t) -> { }), done);
         }
 
         @Override public void toast(String text) { showToast(text); }
@@ -1431,7 +1433,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         dialog.initModality(Modality.WINDOW_MODAL);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
         dialog.getDialogPane().lookupButton(ButtonType.CANCEL).setVisible(false);
-        VBox content = new VBox(10, new Label("Processing..."), new ProgressIndicator());
+        VBox content = new VBox(10, new Label(I18n.t("Processing...")), new ProgressIndicator());
         content.setAlignment(Pos.CENTER);
         content.setPadding(new Insets(20));
         dialog.getDialogPane().setContent(content);
@@ -1469,7 +1471,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void handleImportMedia(FlowPane mediaGrid) {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Import Media");
+        chooser.setTitle(I18n.t("Import Media"));
         List<File> files = chooser.showOpenMultipleDialog(this);
         if (files == null || files.isEmpty())
             return;
@@ -1478,7 +1480,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void handleImportFiles(List<File> files, FlowPane mediaGrid, float startTime, int trackIdx) {
         Dialog<ButtonType> progressDialog = new Dialog<>();
-        progressDialog.setTitle("Processing Media");
+        progressDialog.setTitle(I18n.t("Processing Media"));
         progressDialog.initOwner(this);
         progressDialog.initModality(Modality.WINDOW_MODAL);
         progressDialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
@@ -1487,7 +1489,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         VBox content = new VBox(10);
         content.setAlignment(Pos.CENTER);
         content.setPadding(new Insets(20));
-        Label desc = new Label("Processing...");
+        Label desc = new Label(I18n.t("Processing..."));
         ProgressIndicator progress = new ProgressIndicator();
         content.getChildren().addAll(desc, progress);
         progressDialog.getDialogPane().setContent(content);
@@ -1915,10 +1917,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         // They show the project's real settings and open them: a change takes effect here at once (see onVideoSettingsChanged).
         fpsBadge = buildStatBadge(String.valueOf(videoSettings.frameRate));
         resBadge = buildStatBadge(resolutionBadgeText());
-        Label hdrLabel = buildStatBadge("SDR");
+        Label hdrLabel = buildStatBadge(I18n.t("SDR"));
         for (Label badge : new Label[]{fpsBadge, resBadge, hdrLabel}) {
             badge.setCursor(javafx.scene.Cursor.HAND);
-            badge.setTooltip(new javafx.scene.control.Tooltip("Video settings"));
+            badge.setTooltip(new javafx.scene.control.Tooltip(I18n.t("Video settings")));
             badge.setOnMouseClicked(e -> openVideoSettings());
         }
         Label fpsLabel = fpsBadge;
@@ -2007,11 +2009,11 @@ public class EditorWindow extends Stage implements PropertyContext {
         suggestionsCard.setPadding(new Insets(16));
         suggestionsCard.getStyleClass().add("suggestions-card");
 
-        Label suggTitle = new Label("Smart suggestions");
+        Label suggTitle = new Label(I18n.t("Smart suggestions"));
         suggTitle.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
-        Label suggSub = new Label("Find out how your video\ncan be improved");
+        Label suggSub = new Label(I18n.t("Find out how your video\ncan be improved"));
         suggSub.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
-        Button analyzeBtn = new Button("+ Analyze");
+        Button analyzeBtn = new Button(I18n.t("+ Analyze"));
         analyzeBtn.getStyleClass().add("analyze-button");
 
         suggestionsCard.getChildren().addAll(suggTitle, suggSub, analyzeBtn);
@@ -2019,7 +2021,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         // Global edits section
         VBox globalEdits = new VBox(4);
         globalEdits.setPadding(new Insets(16));
-        Label geTitle = new Label("Global edits");
+        Label geTitle = new Label(I18n.t("Global edits"));
         geTitle.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
         globalEdits.getChildren().add(geTitle);
 
@@ -2092,7 +2094,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         HBox.setHgrow(toolSpacer, Priority.ALWAYS);
 
         // Right cluster (zoom, waveform toggle, snap)
-        Label zoomLabel = new Label("Zoom");
+        Label zoomLabel = new Label(I18n.t("Zoom"));
         zoomLabel.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");
         zoomSlider = new Slider(1, 2000, 100); // 1px to 1000px per second
         zoomSlider.setPrefWidth(100);
@@ -2103,26 +2105,26 @@ public class EditorWindow extends Stage implements PropertyContext {
         });
 
         Button keyframeBtn = buildToolBtn(MaterialDesignD.DIAMOND);
-        keyframeBtn.setTooltip(new Tooltip("Add Keyframe at Playhead"));
+        keyframeBtn.setTooltip(new Tooltip(I18n.t("Add Keyframe at Playhead")));
         keyframeBtn.setOnAction(e -> handleAddKeyframe());
 
         Button clearKfBtn = buildToolBtn(MaterialDesignD.DIAMOND_OUTLINE);
-        clearKfBtn.setTooltip(new Tooltip("Clear All Keyframes"));
+        clearKfBtn.setTooltip(new Tooltip(I18n.t("Clear All Keyframes")));
         clearKfBtn.setOnAction(e -> handleClearKeyframes());
 
         Button textTool = buildToolBtn(MaterialDesignF.FORMAT_TEXT);
-        textTool.setTooltip(new Tooltip("Add Text Clip"));
+        textTool.setTooltip(new Tooltip(I18n.t("Add Text Clip")));
         textTool.setOnAction(e -> handleAddText());
 
         Button micBtn = buildToolBtn(MaterialDesignM.MICROPHONE);
-        micBtn.setTooltip(new Tooltip("Voiceover"));
+        micBtn.setTooltip(new Tooltip(I18n.t("Voiceover")));
         micBtn.setOnAction(e -> openVoiceover());
 
         // Preview options button (left of zoom slider)
         Button previewOptionsBtn = new Button();
         previewOptionsBtn.setGraphic(new FontIcon(MaterialDesignT.TUNE));
         previewOptionsBtn.getStyleClass().add("button-transparent");
-        previewOptionsBtn.setTooltip(new Tooltip("Preview Options"));
+        previewOptionsBtn.setTooltip(new Tooltip(I18n.t("Preview Options")));
         javafx.stage.Popup previewOptionsPopup = buildPreviewOptionsPopup();
         previewOptionsBtn.setOnAction(e -> {
             if (previewOptionsPopup.isShowing()) {
@@ -3246,7 +3248,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     public void handleImportKeyframes() {
         if (selectedClip == null) return;
         FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("Import Keyframes");
+        fileChooser.setTitle(I18n.t("Import Keyframes"));
         fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Files", "*.json"));
         File file = fileChooser.showOpenDialog(this);
         if (file != null) {
@@ -3287,7 +3289,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     public void handleExportKeyframes() {
         if (selectedClip == null) return;
         FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("Export Keyframes");
+        fileChooser.setTitle(I18n.t("Export Keyframes"));
         fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Files", "*.json"));
         fileChooser.setInitialFileName(selectedClip.getClipName() + "_keyframes.json");
         File file = fileChooser.showSaveDialog(this);
@@ -4403,7 +4405,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             Label grip = new Label();
             grip.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignD.DRAG));
             grip.setStyle("-fx-cursor: move; -fx-padding: 6 2 6 0;");
-            grip.setTooltip(new Tooltip("Drag to reorder - a lower track is drawn on top"));
+            grip.setTooltip(new Tooltip(I18n.t("Drag to reorder - a lower track is drawn on top")));
             grip.setOnMousePressed(e -> trackGripPressed(index, e));
             grip.setOnMouseDragged(this::trackGripDragged);
             grip.setOnMouseReleased(this::trackGripReleased);
@@ -4434,7 +4436,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             more.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignD.DOTS_HORIZONTAL));
             more.getStyleClass().add("button-transparent");
             more.setStyle("-fx-padding: 2px;");
-            more.setTooltip(new Tooltip("Track actions"));
+            more.setTooltip(new Tooltip(I18n.t("Track actions")));
             more.setOnAction(e -> trackActions.menuFor(track).show(more, javafx.geometry.Side.BOTTOM, 0, 0));
             header.getChildren().add(more);
         }

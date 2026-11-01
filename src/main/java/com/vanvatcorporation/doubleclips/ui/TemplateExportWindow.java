@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEditNative;
 import com.vanvatcorporation.doubleclips.TemplateAvailability;
@@ -44,10 +46,10 @@ public class TemplateExportWindow extends Stage {
     private final TextArea logTextArea = new TextArea();
     private final ProgressBar taskProgressBar = new ProgressBar(0);
     private final ProgressBar globalProgressBar = new ProgressBar(0);
-    private final Label taskStatusLabel = new Label("Ready");
-    private final Label globalStatusLabel = new Label("No tasks running");
+    private final Label taskStatusLabel = new Label(I18n.t("Ready"));
+    private final Label globalStatusLabel = new Label(I18n.t("No tasks running"));
     
-    private final Button exportButton = new Button("Export");
+    private final Button exportButton = new Button(I18n.t("Export"));
 
     public static void showInstance(TemplateData data) {
         if (currentInstance != null) {
@@ -81,13 +83,13 @@ public class TemplateExportWindow extends Stage {
         content.setPadding(new Insets(20));
         
         // Section: Clip Replacement
-        VBox clipsSection = createSection("Clip Replacement", createClipsPane());
+        VBox clipsSection = createSection(I18n.t("Clip Replacement"), createClipsPane());
         
         // Section: Advanced (FFmpeg Command)
-        VBox advancedSection = createSection("Advanced Settings", createAdvancedPane());
+        VBox advancedSection = createSection(I18n.t("Advanced Settings"), createAdvancedPane());
         
         // Section: Log & Progress
-        VBox logSection = createSection("Export Progress & Logs", createLogPane());
+        VBox logSection = createSection(I18n.t("Export Progress & Logs"), createLogPane());
         
         content.getChildren().addAll(clipsSection, advancedSection, logSection);
         scrollPane.setContent(content);
@@ -121,7 +123,7 @@ public class TemplateExportWindow extends Stage {
         backBtn.getStyleClass().addAll("button-transparent", "button-icon-only");
         backBtn.setOnAction(e -> close());
 
-        Label title = new Label("Export Template");
+        Label title = new Label(I18n.t("Export Template"));
         title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
         HBox.setHgrow(title, Priority.ALWAYS);
 
@@ -156,7 +158,7 @@ public class TemplateExportWindow extends Stage {
 
     private Node createAdvancedPane() {
         VBox pane = new VBox(15);
-        Button genCmdBtn = new Button("Generate FFmpeg Command");
+        Button genCmdBtn = new Button(I18n.t("Generate FFmpeg Command"));
         genCmdBtn.setOnAction(e -> generateCommand(data.getTemplateAdditionalResourcesName()));
         
         commandTextArea.setEditable(true);
@@ -184,9 +186,9 @@ public class TemplateExportWindow extends Stage {
         progressBars.getChildren().addAll(taskBox, globalBox);
         
         HBox options = new HBox(15);
-        CheckBox logCheck = new CheckBox("Enable Log");
-        CheckBox scrollCheck = new CheckBox("Scroll Lock");
-        CheckBox truncateCheck = new CheckBox("Truncate");
+        CheckBox logCheck = new CheckBox(I18n.t("Enable Log"));
+        CheckBox scrollCheck = new CheckBox(I18n.t("Scroll Lock"));
+        CheckBox truncateCheck = new CheckBox(I18n.t("Truncate"));
         logCheck.setSelected(true);
         scrollCheck.setSelected(true);
         options.getChildren().addAll(logCheck, scrollCheck, truncateCheck);
@@ -222,23 +224,23 @@ public class TemplateExportWindow extends Stage {
 
     private void fetchFFmpegCommand() {
         if (data.hasVerifiedFfmpegCommand()) {
-            taskStatusLabel.setText("Template ready.");
+            taskStatusLabel.setText(I18n.t("Template ready."));
             logTextArea.appendText("FFmpeg command template was already fetched.\n");
             return;
         }
-        taskStatusLabel.setText("Fetching FFmpeg template...");
+        taskStatusLabel.setText(I18n.t("Fetching FFmpeg template..."));
         Thread t = new Thread(() -> {
             try {
                 String command = TemplateAvailability.fetchCommand(data);
                 Platform.runLater(() -> {
                     data.setFfmpegCommand(command);
                     data.setFfmpegVerified(true);
-                    taskStatusLabel.setText("Template ready.");
+                    taskStatusLabel.setText(I18n.t("Template ready."));
                     logTextArea.appendText("Successfully fetched FFmpeg command template.\n");
                 });
             } catch (Exception e) {
                 Platform.runLater(() -> {
-                    taskStatusLabel.setText("Failed to fetch template.");
+                    taskStatusLabel.setText(I18n.t("Failed to fetch template."));
                     logTextArea.appendText("Error fetching command: " + e.getMessage() + "\n");
                 });
             }
@@ -338,21 +340,21 @@ public class TemplateExportWindow extends Stage {
             "Template Export: " + data.getTemplateTitle(),
             () -> Platform.runLater(() -> {
                 exportButton.setDisable(false);
-                taskStatusLabel.setText("Export Completed!");
+                taskStatusLabel.setText(I18n.t("Export Completed!"));
                 logTextArea.appendText("\n>>> EXPORT FINISHED SUCCESS <<<\n");
                 // The render succeeded: the template was used. (The server ignores an exact double-fire.)
                 com.vanvatcorporation.doubleclips.auth.TemplateRepository.getInstance().postUse(data);
                 
                 Alert alert = new Alert(Alert.AlertType.INFORMATION);
                 alert.initOwner(this);
-                alert.setTitle("Export Complete");
-                alert.setHeaderText("Success!");
-                alert.setContentText("Your video has been exported successfully.");
+                alert.setTitle(I18n.t("Export Complete"));
+                alert.setHeaderText(I18n.t("Success!"));
+                alert.setContentText(I18n.t("Your video has been exported successfully."));
                 alert.showAndWait();
             }),
             () -> Platform.runLater(() -> {
                 exportButton.setDisable(false);
-                taskStatusLabel.setText("Export Failed");
+                taskStatusLabel.setText(I18n.t("Export Failed"));
                 logTextArea.appendText("\n>>> EXPORT FAILED <<<\n");
             }),
             log -> Platform.runLater(() -> logTextArea.appendText(log + "\n")),

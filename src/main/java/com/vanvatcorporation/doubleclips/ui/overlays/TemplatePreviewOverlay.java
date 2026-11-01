@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.TemplateAvailability;
 import com.vanvatcorporation.doubleclips.TemplateStripMath;
@@ -163,7 +165,7 @@ public class TemplatePreviewOverlay extends StackPane {
         bookmarkBtn.getStyleClass().add("template-chip");
         bookmarkBtn.setOnAction(e -> toggleBookmark());
 
-        Button use = new Button("Use template");
+        Button use = new Button(I18n.t("Use template"));
         use.getStyleClass().add("button-primary");
         use.setStyle("-fx-font-weight: bold; -fx-font-size: 14px; -fx-padding: 9 22; -fx-background-radius: 10;");
         use.setOnAction(e -> useTemplate());
@@ -172,7 +174,7 @@ public class TemplatePreviewOverlay extends StackPane {
         Button closeBtn = new Button();
         closeBtn.setGraphic(new FontIcon(MaterialDesignC.CLOSE));
         closeBtn.getStyleClass().add("button-transparent");
-        closeBtn.setTooltip(new javafx.scene.control.Tooltip("Close (Esc)"));
+        closeBtn.setTooltip(new javafx.scene.control.Tooltip(I18n.t("Close (Esc)")));
         closeBtn.setOnAction(e -> close());
 
         HBox header = new HBox(12, titles, likeBtn, bookmarkBtn, use, closeBtn);
@@ -263,14 +265,14 @@ public class TemplatePreviewOverlay extends StackPane {
         timelineNote.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
         VBox clipsBody = new VBox(12, slotsHint, slotsFlow, timelineNote);
         clipsBody.setPadding(new Insets(16, 4, 10, 4));
-        clipsTab = new Tab("Your clips", scroll(clipsBody));
+        clipsTab = new Tab(I18n.t("Your clips"), scroll(clipsBody));
 
-        Tab aboutTab = new Tab("About", scroll(aboutBody));
+        Tab aboutTab = new Tab(I18n.t("About"), scroll(aboutBody));
         aboutBody.setPadding(new Insets(16, 4, 10, 4));
         rebuildAbout();
 
         int n = Math.max(data.getCommentCount(), data.getComments().size());   // the server's count; the list fills when opened
-        Tab commentsTab = new Tab("Comments" + (n > 0 ? " (" + n + ")" : ""), scroll(buildComments()));
+        Tab commentsTab = new Tab(I18n.t("Comments") + (n > 0 ? " (" + n + ")" : ""), scroll(buildComments()));
 
         tabs.getTabs().addAll(clipsTab, aboutTab, commentsTab);
         return tabs;
@@ -288,7 +290,7 @@ public class TemplatePreviewOverlay extends StackPane {
         VBox box = new VBox(14);
         box.setPadding(new Insets(16, 4, 10, 4));
         if (data.getComments().isEmpty()) {
-            Label none = new Label("No comments yet.");
+            Label none = new Label(I18n.t("No comments yet."));
             none.setStyle("-fx-text-fill: -color-fg-muted;");
             box.getChildren().add(none);
             return box;
@@ -425,25 +427,25 @@ public class TemplatePreviewOverlay extends StackPane {
         aboutBody.getChildren().add(description);
 
         VBox facts = new VBox(6);
-        facts.getChildren().add(fact("Made by", "@" + data.getTemplateAuthor()));
+        facts.getChildren().add(fact(I18n.t("Made by"), "@" + data.getTemplateAuthor()));
         if (data.getTemplateTimestamp() > 0) {
-            facts.getChildren().add(fact("Updated", DateFormat.getDateInstance(DateFormat.MEDIUM).format(new Date(data.getTemplateTimestamp()))));
+            facts.getChildren().add(fact(I18n.t("Updated"), DateFormat.getDateInstance(DateFormat.MEDIUM).format(new Date(data.getTemplateTimestamp()))));
         }
         double total = totalSeconds();
-        if (total > 0) facts.getChildren().add(fact("Length", TemplateStripMath.clock(total)));
-        if (info != null) facts.getChildren().add(fact("Clips to replace", String.valueOf(info.slots.size())));
+        if (total > 0) facts.getChildren().add(fact(I18n.t("Length"), TemplateStripMath.clock(total)));
+        if (info != null) facts.getChildren().add(fact(I18n.t("Clips to replace"), String.valueOf(info.slots.size())));
         if (info != null && info.canvas != null && info.canvas.videoWidth > 0) {
             String fps = info.canvas.frameRate > 0 ? " \u00B7 " + info.canvas.frameRate + " fps" : "";
-            facts.getChildren().add(fact("Made for", info.canvas.videoWidth + " \u00D7 " + info.canvas.videoHeight + fps));
+            facts.getChildren().add(fact(I18n.t("Made for"), info.canvas.videoWidth + " \u00D7 " + info.canvas.videoHeight + fps));
         }
-        facts.getChildren().add(fact("Format", data.hasTimeline()
+        facts.getChildren().add(fact(I18n.t("Format"), data.hasTimeline()
                 ? (data.isFfmpegAvailable() ? "Timeline template (also has an FFmpeg version)" : "Timeline template")
                 : "Classic template (FFmpeg)"));
         String[] res = data.getTemplateAdditionalResourcesName();
         int files = 0;
         if (res != null) for (String r : res) if (r != null && !r.isEmpty()) files++;
-        if (files > 0) facts.getChildren().add(fact("Included files", String.valueOf(files)));
-        facts.getChildren().add(fact("Views / uses", data.getViewCount() + " / " + data.getUseCount()));
+        if (files > 0) facts.getChildren().add(fact(I18n.t("Included files"), String.valueOf(files)));
+        facts.getChildren().add(fact(I18n.t("Views / uses"), data.getViewCount() + " / " + data.getUseCount()));
         aboutBody.getChildren().add(facts);
     }
 
@@ -558,7 +560,7 @@ public class TemplatePreviewOverlay extends StackPane {
     private boolean requireLogin(String what) {
         if (TemplateRepository.getInstance().isLoggedIn()) return true;
         Alert a = new Alert(Alert.AlertType.INFORMATION, "Please log in to " + what + ".");
-        a.setTitle("Login required");
+        a.setTitle(I18n.t("Login required"));
         a.setHeaderText(null);
         a.show();
         return false;
@@ -582,7 +584,7 @@ public class TemplatePreviewOverlay extends StackPane {
 
     private void showActionError(String message) {
         Alert a = new Alert(Alert.AlertType.INFORMATION, message);
-        a.setTitle("Couldn't update");
+        a.setTitle(I18n.t("Couldn't update"));
         a.setHeaderText(null);
         a.show();
     }
@@ -600,10 +602,10 @@ public class TemplatePreviewOverlay extends StackPane {
         }
         // Not checked yet (or the last check only failed on the network): check now, holding the button meanwhile.
         useButton.setDisable(true);
-        useButton.setText("Checking\u2026");
+        useButton.setText(I18n.t("Checking\u2026"));
         TemplateAvailability.start(data).thenAccept(result -> Platform.runLater(() -> {
             useButton.setDisable(false);
-            useButton.setText("Use template");
+            useButton.setText(I18n.t("Use template"));
             if (!closed) showEnginePicker(result);
         }));
     }
@@ -612,7 +614,7 @@ public class TemplatePreviewOverlay extends StackPane {
         if (!avail.anyEngine()) {
             Alert a = new Alert(Alert.AlertType.INFORMATION,
                     "This template cannot be rendered.\n\nOpenGL: " + avail.timelineWhyNot + "\nFFmpeg: " + avail.ffmpegWhyNot);
-            a.setTitle("Use template");
+            a.setTitle(I18n.t("Use template"));
             a.setHeaderText(null);
             a.show();
             return;

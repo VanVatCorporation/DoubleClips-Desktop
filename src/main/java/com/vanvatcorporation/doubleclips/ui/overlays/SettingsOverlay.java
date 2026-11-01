@@ -1,5 +1,8 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
+import com.vanvatcorporation.doubleclips.i18n.AppLanguage;
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import atlantafx.base.controls.ToggleSwitch;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.data.AppSettings;
@@ -26,6 +29,13 @@ public class SettingsOverlay extends StackPane {
 
     public SettingsOverlay(Consumer<Void> onClose) {
         this.onClose = onClose;
+        build();
+    }
+
+    /** Builds (or, after a language change, rebuilds) the whole settings card in the current language. */
+    private void build() {
+        getChildren().clear();
+        keybindRows.clear();
 
         // Background Dimming
         getStyleClass().add("modal-overlay");
@@ -39,7 +49,7 @@ public class SettingsOverlay extends StackPane {
         // Header
         HBox header = new HBox();
         header.setAlignment(Pos.CENTER_LEFT);
-        Label titleLabel = new Label("App Settings");
+        Label titleLabel = new Label(I18n.t("App Settings"));
         titleLabel.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
         
         Region spacer = new Region();
@@ -62,40 +72,66 @@ public class SettingsOverlay extends StackPane {
         content.setPadding(new Insets(10, 5, 10, 5));
 
         // --- GENERAL GROUP ---
-        VBox generalGroup = createGroup("GENERAL");
+        VBox generalGroup = createGroup(I18n.t("GENERAL"));
         
         // Theme Mode
-        HBox themeRow = createSettingRow("Appearance", "Choose your preferred theme", new FontIcon(MaterialDesignP.PALETTE));
+        HBox themeRow = createSettingRow(I18n.t("Appearance"), I18n.t("Choose your preferred theme"), new FontIcon(MaterialDesignP.PALETTE));
         ComboBox<String> themeCombo = new ComboBox<>();
         themeCombo.getItems().addAll("Dark", "Light", "System");
+        // The values stay "Dark" / "Light" / "System" (the setting is read from them); only what is shown is translated.
+        themeCombo.setConverter(new javafx.util.StringConverter<String>() {
+            @Override public String toString(String value) { return value == null ? "" : I18n.t(value); }
+            @Override public String fromString(String text) { return text; }
+        });
         themeCombo.setValue(capitalize(settings.getThemeMode()));
         themeCombo.setOnAction(e -> settings.setThemeMode(themeCombo.getValue().toLowerCase()));
         themeRow.getChildren().add(themeCombo);
 
+        // Language: "System Default" first, then the languages alphabetically by their own names (they are never translated)
+        HBox languageRow = createSettingRow(I18n.t("Language"), I18n.t("Choose the language of the app"),
+                new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignT.TRANSLATE));
+        ComboBox<LanguageChoice> languageCombo = new ComboBox<>();
+        languageCombo.getItems().add(new LanguageChoice(AppLanguage.SYSTEM, I18n.t("System Default")));
+        for (AppLanguage.Language language : AppLanguage.sortedForPicker()) {
+            languageCombo.getItems().add(new LanguageChoice(language.code, language.nativeName));
+        }
+        LanguageChoice current = languageCombo.getItems().get(0);
+        for (LanguageChoice choice : languageCombo.getItems()) {
+            if (choice.code.equals(settings.getLanguage())) current = choice;
+        }
+        languageCombo.setValue(current);
+        languageCombo.setOnAction(e -> {
+            LanguageChoice picked = languageCombo.getValue();
+            if (picked == null || picked.code.equals(settings.getLanguage())) return;
+            settings.setLanguage(picked.code); // the app switches language (see DoubleClipsDesktop) ...
+            javafx.application.Platform.runLater(this::build); // ... and this card shows it at once
+        });
+        languageRow.getChildren().add(languageCombo);
+
         // Ads Popup
-        HBox adsRow = createSettingRow("Ads Popup", "Show occasional promotional popups", new FontIcon(MaterialDesignB.BULLHORN));
+        HBox adsRow = createSettingRow(I18n.t("Ads Popup"), I18n.t("Show occasional promotional popups"), new FontIcon(MaterialDesignB.BULLHORN));
         ToggleSwitch adsSwitch = new ToggleSwitch();
         adsSwitch.selectedProperty().bindBidirectional(settings.adsPopupProperty());
         adsRow.getChildren().add(adsSwitch);
 
         // Notifications
-        HBox notifyRow = createSettingRow("Early Access Notifications", "Get notified about new features and issues", new FontIcon(MaterialDesignB.BELL_RING));
+        HBox notifyRow = createSettingRow(I18n.t("Early Access Notifications"), I18n.t("Get notified about new features and issues"), new FontIcon(MaterialDesignB.BELL_RING));
         ToggleSwitch notifySwitch = new ToggleSwitch();
         notifySwitch.selectedProperty().bindBidirectional(settings.earlyAccessNotificationsProperty());
         notifyRow.getChildren().add(notifySwitch);
 
-        generalGroup.getChildren().addAll(themeRow, new Separator(), adsRow, new Separator(), notifyRow);
+        generalGroup.getChildren().addAll(themeRow, new Separator(), languageRow, new Separator(), adsRow, new Separator(), notifyRow);
         
         // --- KEYBOARD SHORTCUTS ---
-        VBox shortcutsGroup = createGroup("KEYBOARD SHORTCUTS");
-        HBox undoRow = createKeybindRow("Undo", "Shortcut to revert last action", settings.undoKeybindProperty());
-        HBox redoRow = createKeybindRow("Redo", "Shortcut to re-apply reverted action", settings.redoKeybindProperty());
-        HBox deleteRow = createKeybindRow("Delete Clip/Track", "Shortcut to delete selected items", settings.deleteKeybindProperty());
-        HBox selectAllRow = createKeybindRow("Select All", "Shortcut to select all clips", settings.selectAllKeybindProperty());
-        HBox togglePlayRow = createKeybindRow("Toggle Play/Pause", "Shortcut to play/pause preview", settings.togglePlayKeybindProperty());
-        HBox copyRow = createKeybindRow("Copy", "Shortcut to copy elements", settings.toggleCopyProperty());
-        HBox cutRow = createKeybindRow("Cut", "Shortcut to cut elements (they move when you paste)", settings.toggleCutProperty());
-        HBox pasteRow = createKeybindRow("Paste", "Shortcut to paste elements", settings.togglePasteProperty());
+        VBox shortcutsGroup = createGroup(I18n.t("KEYBOARD SHORTCUTS"));
+        HBox undoRow = createKeybindRow(I18n.t("Undo"), I18n.t("Shortcut to revert last action"), settings.undoKeybindProperty());
+        HBox redoRow = createKeybindRow(I18n.t("Redo"), I18n.t("Shortcut to re-apply reverted action"), settings.redoKeybindProperty());
+        HBox deleteRow = createKeybindRow(I18n.t("Delete Clip/Track"), I18n.t("Shortcut to delete selected items"), settings.deleteKeybindProperty());
+        HBox selectAllRow = createKeybindRow(I18n.t("Select All"), I18n.t("Shortcut to select all clips"), settings.selectAllKeybindProperty());
+        HBox togglePlayRow = createKeybindRow(I18n.t("Toggle Play/Pause"), I18n.t("Shortcut to play/pause preview"), settings.togglePlayKeybindProperty());
+        HBox copyRow = createKeybindRow(I18n.t("Copy"), I18n.t("Shortcut to copy elements"), settings.toggleCopyProperty());
+        HBox cutRow = createKeybindRow(I18n.t("Cut"), I18n.t("Shortcut to cut elements (they move when you paste)"), settings.toggleCutProperty());
+        HBox pasteRow = createKeybindRow(I18n.t("Paste"), I18n.t("Shortcut to paste elements"), settings.togglePasteProperty());
         shortcutsGroup.getChildren().addAll(
                 undoRow, new Separator(),
                 redoRow, new Separator(),
@@ -107,14 +143,14 @@ public class SettingsOverlay extends StackPane {
                 pasteRow);
 
         // --- EDITOR LAYOUT ---
-        VBox layoutGroup = createGroup("EDITOR LAYOUT");
-        HBox layoutRow = createSettingRow("Restore default layout",
-                "Dock every panel back in its original place and size (the editor you have open updates right away)",
+        VBox layoutGroup = createGroup(I18n.t("EDITOR LAYOUT"));
+        HBox layoutRow = createSettingRow(I18n.t("Restore default layout"),
+                I18n.t("Dock every panel back in its original place and size (the editor you have open updates right away)"),
                 new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignR.RESTORE));
-        Button restoreLayoutBtn = new Button("Restore");
+        Button restoreLayoutBtn = new Button(I18n.t("Restore"));
         restoreLayoutBtn.setOnAction(e -> {
             com.vanvatcorporation.doubleclips.ui.DockManager.resetAllToDefault();
-            restoreLayoutBtn.setText("Restored \u2713");
+            restoreLayoutBtn.setText(I18n.t("Restored \u2713"));
         });
         restoreLayoutBtn.setMinWidth(Region.USE_PREF_SIZE);
         layoutRow.getChildren().add(restoreLayoutBtn);
@@ -122,9 +158,9 @@ public class SettingsOverlay extends StackPane {
 
         // --- VANVATDRIVE ---
         // This setting lives on the account (shared with the web and the Drive apps), so it is not stored on this computer.
-        VBox driveGroup = createGroup("VANVATDRIVE");
-        HBox thumbsRow = createSettingRow("Preview thumbnails",
-                "Shows small previews of your images in the Storage tab. Every preview downloads the image once, so it uses your daily download allowance.",
+        VBox driveGroup = createGroup(I18n.t("VANVATDRIVE"));
+        HBox thumbsRow = createSettingRow(I18n.t("Preview thumbnails"),
+                I18n.t("Shows small previews of your images in the Storage tab. Every preview downloads the image once, so it uses your daily download allowance."),
                 new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignI.IMAGE_MULTIPLE_OUTLINE));
         ToggleSwitch thumbsSwitch = new ToggleSwitch();
         thumbsSwitch.setSelected(true);
@@ -132,10 +168,10 @@ public class SettingsOverlay extends StackPane {
         thumbsRow.getChildren().add(thumbsSwitch);
         driveGroup.getChildren().add(thumbsRow);
         // The full pages (web): the Terms of Service of Van Vat Drive and the shared Privacy Policy.
-        javafx.scene.control.Hyperlink terms = new javafx.scene.control.Hyperlink("Terms of Service");
+        javafx.scene.control.Hyperlink terms = new javafx.scene.control.Hyperlink(I18n.t("Terms of Service"));
         terms.setOnAction(e -> com.vanvatcorporation.doubleclips.ui.components.QuotaUi.openUrl(
                 com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive.client.legalPageUrl("terms", null)));
-        javafx.scene.control.Hyperlink privacy = new javafx.scene.control.Hyperlink("Privacy Policy");
+        javafx.scene.control.Hyperlink privacy = new javafx.scene.control.Hyperlink(I18n.t("Privacy Policy"));
         privacy.setOnAction(e -> com.vanvatcorporation.doubleclips.ui.components.QuotaUi.openUrl(
                 com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive.client.legalPageUrl("privacy", null)));
         driveGroup.getChildren().add(new HBox(18, terms, privacy));
@@ -155,9 +191,25 @@ public class SettingsOverlay extends StackPane {
         });
     }
 
+    /** One entry of the language picker: the stored value ("system" or a code) and what is shown for it. */
+    private static final class LanguageChoice {
+        final String code;
+        final String label;
+
+        LanguageChoice(String code, String label) {
+            this.code = code;
+            this.label = label;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
     private void bindDriveThumbnails(ToggleSwitch sw) {
         if (!com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive.hasSession()) {
-            sw.setTooltip(new Tooltip("Sign in from the Profile tab to change this."));
+            sw.setTooltip(new Tooltip(I18n.t("Sign in from the Profile tab to change this.")));
             return;
         }
         Thread loader = new Thread(() -> {
@@ -249,7 +301,7 @@ public class SettingsOverlay extends StackPane {
         keybindRows.put(title, bindProperty);
 
         keyBtn.setOnAction(e -> {
-            keyBtn.setText("Press key...");
+            keyBtn.setText(I18n.t("Press key..."));
             settings.setRecordingKeybind(true); // the editor must not react to this key press
             keyBtn.requestFocus();
 

@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.components;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -27,9 +29,9 @@ public final class TransferProgressWindow {
     }
 
     private final Stage stage = new Stage();
-    private final Label status = new Label("Starting\u2026");
+    private final Label status = new Label(I18n.t("Starting\u2026"));
     private final ProgressBar bar = new ProgressBar(ProgressBar.INDETERMINATE_PROGRESS);
-    private final Button stop = new Button("Stop");
+    private final Button stop = new Button(I18n.t("Stop"));
     private final AtomicBoolean cancel = new AtomicBoolean();
     private final FxCoalescer<Update> updates = new FxCoalescer<>(u -> {
         status.setText(u.text);
@@ -74,7 +76,7 @@ public final class TransferProgressWindow {
     private void requestStop() {
         cancel.set(true);
         stop.setDisable(true);
-        status.setText("Stopping\u2026");
+        status.setText(I18n.t("Stopping\u2026"));
     }
 
     /** Set to true when the user pressed Stop (or closed the window); the transfer checks it. */

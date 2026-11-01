@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.TemplateRenderer;
 import com.vanvatcorporation.doubleclips.TemplateTimelineInfo;
@@ -90,7 +92,7 @@ public final class TemplateUseWindow extends Stage {
     private TemplateRenderer.Prepared lastPrepared;
     private ExportWindow activeExport;
 
-    private final Label subtitle = new Label("Loading the template\u2026");
+    private final Label subtitle = new Label(I18n.t("Loading the template\u2026"));
     private final Label banner = new Label();
     private final Label sectionTitle = new Label();
     private final Label sectionHint = new Label();
@@ -127,7 +129,7 @@ public final class TemplateUseWindow extends Stage {
         tiles.setPrefWrapLength(800);
         ProgressIndicator spinner = new ProgressIndicator();
         spinner.setPrefSize(18, 18);
-        Label importingLabel = new Label("Reading your files\u2026");
+        Label importingLabel = new Label(I18n.t("Reading your files\u2026"));
         importingLabel.getStyleClass().add("storage-meta");
         importingRow.getChildren().addAll(spinner, importingLabel);
         importingRow.setAlignment(Pos.CENTER_LEFT);
@@ -269,13 +271,13 @@ public final class TemplateUseWindow extends Stage {
             return;
         }
         if (groupsStage) {
-            sectionTitle.setText("Choose your media");
+            sectionTitle.setText(I18n.t("Choose your media"));
             sectionHint.setText("Clips with the same coloured dot use the same media: choose it once. You can give single clips their own media on the next step. "
                     + "Select several files at once to fill the next tiles in a row.");
             List<TemplateUseModel.Entry> entries = model.entries();
             for (int i = 0; i < entries.size(); i++) tiles.getChildren().add(entryTile(i, entries.get(i)));
         } else {
-            sectionTitle.setText("Clips");
+            sectionTitle.setText(I18n.t("Clips"));
             sectionHint.setText("Click a clip to choose other media for it (select several files to fill the next clips). "
                     + "Right-click a clip for Properties and Remove. The pencil trims a video.");
             for (int i = 0; i < model.slots.size(); i++) tiles.getChildren().add(clipTile(i));
@@ -288,13 +290,13 @@ public final class TemplateUseWindow extends Stage {
         face.setOnMouseClicked(e -> { if (e.getButton() == MouseButton.PRIMARY) choose(index, false); });
         ContextMenu menu = new ContextMenu();
         if (slot.isFilled()) {
-            MenuItem properties = new MenuItem("Properties\u2026");
+            MenuItem properties = new MenuItem(I18n.t("Properties\u2026"));
             properties.setOnAction(e -> openProperties(index));
-            MenuItem remove = new MenuItem("Remove");
+            MenuItem remove = new MenuItem(I18n.t("Remove"));
             remove.setOnAction(e -> { model.clear(index); render(); });
             menu.getItems().addAll(properties, remove);
         } else {
-            MenuItem choose = new MenuItem("Choose media\u2026");
+            MenuItem choose = new MenuItem(I18n.t("Choose media\u2026"));
             choose.setOnAction(e -> choose(index, false));
             menu.getItems().add(choose);
         }
@@ -309,11 +311,11 @@ public final class TemplateUseWindow extends Stage {
         StackPane face = tileFace(index + 1, shown, entry.members.size() > 1 ? entry.members.size() : 0, false, -1);
         face.setOnMouseClicked(e -> { if (e.getButton() == MouseButton.PRIMARY) choose(index, true); });
         ContextMenu menu = new ContextMenu();
-        MenuItem choose = new MenuItem("Choose media\u2026");
+        MenuItem choose = new MenuItem(I18n.t("Choose media\u2026"));
         choose.setOnAction(e -> choose(index, true));
         menu.getItems().add(choose);
         if (shown.isFilled()) {
-            MenuItem remove = new MenuItem("Remove");
+            MenuItem remove = new MenuItem(I18n.t("Remove"));
             remove.setOnAction(e -> { model.clearEntry(entry); render(); });
             menu.getItems().add(remove);
         }
@@ -395,7 +397,7 @@ public final class TemplateUseWindow extends Stage {
             if (slot.endsEarly()) {
                 Label warn = new Label("!");
                 warn.getStyleClass().add("tpl-warn");
-                javafx.scene.control.Tooltip.install(warn, new javafx.scene.control.Tooltip("Shorter than the template's clip: it will end early."));
+                javafx.scene.control.Tooltip.install(warn, new javafx.scene.control.Tooltip(I18n.t("Shorter than the template's clip: it will end early.")));
                 StackPane.setAlignment(warn, Pos.TOP_RIGHT);
                 StackPane.setMargin(warn, new Insets(8, 8, 0, 0));
                 face.getChildren().add(warn);
@@ -513,7 +515,7 @@ public final class TemplateUseWindow extends Stage {
 
     private void alert(Alert.AlertType type, String header, String text) {
         Alert a = new Alert(type, text, ButtonType.OK);
-        a.setTitle("Use template");
+        a.setTitle(I18n.t("Use template"));
         a.setHeaderText(header);
         a.initOwner(this);
         a.show();
@@ -522,12 +524,12 @@ public final class TemplateUseWindow extends Stage {
     private void startExport() {
         if (preparing || activeExport != null) return;
         if (timelineProblem != null || info == null) {
-            alert(Alert.AlertType.INFORMATION, "The template isn't ready", timelineProblem != null ? timelineProblem : "Its timeline is still loading.");
+            alert(Alert.AlertType.INFORMATION, I18n.t("The template isn't ready"), timelineProblem != null ? timelineProblem : "Its timeline is still loading.");
             return;
         }
         List<Integer> missing = model.missing();
         if (!missing.isEmpty()) {
-            alert(Alert.AlertType.INFORMATION, "Every clip needs media", "Still empty: clip " + missing.toString().replaceAll("[\\[\\]]", "") + ".");
+            alert(Alert.AlertType.INFORMATION, I18n.t("Every clip needs media"), "Still empty: clip " + missing.toString().replaceAll("[\\[\\]]", "") + ".");
             return;
         }
 
@@ -554,7 +556,7 @@ public final class TemplateUseWindow extends Stage {
         preparing = false;
         appendLog(message);
         render();
-        alert(Alert.AlertType.ERROR, "Couldn't prepare the template", message);
+        alert(Alert.AlertType.ERROR, I18n.t("Couldn't prepare the template"), message);
     }
 
     /** The export window is the normal one; the working folder goes when it closes. */

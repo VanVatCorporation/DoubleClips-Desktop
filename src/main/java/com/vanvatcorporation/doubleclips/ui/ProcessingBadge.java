@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.ClipProcessingTracker;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import javafx.animation.PauseTransition;
@@ -25,7 +27,7 @@ final class ProcessingBadge extends VBox {
     private final ProgressIndicator spinner = new ProgressIndicator();
     private final Label tick = new Label("\u2713");
     private final Label title = new Label();
-    private final Label chevron = new Label("\u25BE");
+    private final Label chevron = new Label(I18n.t("\u25BE"));
     private final VBox list = new VBox(3);
     private final PauseTransition hideDone = new PauseTransition(Duration.millis(ClipProcessingTracker.DONE_VISIBLE_MS + 100));
     private boolean expanded;

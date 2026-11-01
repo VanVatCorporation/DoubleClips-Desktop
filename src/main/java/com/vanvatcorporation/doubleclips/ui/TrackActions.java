@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.Track;
@@ -57,16 +59,16 @@ final class TrackActions {
         boolean playheadInside = false;
         for (Clip c : track.clips) if (t > c.startTime && t < c.startTime + c.duration) { playheadInside = true; break; }
 
-        MenuItem selectAll = item("Select all clips in track", empty, () -> selectAllClips(track));
-        MenuItem split = item("Split at playhead", !playheadInside, host::splitHere);
-        MenuItem copy = item("Copy track", false, host::copyTrack);
-        MenuItem paste = item("Paste here", false, host::pasteHere);
-        MenuItem duplicate = item("Duplicate track", false, () -> duplicate(track));
-        MenuItem closeGaps = item("Close gaps", track.clips.size() < 2, () -> closeGaps(track));
-        MenuItem up = item("Move up", index <= 0, () -> move(track, -1));
-        MenuItem down = item("Move down", index < 0 || index >= tl.tracks.size() - 1, () -> move(track, +1));
+        MenuItem selectAll = item(I18n.t("Select all clips in track"), empty, () -> selectAllClips(track));
+        MenuItem split = item(I18n.t("Split at playhead"), !playheadInside, host::splitHere);
+        MenuItem copy = item(I18n.t("Copy track"), false, host::copyTrack);
+        MenuItem paste = item(I18n.t("Paste here"), false, host::pasteHere);
+        MenuItem duplicate = item(I18n.t("Duplicate track"), false, () -> duplicate(track));
+        MenuItem closeGaps = item(I18n.t("Close gaps"), track.clips.size() < 2, () -> closeGaps(track));
+        MenuItem up = item(I18n.t("Move up"), index <= 0, () -> move(track, -1));
+        MenuItem down = item(I18n.t("Move down"), index < 0 || index >= tl.tracks.size() - 1, () -> move(track, +1));
         MenuItem mute = item(track.muted ? "Unmute track" : "Mute track", false, () -> toggleMute(track));
-        MenuItem delete = item("Delete track", false, () -> delete(track));
+        MenuItem delete = item(I18n.t("Delete track"), false, () -> delete(track));
 
         ContextMenu menu = new ContextMenu();
         menu.getItems().addAll(selectAll, split, closeGaps,

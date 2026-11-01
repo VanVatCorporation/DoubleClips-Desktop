@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.panes;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
 import com.vanvatcorporation.doubleclips.auth.User;
@@ -52,10 +54,10 @@ public class ProfilePane extends VBox {
         avatarCircle.setStyle("-fx-stroke: -color-border-subtle;");
         avatarCircle.setStrokeWidth(2);
 
-        nameLabel = new Label("User Name");
+        nameLabel = new Label(I18n.t("User Name"));
         nameLabel.setStyle("-fx-font-size: 28px; -fx-font-weight: bold;");
         
-        emailLabel = new Label("user@example.com");
+        emailLabel = new Label(I18n.t("user@example.com"));
         emailLabel.getStyleClass().add("text-muted");
 
         profileHeader.getChildren().addAll(avatarCircle, nameLabel, emailLabel);
@@ -65,16 +67,16 @@ public class ProfilePane extends VBox {
         signInPrompt.setAlignment(Pos.CENTER);
         signInPrompt.setPadding(new Insets(40, 0, 40, 0));
 
-        Label promptTitle = new Label("Sign in to DoubleClips");
+        Label promptTitle = new Label(I18n.t("Sign in to DoubleClips"));
         promptTitle.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
         
-        Label promptDesc = new Label("Sign in to sync your projects and access professional templates.");
+        Label promptDesc = new Label(I18n.t("Sign in to sync your projects and access professional templates."));
         promptDesc.getStyleClass().add("text-muted");
         promptDesc.setWrapText(true);
         promptDesc.setMaxWidth(400);
         promptDesc.setAlignment(Pos.CENTER);
 
-        Button signInButton = new Button("Sign In");
+        Button signInButton = new Button(I18n.t("Sign In"));
         signInButton.getStyleClass().addAll("button-primary", "button-large");
         signInButton.setPrefWidth(200);
         signInButton.setOnAction(e -> {
@@ -93,11 +95,11 @@ public class ProfilePane extends VBox {
         generalSettings.getStyleClass().add("settings-group");
         generalSettings.setMaxWidth(500);
 
-        Label generalHeader = new Label("GENERAL");
+        Label generalHeader = new Label(I18n.t("GENERAL"));
         generalHeader.getStyleClass().add("settings-header");
         generalHeader.setPadding(new Insets(0, 0, 8, 4));
 
-        Button settingsBtn = createSettingButton("App Settings", new FontIcon(MaterialDesignC.COG));
+        Button settingsBtn = createSettingButton(I18n.t("App Settings"), new FontIcon(MaterialDesignC.COG));
         settingsBtn.setOnAction(e -> {
             final SettingsOverlay[] overlayRef = new SettingsOverlay[1];
             overlayRef[0] = new SettingsOverlay(v -> {
@@ -113,12 +115,12 @@ public class ProfilePane extends VBox {
         accountSettingsGroup.getStyleClass().add("settings-group");
         accountSettingsGroup.setMaxWidth(500);
 
-        Label accountHeader = new Label("ACCOUNT");
+        Label accountHeader = new Label(I18n.t("ACCOUNT"));
         accountHeader.getStyleClass().add("settings-header");
         accountHeader.setPadding(new Insets(0, 0, 8, 4));
 
         accountSettingsGroup.getChildren().addAll(
-                createSettingButton("Statistics", new FontIcon(MaterialDesignP.POLL)),
+                createSettingButton(I18n.t("Statistics"), new FontIcon(MaterialDesignP.POLL)),
                 new Separator(),
                 templatesButton("My Templates", new FontIcon(MaterialDesignF.FOLDER), TemplateFeedSource.mine()),
                 new Separator(),
@@ -196,7 +198,7 @@ public class ProfilePane extends VBox {
     }
 
     private Button createLogoutButton() {
-        Button btn = createSettingButton("Log Out", new FontIcon(MaterialDesignL.LOGOUT));
+        Button btn = createSettingButton(I18n.t("Log Out"), new FontIcon(MaterialDesignL.LOGOUT));
         btn.setStyle("-fx-text-fill: -color-danger-fg;");
         if (btn.getGraphic() != null) {
             // coloured by the stylesheet: an inline -fx-icon-color makes the icon lose its font (striped box)
@@ -208,9 +210,9 @@ public class ProfilePane extends VBox {
 
     private void handleLogout() {
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Log Out");
-        alert.setHeaderText("Log out from DoubleClips?");
-        alert.setContentText("Are you sure you want to log out?");
+        alert.setTitle(I18n.t("Log Out"));
+        alert.setHeaderText(I18n.t("Log out from DoubleClips?"));
+        alert.setContentText(I18n.t("Are you sure you want to log out?"));
         
         alert.showAndWait().ifPresent(response -> {
             if (response == ButtonType.OK) {

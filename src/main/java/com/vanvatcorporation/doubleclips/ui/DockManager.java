@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.google.gson.Gson;
 import com.vanvatcorporation.doubleclips.data.AppSettings;
 import javafx.animation.PauseTransition;
@@ -145,7 +147,7 @@ public final class DockManager {
             grip.setStyle("-fx-background-color: transparent;");
             grip.setOnMouseEntered(e -> grip.setStyle("-fx-background-color: rgba(128,128,128,0.18);"));
             grip.setOnMouseExited(e -> grip.setStyle("-fx-background-color: transparent;"));
-            Tooltip.install(grip, new Tooltip("Drag to move or pop out \u2022 double-click to float / dock"));
+            Tooltip.install(grip, new Tooltip(I18n.t("Drag to move or pop out \u2022 double-click to float / dock")));
 
             getChildren().addAll(grip, content);
             if (bottom) setPrefHeight(size); else setPrefWidth(size);
@@ -239,7 +241,7 @@ public final class DockManager {
         Label close = new Label("\u2715");
         close.setStyle("-fx-font-size: 10px; -fx-opacity: 0.6; -fx-cursor: hand;");
         close.setPadding(new Insets(0, 8, 0, 8));
-        Tooltip.install(close, new Tooltip("Close"));
+        Tooltip.install(close, new Tooltip(I18n.t("Close")));
         StackPane.setAlignment(close, Pos.CENTER_RIGHT);
         close.setOnMousePressed(e -> e.consume());                    // not the start of a grip drag
         close.setOnMouseClicked(e -> { dismissPanel(p); e.consume(); });

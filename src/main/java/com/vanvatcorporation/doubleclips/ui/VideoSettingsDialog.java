@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.editing.VideoSettings;
 import javafx.geometry.Insets;
 import javafx.scene.control.ButtonType;
@@ -60,7 +62,7 @@ final class VideoSettingsDialog {
     /** Shows the dialog; null when cancelled or nothing was changed. */
     static Change show(Window owner, VideoSettings settings) {
         Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("Video Settings");
+        dialog.setTitle(I18n.t("Video Settings"));
         if (owner != null) dialog.initOwner(owner);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
@@ -95,37 +97,37 @@ final class VideoSettingsDialog {
         TextField clipCap = field(String.valueOf(settings.clipCap));
 
         int row = 0;
-        grid.add(new Label("Canvas"), 0, row);
+        grid.add(new Label(I18n.t("Canvas")), 0, row);
         grid.add(sizeBox, 1, row++);
-        grid.add(new Label("Width"), 0, row);
+        grid.add(new Label(I18n.t("Width")), 0, row);
         grid.add(width, 1, row++);
-        grid.add(new Label("Height"), 0, row);
+        grid.add(new Label(I18n.t("Height")), 0, row);
         grid.add(height, 1, row++);
-        grid.add(new Label("Frame Rate"), 0, row);
+        grid.add(new Label(I18n.t("Frame Rate")), 0, row);
         grid.add(frameRate, 1, row++);
-        grid.add(new Label("CRF"), 0, row);
+        grid.add(new Label(I18n.t("CRF")), 0, row);
         grid.add(crf, 1, row++);
-        grid.add(new Label("Bitrate (Mbps)"), 0, row);
+        grid.add(new Label(I18n.t("Bitrate (Mbps)")), 0, row);
         grid.add(bitrate, 1, row++);
-        grid.add(new Label("Clip Cap"), 0, row);
+        grid.add(new Label(I18n.t("Clip Cap")), 0, row);
         grid.add(clipCap, 1, row++);
 
         ComboBox<String> presetBox = new ComboBox<>();
         presetBox.getItems().addAll("ultrafast", "superfast", "veryfast", "faster", "fast",
                 "medium", "slow", "slower", "veryslow", "placebo");
         presetBox.setValue(settings.preset != null ? settings.preset : "medium");
-        grid.add(new Label("Preset"), 0, row);
+        grid.add(new Label(I18n.t("Preset")), 0, row);
         grid.add(presetBox, 1, row++);
 
         ComboBox<String> tuneBox = new ComboBox<>();
         tuneBox.getItems().addAll("film", "animation", "grain", "stillimage", "fastdecode", "zerolatency");
         tuneBox.setValue(settings.tune != null ? settings.tune : "film");
-        grid.add(new Label("Tune"), 0, row);
+        grid.add(new Label(I18n.t("Tune")), 0, row);
         grid.add(tuneBox, 1, row++);
 
-        CheckBox stretchCB = new CheckBox("Stretch to Full");
+        CheckBox stretchCB = new CheckBox(I18n.t("Stretch to Full"));
         stretchCB.setSelected(settings.isStretchToFull);
-        CheckBox hwAccelCB = new CheckBox("Hardware Acceleration");
+        CheckBox hwAccelCB = new CheckBox(I18n.t("Hardware Acceleration"));
         hwAccelCB.setSelected(settings.useHardwareAccel);
         grid.add(stretchCB, 0, row++, 2, 1);
         grid.add(hwAccelCB, 0, row, 2, 1);

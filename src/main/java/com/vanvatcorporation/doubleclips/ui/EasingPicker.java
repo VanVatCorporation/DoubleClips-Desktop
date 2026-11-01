@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.editing.EasingType;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -37,7 +39,7 @@ public final class EasingPicker {
     private EasingType selected;
     private final EasingCurveGraph preview;
     private final Label previewName = new Label();
-    private final Label holdNote = new Label("Holds the value until the next keyframe, then jumps.");
+    private final Label holdNote = new Label(I18n.t("Holds the value until the next keyframe, then jumps."));
 
     private EasingPicker(EasingType current, Consumer<EasingType> onPick) {
         this.selected = current == null ? EasingType.NONE : current;
@@ -53,7 +55,7 @@ public final class EasingPicker {
         Stage stage = new Stage();
         if (owner != null) stage.initOwner(owner);
         stage.initModality(Modality.NONE);
-        stage.setTitle("Easing");
+        stage.setTitle(I18n.t("Easing"));
         Scene scene = new Scene(picker.buildRoot(stage), 440, 640);
         if (owner != null && owner.getScene() != null) scene.getStylesheets().addAll(owner.getScene().getStylesheets());
         scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) stage.close(); });
@@ -64,11 +66,11 @@ public final class EasingPicker {
     }
 
     private VBox buildRoot(Stage stage) {
-        Label title = new Label("Easing");
+        Label title = new Label(I18n.t("Easing"));
         title.setStyle("-fx-font-size: 17px; -fx-font-weight: bold;");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        Button done = new Button("Done");
+        Button done = new Button(I18n.t("Done"));
         done.setOnAction(e -> stage.close());
         HBox header = new HBox(title, spacer, done);
         header.setAlignment(Pos.CENTER_LEFT);

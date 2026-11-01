@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.editing.AnimatedProperty.KeyState;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.ClipMask;
@@ -118,7 +120,7 @@ final class MaskSection {
 
     /** "Edit on canvas": the preview shows the mask's shape and handles; off gives the clip's own move / scale / rotate box back. */
     private Node buildCanvasToggle() {
-        Label lbl = new Label("Edit on canvas");
+        Label lbl = new Label(I18n.t("Edit on canvas"));
         lbl.getStyleClass().add("text-muted");
         lbl.setStyle("-fx-font-size: 11px;");
         Region spacer = new Region();
@@ -264,7 +266,7 @@ final class MaskSection {
                 edit(clip, "Change Mask Mode", list -> list.get(index).mode = chosen);
                 context.updatePropertiesPane();
             });
-            Label lbl = new Label("Combine with previous");
+            Label lbl = new Label(I18n.t("Combine with previous"));
             lbl.getStyleClass().add("text-muted");
             lbl.setStyle("-fx-font-size: 11px;");
             Region spacer = new Region();
@@ -274,7 +276,7 @@ final class MaskSection {
             rows.getChildren().add(modeRow);
         }
 
-        Label invertLbl = new Label("Invert");
+        Label invertLbl = new Label(I18n.t("Invert"));
         invertLbl.getStyleClass().add("text-muted");
         invertLbl.setStyle("-fx-font-size: 11px;");
         Region spacer = new Region();
@@ -291,7 +293,7 @@ final class MaskSection {
         invertRow.setAlignment(Pos.CENTER_LEFT);
         rows.getChildren().add(invertRow);
 
-        Button delete = new Button("Delete mask");
+        Button delete = new Button(I18n.t("Delete mask"));
         delete.getStyleClass().add("tool-button");
         delete.setOnAction(e -> {
             edit(clip, "Delete Mask", list -> list.remove(index));

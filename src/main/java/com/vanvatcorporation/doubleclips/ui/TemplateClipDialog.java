@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.TemplateUseModel;
 import com.vanvatcorporation.doubleclips.ui.components.AppUi;
 import com.vanvatcorporation.doubleclips.ui.components.MediaThumbnails;
@@ -65,7 +67,7 @@ final class TemplateClipDialog {
         VBox trimCard = new VBox(10);
         trimCard.getStyleClass().add("storage-card");
         trimCard.setPadding(new Insets(16, 18, 16, 18));
-        Label trimTitle = new Label("Trim");
+        Label trimTitle = new Label(I18n.t("Trim"));
         trimTitle.getStyleClass().add("storage-section-title");
 
         final boolean trimmable = slot.kind == TemplateUseModel.Kind.VIDEO && slot.mediaDuration > 0;
@@ -82,7 +84,7 @@ final class TemplateClipDialog {
                     : "The template does not say how long this clip lasts.");
             keeps.getStyleClass().add("tpl-hint");
             keeps.setWrapText(true);
-            Label warn = new Label("This is shorter than the template's clip: it will end early.");
+            Label warn = new Label(I18n.t("This is shorter than the template's clip: it will end early."));
             warn.getStyleClass().add("storage-meta-error");
             warn.setWrapText(true);
 
@@ -102,7 +104,7 @@ final class TemplateClipDialog {
             HBox.setHgrow(sp, Priority.ALWAYS);
             trimCard.getChildren().addAll(new HBox(8, trimTitle, sp, range), slider[0], length, keeps, warn);
         } else if (slot.kind == TemplateUseModel.Kind.VIDEO) {
-            Label none = new Label("This video's length could not be read, so it plays from its start for as long as the template needs.");
+            Label none = new Label(I18n.t("This video's length could not be read, so it plays from its start for as long as the template needs."));
             none.getStyleClass().add("storage-meta");
             none.setWrapText(true);
             trimCard.getChildren().addAll(trimTitle, none);

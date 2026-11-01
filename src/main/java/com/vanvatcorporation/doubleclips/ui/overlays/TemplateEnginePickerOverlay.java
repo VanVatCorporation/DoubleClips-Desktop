@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.TemplateData;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -62,20 +64,20 @@ public class TemplateEnginePickerOverlay extends StackPane {
         dialog.setMaxSize(560, Region_USE_PREF);
         dialog.setAlignment(Pos.TOP_LEFT);
 
-        Label title = new Label("Choose how to render");
+        Label title = new Label(I18n.t("Choose how to render"));
         title.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
-        Label sub = new Label("This template can be rendered in different ways. The result looks the same.");
+        Label sub = new Label(I18n.t("This template can be rendered in different ways. The result looks the same."));
         sub.getStyleClass().add("text-muted");
         sub.setWrapText(true);
 
         boolean glOk = avail.timelineOk;
         boolean ffOk = avail.ffmpegOk;
-        Node rabbit = card(art("/icons/engine_rabbit.png", Engine.OPENGL), "OpenGL", "Fast",
-                "Renders the template's timeline on the graphics card, like the editor's preview.",
+        Node rabbit = card(art("/icons/engine_rabbit.png", Engine.OPENGL), I18n.t("OpenGL"), I18n.t("Fast"),
+                I18n.t("Renders the template's timeline on the graphics card, like the editor's preview."),
                 glOk, avail.timelineWhyNot,
                 () -> choose(Engine.OPENGL));
-        Node turtle = card(art("/icons/engine_turtle.png", Engine.FFMPEG), "FFmpeg", "Slower",
-                "Runs the template's original FFmpeg command.",
+        Node turtle = card(art("/icons/engine_turtle.png", Engine.FFMPEG), I18n.t("FFmpeg"), I18n.t("Slower"),
+                I18n.t("Runs the template's original FFmpeg command."),
                 ffOk, avail.ffmpegWhyNot,
                 () -> choose(Engine.FFMPEG));
 
@@ -122,7 +124,7 @@ public class TemplateEnginePickerOverlay extends StackPane {
             card.setOnMouseClicked(e -> pick.run());
         } else {
             // Grayed out: no colour, faded, no hover, no click - and it says why.
-            Label why = new Label("Not available for this template");
+            Label why = new Label(I18n.t("Not available for this template"));
             why.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
             card.getChildren().add(why);
             ColorAdjust gray = new ColorAdjust();

@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.components;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.helper.ProjectBackup;
 import javafx.animation.Interpolator;
@@ -66,7 +68,7 @@ public final class QuotaUi {
     }
 
     public static Hyperlink moreResourcesLink() {
-        Hyperlink link = new Hyperlink("Get more resources");
+        Hyperlink link = new Hyperlink(I18n.t("Get more resources"));
         link.setOnAction(e -> openPlans());
         return link;
     }
@@ -92,7 +94,7 @@ public final class QuotaUi {
         clip.heightProperty().bind(details.heightProperty());
         details.setClip(clip);
 
-        Button arrow = new Button("\u25BE");
+        Button arrow = new Button(I18n.t("\u25BE"));
         arrow.setFocusTraversable(false);
         arrow.setStyle("-fx-background-color: transparent; -fx-text-fill: #8E8E93; -fx-padding: 0 6 0 6; -fx-cursor: hand;");
         arrow.setOnAction(e -> {
@@ -133,7 +135,7 @@ public final class QuotaUi {
     public static boolean confirmContinue(Window owner, String title, String message) {
         ButtonType go = new ButtonType("Continue anyway", ButtonBar.ButtonData.OK_DONE);
         Alert a = new Alert(Alert.AlertType.WARNING, message, go, ButtonType.CANCEL);
-        a.setTitle("Storage");
+        a.setTitle(I18n.t("Storage"));
         a.setHeaderText(title);
         if (owner != null) a.initOwner(owner);
         return a.showAndWait().filter(b -> b == go).isPresent();
@@ -153,7 +155,7 @@ public final class QuotaUi {
     public static void blocked(Window owner, String title, String message) {
         ButtonType more = new ButtonType("Get more resources", ButtonBar.ButtonData.LEFT);
         Alert a = new Alert(Alert.AlertType.WARNING, message, more, ButtonType.OK);
-        a.setTitle("Storage");
+        a.setTitle(I18n.t("Storage"));
         a.setHeaderText(title);
         if (owner != null) a.initOwner(owner);
         a.showAndWait().filter(b -> b == more).ifPresent(b -> openPlans());

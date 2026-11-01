@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.ClipProcessingTracker;
 import com.vanvatcorporation.doubleclips.data.editing.AnimatedProperty.KeyState;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
@@ -85,9 +87,9 @@ final class MotionSection {
     private VBox opticalFlowBlock(Clip clip) {
         VBox b = new VBox(10);
         opticalBusy = busyLabel();
-        b.getChildren().add(header("Optical flow", clip.hasOpticalFlow(), opticalBusy, now -> setOpticalFlow(clip, now)));
+        b.getChildren().add(header(I18n.t("Optical flow"), clip.hasOpticalFlow(), opticalBusy, now -> setOpticalFlow(clip, now)));
         if (!clip.hasOpticalFlow()) {
-            b.getChildren().add(note("Makes smooth in-between frames when the clip is slowed down, by following how things move."));
+            b.getChildren().add(note(I18n.t("Makes smooth in-between frames when the clip is slowed down, by following how things move.")));
             return b;
         }
         TextField fps = new TextField(ClipOpticalFlow.format(clip.opticalFlow.effectiveFps()));
@@ -107,7 +109,7 @@ final class MotionSection {
             commitChange(clip, "Change Optical Flow Frame Rate", () -> clip.opticalFlow.fps = typed);
             askAboutProjectRate(clip, owner);
         });
-        b.getChildren().add(row("Frame rate (fps)", fps));
+        b.getChildren().add(row(I18n.t("Frame rate (fps)"), fps));
         b.getChildren().add(note("The project plays at " + context.getVideoSettings().frameRate + " fps. The FFmpeg export makes these frames "
                 + "with minterpolate; the preview and the OpenGL export follow."));
         return b;
@@ -144,8 +146,8 @@ final class MotionSection {
                                 + "Change the project to " + target + " fps, the highest optical flow rate among your clips? "
                                 + "Cancel keeps it at " + project + " fps.",
                         change, cancel);
-                alert.setTitle("Optical flow");
-                alert.setHeaderText("The project frame rate is lower");
+                alert.setTitle(I18n.t("Optical flow"));
+                alert.setHeaderText(I18n.t("The project frame rate is lower"));
                 if (owner != null) alert.initOwner(owner);
                 Optional<ButtonType> answer = alert.showAndWait();
                 if (answer.isPresent() && answer.get() == change) context.changeProjectFrameRate(target);
@@ -160,14 +162,14 @@ final class MotionSection {
     private VBox motionBlurBlock(Clip clip) {
         VBox b = new VBox(12);
         blurBusy = busyLabel();
-        b.getChildren().add(header("Motion blur", clip.hasMotionBlur(), blurBusy, now -> setMotionBlur(clip, now)));
+        b.getChildren().add(header(I18n.t("Motion blur"), clip.hasMotionBlur(), blurBusy, now -> setMotionBlur(clip, now)));
         if (!clip.hasMotionBlur()) {
             b.getChildren().add(note("Streaks moving things along their path, using the same flow between frames. "
                     + "It works on this clip only."));
             return b;
         }
-        addKeyedSlider(b, clip, "Blur", ValueType.MotionBlur);
-        addKeyedSlider(b, clip, "Blend", ValueType.MotionBlend);
+        addKeyedSlider(b, clip, I18n.t("Blur"), ValueType.MotionBlur);
+        addKeyedSlider(b, clip, I18n.t("Blend"), ValueType.MotionBlend);
 
         ComboBox<ClipMotionBlur.Direction> direction = new ComboBox<>();
         direction.getItems().addAll(ClipMotionBlur.Direction.values());
@@ -179,7 +181,7 @@ final class MotionSection {
             if (now == null || now == clip.motionBlur.direction()) return;
             commitChange(clip, "Change Motion Blur Direction", () -> clip.motionBlur.setDirection(now));
         });
-        b.getChildren().add(row("Direction", direction));
+        b.getChildren().add(row(I18n.t("Direction"), direction));
 
         TextField passes = new TextField(String.valueOf(clip.motionBlur.effectivePasses()));
         passes.setPrefWidth(70);
@@ -195,7 +197,7 @@ final class MotionSection {
             if (times == live) return;
             commitChange(clip, "Change Motion Blur Speed", () -> clip.motionBlur.passes = times);
         });
-        b.getChildren().add(row("Speed (times)", passes));
+        b.getChildren().add(row(I18n.t("Speed (times)"), passes));
         b.getChildren().add(note("Speed is how many times the blur is applied: more times, more obvious streaks. "
                 + "Drawn by the OpenGL engine."));
         return b;

@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.panes;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
 import com.vanvatcorporation.doubleclips.auth.TemplateFeedSource;
 import com.vanvatcorporation.doubleclips.ui.TemplateGridView;
@@ -33,10 +35,10 @@ public class TemplatePane extends VBox {
         getStyleClass().add("content-pane");
 
         // 1. Header
-        Label titleLabel = new Label("Templates");
+        Label titleLabel = new Label(I18n.t("Templates"));
         titleLabel.setStyle("-fx-font-size: 32px; -fx-font-weight: bold;");
 
-        Button refreshButton = new Button("Refresh");
+        Button refreshButton = new Button(I18n.t("Refresh"));
         refreshButton.getStyleClass().add("button-transparent");
         refreshButton.setOnAction(e -> gridView.start(wantedSource()));
 
@@ -52,7 +54,7 @@ public class TemplatePane extends VBox {
         searchContainer.setStyle("-fx-background-color: -color-bg-subtle; -fx-background-radius: 25; -fx-border-color: -color-border-subtle; -fx-border-radius: 25;");
 
         FontIcon searchIcon = new FontIcon(MaterialDesignM.MAGNIFY);
-        searchField.setPromptText("Search templates...");
+        searchField.setPromptText(I18n.t("Search templates..."));
         searchField.setStyle("-fx-background-color: transparent; -fx-border-color: transparent; -fx-text-fill: -color-fg-default;");
         HBox.setHgrow(searchField, Priority.ALWAYS);
 

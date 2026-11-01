@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
@@ -92,7 +94,7 @@ public class PostTemplateWindow extends Stage {
         step1.setPadding(new Insets(24));
         step1.setAlignment(Pos.TOP_LEFT);
 
-        Label step1Title = new Label("Preview Template");
+        Label step1Title = new Label(I18n.t("Preview Template"));
         step1Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: white;");
 
         StackPane mediaContainer = new StackPane();
@@ -104,7 +106,7 @@ public class PostTemplateWindow extends Stage {
         
         setupPreview(mediaContainer);
 
-        Button nextBtn = new Button("Next");
+        Button nextBtn = new Button(I18n.t("Next"));
         nextBtn.getStyleClass().addAll("button-primary", "button-large");
         nextBtn.setMaxWidth(Double.MAX_VALUE);
         nextBtn.setOnAction(e -> {
@@ -112,7 +114,7 @@ public class PostTemplateWindow extends Stage {
             goToStep(step1, step2);
         });
 
-        Button cancelBtn1 = new Button("Cancel");
+        Button cancelBtn1 = new Button(I18n.t("Cancel"));
         cancelBtn1.getStyleClass().add("button-transparent");
         cancelBtn1.setMaxWidth(Double.MAX_VALUE);
         cancelBtn1.setOnAction(e -> closeWindow());
@@ -125,27 +127,27 @@ public class PostTemplateWindow extends Stage {
         step2.setPadding(new Insets(24));
         step2.setAlignment(Pos.TOP_LEFT);
 
-        Label step2Title = new Label("Edit Details");
+        Label step2Title = new Label(I18n.t("Edit Details"));
         step2Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: white;");
 
         titleInput = new TextField();
-        titleInput.setPromptText("Template title...");
+        titleInput.setPromptText(I18n.t("Template title..."));
         titleInput.setText(defaultTitle != null ? defaultTitle : "");
         titleInput.setPrefHeight(45);
         titleInput.setStyle("-fx-background-radius: 8;");
 
         descriptionInput = new TextArea();
-        descriptionInput.setPromptText("Add description...");
+        descriptionInput.setPromptText(I18n.t("Add description..."));
         descriptionInput.setPrefHeight(100);
         descriptionInput.setWrapText(true);
         descriptionInput.setStyle("-fx-background-radius: 8;");
 
-        Button uploadBtn = new Button("Upload template");
+        Button uploadBtn = new Button(I18n.t("Upload template"));
         uploadBtn.getStyleClass().addAll("button-primary", "button-large");
         uploadBtn.setMaxWidth(Double.MAX_VALUE);
         uploadBtn.setOnAction(e -> handleUpload());
 
-        Button backBtn2 = new Button("Back");
+        Button backBtn2 = new Button(I18n.t("Back"));
         backBtn2.getStyleClass().add("button-transparent");
         backBtn2.setMaxWidth(Double.MAX_VALUE);
         backBtn2.setOnAction(e -> {
@@ -161,18 +163,18 @@ public class PostTemplateWindow extends Stage {
         step3.setPadding(new Insets(32));
         step3.setAlignment(Pos.CENTER);
 
-        Label step3Title = new Label("Uploading Template...");
+        Label step3Title = new Label(I18n.t("Uploading Template..."));
         step3Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: white;");
 
         progressBar = new ProgressBar(0);
         progressBar.setMaxWidth(Double.MAX_VALUE);
         progressBar.setPrefHeight(20);
 
-        progressLabel = new Label("Uploading... 0%");
+        progressLabel = new Label(I18n.t("Uploading... 0%"));
         progressLabel.getStyleClass().add("text-muted");
 
 
-        Button backBtn = new Button("<- Back");
+        Button backBtn = new Button(I18n.t("<- Back"));
         backBtn.getStyleClass().addAll("button-primary", "button-large");
         backBtn.setMaxWidth(200);
         backBtn.setOnAction(e -> goToStep(step3, step2));
@@ -189,13 +191,13 @@ public class PostTemplateWindow extends Stage {
         successIcon.setIconSize(80);
         successIcon.setIconColor(javafx.scene.paint.Color.web("#34C759"));
 
-        Label step4Title = new Label("Upload Completed!");
+        Label step4Title = new Label(I18n.t("Upload Completed!"));
         step4Title.setStyle("-fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: white;");
-        successTemplateIdText = new Label("Template ID: ...");
+        successTemplateIdText = new Label(I18n.t("Template ID: ..."));
         successTemplateIdText.setAlignment(Pos.CENTER);
         successTemplateIdText.getStyleClass().add("text-muted");
 
-        Button doneBtn = new Button("Done");
+        Button doneBtn = new Button(I18n.t("Done"));
         doneBtn.getStyleClass().addAll("button-primary", "button-large");
         doneBtn.setMaxWidth(200);
         doneBtn.setOnAction(e -> closeWindow());
@@ -280,7 +282,7 @@ public class PostTemplateWindow extends Stage {
 
     private void uploadTemplate() {
         if (AuthRepository.getInstance().getCurrentUser() == null) {
-            new AlertDialog.Builder().setTitle("Login required").setMessage("Please login to post template").create().show();
+            new AlertDialog.Builder().setTitle(I18n.t("Login required")).setMessage(I18n.t("Please login to post template")).create().show();
 
             return;
         }
@@ -325,7 +327,7 @@ public class PostTemplateWindow extends Stage {
         field.put("templateTotalClips", String.valueOf(totalClip));
 
 
-        progressLabel.setText("Uploading template...");
+        progressLabel.setText(I18n.t("Uploading template..."));
 
         ExportWindow.uploadTemplateNecessityItems(
                 new Context(),
@@ -355,7 +357,7 @@ public class PostTemplateWindow extends Stage {
                                 });
                                 setProcessing(false);
                             } catch (Exception e) {
-                                progressLabel.setText("Uploaded successfully, but couldn't parse response.");
+                                progressLabel.setText(I18n.t("Uploaded successfully, but couldn't parse response."));
                             }
                         } else {
                             Platform.runLater(() -> {

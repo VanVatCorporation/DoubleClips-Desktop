@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import javafx.scene.control.PasswordField;
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
@@ -63,10 +65,10 @@ public class LoginOverlay extends StackPane {
             System.err.println("Could not load logo: " + e.getMessage());
         }
         
-        Label titleLabel = new Label("DoubleClips");
+        Label titleLabel = new Label(I18n.t("DoubleClips"));
         titleLabel.setStyle("-fx-font-size: 28px; -fx-font-weight: bold;");
         
-        Label subtitleLabel = new Label("Sign in to your account");
+        Label subtitleLabel = new Label(I18n.t("Sign in to your account"));
         subtitleLabel.getStyleClass().add("text-muted");
         
         branding.getChildren().addAll(logoView, titleLabel, subtitleLabel);
@@ -75,17 +77,17 @@ public class LoginOverlay extends StackPane {
         VBox form = new VBox(15);
         form.setAlignment(Pos.CENTER_LEFT);
         
-        Label emailLabel = new Label("Email or Username");
+        Label emailLabel = new Label(I18n.t("Email or Username"));
         emailField = new TextField();
-        emailField.setPromptText("Enter your email");
+        emailField.setPromptText(I18n.t("Enter your email"));
         emailField.setPrefHeight(45);
         
-        Label passwordLabel = new Label("Password");
+        Label passwordLabel = new Label(I18n.t("Password"));
         passwordField = new PasswordField();
-        passwordField.setPromptText("Enter your password");
+        passwordField.setPromptText(I18n.t("Enter your password"));
         passwordField.setPrefHeight(45);
         
-        rememberMeCheckbox = new CheckBox("Remember Me");
+        rememberMeCheckbox = new CheckBox(I18n.t("Remember Me"));
         rememberMeCheckbox.setSelected(true);
         
         errorLabel = new Label();
@@ -101,13 +103,13 @@ public class LoginOverlay extends StackPane {
         VBox buttons = new VBox(12);
         buttons.setAlignment(Pos.CENTER);
         
-        loginButton = new Button("Sign In");
+        loginButton = new Button(I18n.t("Sign In"));
         loginButton.getStyleClass().addAll("app-button-primary", "app-button-large");
         loginButton.setMaxWidth(Double.MAX_VALUE);
         loginButton.setPrefHeight(50);
         loginButton.setOnAction(e -> handleLogin());
         
-        Button registerBtn = new Button("Don't have an account? Register");
+        Button registerBtn = new Button(I18n.t("Don't have an account? Register"));
         registerBtn.setStyle("-fx-background-color: transparent; -fx-border-color: transparent; -fx-text-fill: -color-accent-fg; -fx-cursor: hand;");
         registerBtn.setOnAction(e -> {
             DoubleClipsDesktop.getInstance().getHostServices().showDocument("https://account.vanvatcorp.com/register");
@@ -160,7 +162,7 @@ public class LoginOverlay extends StackPane {
         String password = passwordField.getText();
         
         if (email.isEmpty() || password.isEmpty()) {
-            showError("Please enter both email and password.");
+            showError(I18n.t("Please enter both email and password."));
             return;
         }
         

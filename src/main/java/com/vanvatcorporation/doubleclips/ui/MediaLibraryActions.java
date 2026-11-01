@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.ProjectLibrary;
 import com.vanvatcorporation.doubleclips.ProjectLibrary.Item;
 import com.vanvatcorporation.doubleclips.ProjectLibrary.Kind;
@@ -134,9 +136,9 @@ public final class MediaLibraryActions {
         String stem = ext.isEmpty() ? item.name : item.name.substring(0, item.name.length() - ext.length() - 1);
         TextInputDialog ask = new TextInputDialog(stem);
         ask.initOwner(host.window());
-        ask.setTitle("Rename");
+        ask.setTitle(I18n.t("Rename"));
         ask.setHeaderText("Rename " + item.name);
-        ask.setContentText("Name:");
+        ask.setContentText(I18n.t("Name:"));
         Optional<String> typed = ask.showAndWait();
         if (!typed.isPresent()) return;
         try {
@@ -270,10 +272,10 @@ public final class MediaLibraryActions {
     public void solidColor() {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.initOwner(host.window());
-        dialog.setTitle("Solid colour");
+        dialog.setTitle(I18n.t("Solid colour"));
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
         ColorPicker picker = new ColorPicker(javafx.scene.paint.Color.web("#2D7DFF"));
-        Label hint = new Label("Makes a 1920x1080 image in the project. Transparency is kept.");
+        Label hint = new Label(I18n.t("Makes a 1920x1080 image in the project. Transparency is kept."));
         hint.setWrapText(true);
         VBox box = new VBox(10, picker, hint);
         box.setPadding(new Insets(12));

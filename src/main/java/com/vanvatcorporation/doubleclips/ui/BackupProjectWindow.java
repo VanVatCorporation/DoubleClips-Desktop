@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.ProjectRepository;
 import com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive;
@@ -49,9 +51,9 @@ public final class BackupProjectWindow {
         list.getItems().addAll(new ArrayList<>(ProjectRepository.getInstance().projectsProperty()));
         list.getStyleClass().add("storage-list");
 
-        Label emptyTitle = new Label("No projects yet");
+        Label emptyTitle = new Label(I18n.t("No projects yet"));
         emptyTitle.getStyleClass().add("storage-empty-title");
-        Label emptyHint = new Label("Create a project first, then come back to back it up.");
+        Label emptyHint = new Label(I18n.t("Create a project first, then come back to back it up."));
         emptyHint.getStyleClass().add("storage-meta");
         emptyHint.setWrapText(true);
         VBox empty = new VBox(8, AppUi.tile(MaterialDesignM.MOVIE, true, true), emptyTitle, emptyHint);
@@ -79,12 +81,12 @@ public final class BackupProjectWindow {
         });
 
         Stage stage = new Stage();
-        stage.setTitle("Back up a project");
+        stage.setTitle(I18n.t("Back up a project"));
         if (owner != null) { stage.initOwner(owner); stage.initModality(Modality.WINDOW_MODAL); }
 
-        Label header = new Label("Back up a project");
+        Label header = new Label(I18n.t("Back up a project"));
         header.getStyleClass().add("storage-dialog-title");
-        Label sub = new Label("Pick a project. It is packed into one ZIP and saved to OpenEditz/Projects in Van Vat Drive.");
+        Label sub = new Label(I18n.t("Pick a project. It is packed into one ZIP and saved to OpenEditz/Projects in Van Vat Drive."));
         sub.getStyleClass().add("storage-subtitle");
         sub.setWrapText(true);
 
@@ -150,7 +152,7 @@ public final class BackupProjectWindow {
                 Platform.runLater(() -> {
                     w.close();
                     TaskbarHelper.stopProgress();
-                    alert(owner, Alert.AlertType.INFORMATION, "Backed up to OpenEditz/Projects", "Saved as:\n" + node.name);
+                    alert(owner, Alert.AlertType.INFORMATION, I18n.t("Backed up to OpenEditz/Projects"), "Saved as:\n" + node.name);
                     if (onDone != null) onDone.run();
                 });
             } catch (CancellationException e) {
@@ -162,11 +164,11 @@ public final class BackupProjectWindow {
                     TaskbarHelper.stopProgress();
                     if (e instanceof DriveError && ((DriveError) e).isTosRequired()) {
                         // New terms were published: the popup (DoubleClipsDrive's tos_required hook) is on its way; say why this stopped.
-                        alert(owner, Alert.AlertType.INFORMATION, "Terms of Service", "Please accept the updated Terms of Service and Privacy Policy, then back up again.");
+                        alert(owner, Alert.AlertType.INFORMATION, I18n.t("Terms of Service"), "Please accept the updated Terms of Service and Privacy Policy, then back up again.");
                     } else if (e instanceof DriveError && ((DriveError) e).isQuotaLimit()) {
                         com.vanvatcorporation.doubleclips.ui.components.QuotaUi.blocked(owner, "Couldn't back up the project", DriveError.describe(e));
                     } else {
-                        alert(owner, Alert.AlertType.ERROR, "Couldn't back up the project", DriveError.describe(e));
+                        alert(owner, Alert.AlertType.ERROR, I18n.t("Couldn't back up the project"), DriveError.describe(e));
                     }
                     if (onDone != null) onDone.run();
                 });
@@ -178,13 +180,13 @@ public final class BackupProjectWindow {
 
     private static boolean signedIn(Window owner) {
         if (DoubleClipsDrive.hasSession()) return true;
-        alert(owner, Alert.AlertType.INFORMATION, "Sign in to back up", "Sign in from the Profile tab to back up your projects to OpenEditz.");
+        alert(owner, Alert.AlertType.INFORMATION, I18n.t("Sign in to back up"), "Sign in from the Profile tab to back up your projects to OpenEditz.");
         return false;
     }
 
     private static void alert(Window owner, Alert.AlertType type, String header, String text) {
         Alert a = new Alert(type, text, ButtonType.OK);
-        a.setTitle("Storage");
+        a.setTitle(I18n.t("Storage"));
         a.setHeaderText(header);
         if (owner != null) a.initOwner(owner);
         a.show();

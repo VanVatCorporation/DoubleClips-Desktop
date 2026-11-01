@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.AnimationChoices;
 import com.vanvatcorporation.doubleclips.ClipAnimation;
 import com.vanvatcorporation.doubleclips.data.editing.*;
@@ -81,7 +83,7 @@ public class PropertyPanel extends VBox {
         tabStrip.getChildren().clear();
         ToggleGroup group = new ToggleGroup();
         for (Tab tab : available) {
-            ToggleButton tb = new ToggleButton(tab.title);
+            ToggleButton tb = new ToggleButton(I18n.t(tab.title));
             tb.setToggleGroup(group);
             tb.getStyleClass().add("editor-tab");
             tb.setMinWidth(0);
@@ -118,7 +120,7 @@ public class PropertyPanel extends VBox {
             }
         }
         if (selectedClip == null) {
-            Label placeholder = new Label("Select a clip, or a transition between two clips, to view properties");
+            Label placeholder = new Label(I18n.t("Select a clip, or a transition between two clips, to view properties"));
             placeholder.setWrapText(true);
             placeholder.getStyleClass().add("text-muted");
             getChildren().add(placeholder);
@@ -137,14 +139,14 @@ public class PropertyPanel extends VBox {
             default: break;
         }
 
-        Label sectionTitle = new Label("Clip Properties");
+        Label sectionTitle = new Label(I18n.t("Clip Properties"));
         sectionTitle.getStyleClass().add("text-bold");
         sectionTitle.setStyle("-fx-font-size: 16px;");
 
         VBox fields = new VBox(10);
-        fields.getChildren().add(buildSectionDivider("Basic"));
+        fields.getChildren().add(buildSectionDivider(I18n.t("Basic")));
 
-        fields.getChildren().add(buildPropertyField("Name", selectedClip.getClipName(), newValue -> {
+        fields.getChildren().add(buildPropertyField(I18n.t("Name"), selectedClip.getClipName(), newValue -> {
             String oldVal = selectedClip.getClipName();
             if (newValue.equals(oldVal)) return;
             context.executePropertyChange("Change Name", () -> {
@@ -158,7 +160,7 @@ public class PropertyPanel extends VBox {
             });
         }));
 
-        fields.getChildren().add(buildPropertyField("Start Time", String.valueOf(selectedClip.startTime), newValue -> {
+        fields.getChildren().add(buildPropertyField(I18n.t("Start Time"), String.valueOf(selectedClip.startTime), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
                 float oldVal = selectedClip.startTime;
@@ -175,7 +177,7 @@ public class PropertyPanel extends VBox {
             } catch (Exception ignored) {}
         }));
 
-        fields.getChildren().add(buildPropertyField("Duration", String.valueOf(selectedClip.duration), newValue -> {
+        fields.getChildren().add(buildPropertyField(I18n.t("Duration"), String.valueOf(selectedClip.duration), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
                 float oldVal = selectedClip.duration;
@@ -192,7 +194,7 @@ public class PropertyPanel extends VBox {
             } catch (Exception ignored) {}
         }));
 
-        fields.getChildren().add(buildPropertyField("Start Trim", String.valueOf(selectedClip.startClipTrim), newValue -> {
+        fields.getChildren().add(buildPropertyField(I18n.t("Start Trim"), String.valueOf(selectedClip.startClipTrim), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
                 float oldVal = selectedClip.startClipTrim;
@@ -209,7 +211,7 @@ public class PropertyPanel extends VBox {
             } catch (Exception ignored) {}
         }));
 
-        fields.getChildren().add(buildPropertyField("End Trim", String.valueOf(selectedClip.endClipTrim), newValue -> {
+        fields.getChildren().add(buildPropertyField(I18n.t("End Trim"), String.valueOf(selectedClip.endClipTrim), newValue -> {
             try {
                 float val = Float.parseFloat(newValue);
                 float oldVal = selectedClip.endClipTrim;
@@ -230,8 +232,8 @@ public class PropertyPanel extends VBox {
         }
 
         if (selectedClip.type == ClipType.TEXT) {
-            fields.getChildren().add(buildSectionDivider("Text"));
-            fields.getChildren().add(buildTextAreaPropertyField("Text Content", selectedClip.textContent != null ? selectedClip.textContent : "", newValue -> {
+            fields.getChildren().add(buildSectionDivider(I18n.t("Text")));
+            fields.getChildren().add(buildTextAreaPropertyField(I18n.t("Text Content"), selectedClip.textContent != null ? selectedClip.textContent : "", newValue -> {
                 String oldVal = selectedClip.textContent;
                 if (newValue.equals(oldVal)) return;
                 context.executePropertyChange("Change Text Content", () -> {
@@ -245,7 +247,7 @@ public class PropertyPanel extends VBox {
                 });
             }));
 
-            fields.getChildren().add(buildPropertyField("Font Size", String.valueOf(selectedClip.fontSize), newValue -> {
+            fields.getChildren().add(buildPropertyField(I18n.t("Font Size"), String.valueOf(selectedClip.fontSize), newValue -> {
                 try {
                     float val = Float.parseFloat(newValue);
                     float oldVal = selectedClip.fontSize;
@@ -270,7 +272,7 @@ public class PropertyPanel extends VBox {
         }
 
         if (selectedClip.type != ClipType.EFFECT) {
-            fields.getChildren().add(buildSectionDivider("Transform"));
+            fields.getChildren().add(buildSectionDivider(I18n.t("Transform")));
             addKeyframeableField(fields, "Position X", selectedClip.videoProperties.valuePosX, VideoProperties.ValueType.PosX, selectedClip);
             addKeyframeableField(fields, "Position Y", selectedClip.videoProperties.valuePosY, VideoProperties.ValueType.PosY, selectedClip);
             addKeyframeableField(fields, "Rotation", selectedClip.videoProperties.valueRot, VideoProperties.ValueType.Rot, selectedClip);
@@ -279,7 +281,7 @@ public class PropertyPanel extends VBox {
             addKeyframeableField(fields, "Pivot X", selectedClip.videoProperties.valuePivotX, VideoProperties.ValueType.PivotX, selectedClip);
             addKeyframeableField(fields, "Pivot Y", selectedClip.videoProperties.valuePivotY, VideoProperties.ValueType.PivotY, selectedClip);
 
-            fields.getChildren().add(buildSectionDivider("Color & Effects"));
+            fields.getChildren().add(buildSectionDivider(I18n.t("Color & Effects")));
             addKeyframeableField(fields, "Opacity", selectedClip.videoProperties.valueOpacity, VideoProperties.ValueType.Opacity, selectedClip);
             addKeyframeableField(fields, "Speed", selectedClip.videoProperties.valueSpeed, VideoProperties.ValueType.Speed, selectedClip);
             addKeyframeableField(fields, "Hue", selectedClip.videoProperties.valueHue, VideoProperties.ValueType.Hue, selectedClip);
@@ -288,9 +290,9 @@ public class PropertyPanel extends VBox {
             addKeyframeableField(fields, "Temperature", selectedClip.videoProperties.valueTemperature, VideoProperties.ValueType.Temperature, selectedClip);
         }
 
-        fields.getChildren().add(buildSectionDivider("Toggles"));
+        fields.getChildren().add(buildSectionDivider(I18n.t("Toggles")));
 
-        fields.getChildren().add(buildTogglePropertyField("Lock for Template", selectedClip.isLockedForTemplate, newValue -> {
+        fields.getChildren().add(buildTogglePropertyField(I18n.t("Lock for Template"), selectedClip.isLockedForTemplate, newValue -> {
             boolean oldVal = selectedClip.isLockedForTemplate;
             if (newValue == oldVal) return;
             context.executePropertyChange("Toggle Locking For Template", () -> {
@@ -304,7 +306,7 @@ public class PropertyPanel extends VBox {
             });
         }));
         if (selectedClip.type == ClipType.VIDEO || selectedClip.type == ClipType.AUDIO) {
-            fields.getChildren().add(buildTogglePropertyField("Mute Audio", selectedClip.isMute, newValue -> {
+            fields.getChildren().add(buildTogglePropertyField(I18n.t("Mute Audio"), selectedClip.isMute, newValue -> {
                 boolean oldVal = selectedClip.isMute;
                 if (newValue == oldVal) return;
                 context.executePropertyChange("Toggle Mute", () -> {
@@ -318,7 +320,7 @@ public class PropertyPanel extends VBox {
                 });
             }));
 
-            fields.getChildren().add(buildTogglePropertyField("Reverse", selectedClip.isReverse, newValue -> {
+            fields.getChildren().add(buildTogglePropertyField(I18n.t("Reverse"), selectedClip.isReverse, newValue -> {
                 boolean oldVal = selectedClip.isReverse;
                 if (newValue == oldVal) return;
                 context.executePropertyChange("Toggle Reverse", () -> {
@@ -350,19 +352,19 @@ public class PropertyPanel extends VBox {
     }
 
     private void buildMaskTab(Clip clip) {
-        getChildren().addAll(tabTitle("Mask"), maskSection.build(clip));
+        getChildren().addAll(tabTitle(I18n.t("Mask")), maskSection.build(clip));
     }
 
     private void buildBlendTab(Clip clip) {
-        getChildren().addAll(tabTitle("Blend"), blendSection.build(clip));
+        getChildren().addAll(tabTitle(I18n.t("Blend")), blendSection.build(clip));
     }
 
     private void buildBackgroundTab(Clip clip) {
-        getChildren().addAll(tabTitle("Background"), backgroundSection.build(clip));
+        getChildren().addAll(tabTitle(I18n.t("Background")), backgroundSection.build(clip));
     }
 
     private void buildMotionTab(Clip clip) {
-        getChildren().addAll(tabTitle("Motion"), motionSection.build(clip));
+        getChildren().addAll(tabTitle(I18n.t("Motion")), motionSection.build(clip));
     }
 
     /** A clip feature that is pre-processed moved (see ClipProcessingTracker): the Motion tab's "Processing xx%" lines follow. Call on the FX thread. */
@@ -371,7 +373,7 @@ public class PropertyPanel extends VBox {
     }
 
     private void buildClipEffectTab(Clip clip) {
-        getChildren().addAll(tabTitle("Effect"), clipEffectSection.build(clip));
+        getChildren().addAll(tabTitle(I18n.t("Effect")), clipEffectSection.build(clip));
     }
 
     /** In / out animations, the packs dialog, and the shortcut to the transition at this clip's end. */
@@ -379,7 +381,7 @@ public class PropertyPanel extends VBox {
         VBox fields = new VBox(10);
         addAnimationFields(fields, selectedClip, ClipAnimation.Direction.IN);
         addAnimationFields(fields, selectedClip, ClipAnimation.Direction.OUT);
-        fields.getChildren().add(buildButton("Animation packs...", e -> {
+        fields.getChildren().add(buildButton(I18n.t("Animation packs..."), e -> {
             javafx.stage.Window owner = getScene() != null ? getScene().getWindow() : null;
             // the dropdowns re-read the registry once a pack was installed / updated / removed
             AnimationPackDialog.show(owner, () -> javafx.application.Platform.runLater(context::updatePropertiesPane));
@@ -389,14 +391,14 @@ public class PropertyPanel extends VBox {
         if (selectedClip.endTransition != null && context.getTransitionNextClip(selectedClip) != null) {
             fields.getChildren().add(buildTransitionShortcut(selectedClip));
         }
-        getChildren().addAll(tabTitle("Animation"), fields);
+        getChildren().addAll(tabTitle(I18n.t("Animation")), fields);
     }
 
     // ---- transitions: the panel of a selected transition, and the shortcut on its clip A ---------------------------
 
     /** The panel of a selected transition: which two clips it joins, then its type / timing / duration. */
     private void buildTransitionPanel(Clip clipA) {
-        Label title = new Label("Transition");
+        Label title = new Label(I18n.t("Transition"));
         title.getStyleClass().add("text-bold");
         title.setStyle("-fx-font-size: 16px;");
         Clip clipB = context.getTransitionNextClip(clipA);
@@ -409,7 +411,7 @@ public class PropertyPanel extends VBox {
     /** On clip A: "Into <B>" and a button showing the transition's summary that selects it. */
     private VBox buildTransitionShortcut(Clip clipA) {
         VBox box = new VBox(4);
-        box.getChildren().add(buildSectionDivider("Transition"));
+        box.getChildren().add(buildSectionDivider(I18n.t("Transition")));
         Clip clipB = context.getTransitionNextClip(clipA);
         Label into = new Label("Into \"" + (clipB != null ? clipB.getClipName() : "?") + "\"");
         into.getStyleClass().add("text-muted");
@@ -431,8 +433,8 @@ public class PropertyPanel extends VBox {
         if (fx == null) return;
         com.vanvatcorporation.doubleclips.EffectCatalog.Style style = com.vanvatcorporation.doubleclips.EffectCatalog.find(fx.style);
 
-        fields.getChildren().add(buildSectionDivider("Effect"));
-        Label label = new Label("Effect");
+        fields.getChildren().add(buildSectionDivider(I18n.t("Effect")));
+        Label label = new Label(I18n.t("Effect"));
         label.getStyleClass().add("text-muted");
         label.setStyle("-fx-font-size: 11px;");
         Button open = buildButton((style != null ? style.title : fx.style) + "   \u25B8", e -> showEffectBrowser(clip), "tool-button");
@@ -440,7 +442,7 @@ public class PropertyPanel extends VBox {
         fields.getChildren().add(new VBox(4, label, open));
 
         if (style == null) {
-            Label note = new Label("This effect comes from a newer version of the app, so it isn't drawn here. Pick another to replace it.");
+            Label note = new Label(I18n.t("This effect comes from a newer version of the app, so it isn't drawn here. Pick another to replace it."));
             note.setWrapText(true);
             note.getStyleClass().add("text-muted");
             note.setStyle("-fx-font-size: 11px;");
@@ -453,7 +455,7 @@ public class PropertyPanel extends VBox {
             fields.getChildren().add(effectStrengthRow.build(clip, style));
         }
 
-        Label hint = new Label("Filters everything on the tracks above this one while it lasts. Clips on tracks below it are drawn over the result. Drawn by the OpenGL engine.");
+        Label hint = new Label(I18n.t("Filters everything on the tracks above this one while it lasts. Clips on tracks below it are drawn over the result. Drawn by the OpenGL engine."));
         hint.setWrapText(true);
         hint.getStyleClass().add("text-muted");
         hint.setStyle("-fx-font-size: 11px;");
@@ -612,7 +614,7 @@ public class PropertyPanel extends VBox {
     /** "Style: <name> >" - the preset the look came from, or Custom; opens the tile browser. */
     private void addStylePresetRow(VBox fields, Clip clip) {
         TextStyleData d = clip.effectiveTextStyle();
-        Label label = new Label("Style");
+        Label label = new Label(I18n.t("Style"));
         label.getStyleClass().add("text-muted");
         label.setStyle("-fx-font-size: 11px;");
         Button open = buildButton(com.vanvatcorporation.doubleclips.TextPresets.labelOf(d) + "   \u25B8", e -> showStyleBrowser(clip), "tool-button");
@@ -676,9 +678,9 @@ public class PropertyPanel extends VBox {
     private void saveCurrentLookAsStyle(Clip clip, javafx.stage.Window owner) {
         javafx.scene.control.TextInputDialog ask = new javafx.scene.control.TextInputDialog("My style");
         ask.initOwner(owner);
-        ask.setTitle("Save style");
-        ask.setHeaderText("Name this style");
-        ask.setContentText("Name:");
+        ask.setTitle(I18n.t("Save style"));
+        ask.setHeaderText(I18n.t("Name this style"));
+        ask.setContentText(I18n.t("Name:"));
         java.util.Optional<String> name = ask.showAndWait();
         if (!name.isPresent()) return;
         try {
@@ -732,7 +734,7 @@ public class PropertyPanel extends VBox {
 
         // Font
         VBox fontBox = new VBox(4);
-        Label fontLabel = new Label("Font");
+        Label fontLabel = new Label(I18n.t("Font"));
         fontLabel.getStyleClass().add("text-muted");
         fontLabel.setStyle("-fx-font-size: 11px;");
         ComboBox<FontChoice> fontCombo = new ComboBox<>();
@@ -753,7 +755,7 @@ public class PropertyPanel extends VBox {
         });
         fontBox.getChildren().addAll(fontLabel, fontCombo);
         fields.getChildren().add(fontBox);
-        fields.getChildren().add(buildButton("Import font...", e -> importFont(clip), "tool-button"));
+        fields.getChildren().add(buildButton(I18n.t("Import font..."), e -> importFont(clip), "tool-button"));
 
         // Bold / italic / alignment
         HBox styleRow = new HBox(8);
@@ -787,15 +789,15 @@ public class PropertyPanel extends VBox {
         fields.getChildren().add(styleRow);
 
         // Colour
-        fields.getChildren().add(buildColorField("Color", d.colorHex, "#FFFFFF", hex ->
+        fields.getChildren().add(buildColorField(I18n.t("Color"), d.colorHex, "#FFFFFF", hex ->
                 editTextStyle(clip, "Change Text Color", s -> s.colorHex = hex)));
 
         // Spacing (ranges as on iOS)
-        addSectionLabel(fields, "Spacing");
-        fields.getChildren().add(styleNumberField(clip, "Letters", d.letterSpacing, -5f, 30f, "Change Letter Spacing", (s, v) -> s.letterSpacing = v));
-        fields.getChildren().add(styleNumberField(clip, "Lines", d.lineSpacing, -10f, 60f, "Change Line Spacing", (s, v) -> s.lineSpacing = v));
+        addSectionLabel(fields, I18n.t("Spacing"));
+        fields.getChildren().add(styleNumberField(clip, I18n.t("Letters"), d.letterSpacing, -5f, 30f, "Change Letter Spacing", (s, v) -> s.letterSpacing = v));
+        fields.getChildren().add(styleNumberField(clip, I18n.t("Lines"), d.lineSpacing, -10f, 60f, "Change Line Spacing", (s, v) -> s.lineSpacing = v));
         String wrapText = d.wrapWidth < 0f ? "clip width" : numberText(Math.round(d.wrapWidth * 100f));
-        fields.getChildren().add(buildPropertyField("Wrap at (% of canvas, 0 = off)", wrapText, text -> {
+        fields.getChildren().add(buildPropertyField(I18n.t("Wrap at (% of canvas, 0 = off)"), wrapText, text -> {
             try {
                 float pct = Math.max(0f, Math.min(100f, Float.parseFloat(text.trim())));
                 editTextStyle(clip, "Change Text Wrap", s -> s.wrapWidth = pct / 100f);
@@ -803,25 +805,25 @@ public class PropertyPanel extends VBox {
         }));
 
         // Outline
-        addSectionLabel(fields, "Outline");
-        fields.getChildren().add(styleNumberField(clip, "Width", d.outlineWidth, 0f, 24f, "Change Text Outline Width", (s, v) -> s.outlineWidth = v));
-        fields.getChildren().add(buildColorField("Outline Color", d.outlineColorHex, "#000000", hex ->
+        addSectionLabel(fields, I18n.t("Outline"));
+        fields.getChildren().add(styleNumberField(clip, I18n.t("Width"), d.outlineWidth, 0f, 24f, "Change Text Outline Width", (s, v) -> s.outlineWidth = v));
+        fields.getChildren().add(buildColorField(I18n.t("Outline Color"), d.outlineColorHex, "#000000", hex ->
                 editTextStyle(clip, "Change Text Outline Color", s -> s.outlineColorHex = hex)));
 
         // Shadow
-        addSectionLabel(fields, "Shadow");
-        fields.getChildren().add(styleNumberField(clip, "Blur", d.shadowBlur, 0f, 40f, "Change Shadow Blur", (s, v) -> s.shadowBlur = v));
-        fields.getChildren().add(styleNumberField(clip, "Offset X", d.shadowOffsetX, -40f, 40f, "Change Shadow Offset", (s, v) -> s.shadowOffsetX = v));
-        fields.getChildren().add(styleNumberField(clip, "Offset Y", d.shadowOffsetY, -40f, 40f, "Change Shadow Offset", (s, v) -> s.shadowOffsetY = v));
-        fields.getChildren().add(buildColorField("Shadow Color", d.shadowColorHex, "#00000099", hex ->
+        addSectionLabel(fields, I18n.t("Shadow"));
+        fields.getChildren().add(styleNumberField(clip, I18n.t("Blur"), d.shadowBlur, 0f, 40f, "Change Shadow Blur", (s, v) -> s.shadowBlur = v));
+        fields.getChildren().add(styleNumberField(clip, I18n.t("Offset X"), d.shadowOffsetX, -40f, 40f, "Change Shadow Offset", (s, v) -> s.shadowOffsetX = v));
+        fields.getChildren().add(styleNumberField(clip, I18n.t("Offset Y"), d.shadowOffsetY, -40f, 40f, "Change Shadow Offset", (s, v) -> s.shadowOffsetY = v));
+        fields.getChildren().add(buildColorField(I18n.t("Shadow Color"), d.shadowColorHex, "#00000099", hex ->
                 editTextStyle(clip, "Change Shadow Color", s -> s.shadowColorHex = hex)));
 
         // Background box
-        addSectionLabel(fields, "Background box");
-        fields.getChildren().add(buildColorField("Box Color (transparent = no box)", d.backgroundColorHex, "#00000000", hex ->
+        addSectionLabel(fields, I18n.t("Background box"));
+        fields.getChildren().add(buildColorField(I18n.t("Box Color (transparent = no box)"), d.backgroundColorHex, "#00000000", hex ->
                 editTextStyle(clip, "Change Box Color", s -> s.backgroundColorHex = hex)));
-        fields.getChildren().add(styleNumberField(clip, "Padding", d.backgroundPadding, 0f, 80f, "Change Box Padding", (s, v) -> s.backgroundPadding = v));
-        fields.getChildren().add(styleNumberField(clip, "Corners", d.backgroundRadius, 0f, 80f, "Change Box Corners", (s, v) -> s.backgroundRadius = v));
+        fields.getChildren().add(styleNumberField(clip, I18n.t("Padding"), d.backgroundPadding, 0f, 80f, "Change Box Padding", (s, v) -> s.backgroundPadding = v));
+        fields.getChildren().add(styleNumberField(clip, I18n.t("Corners"), d.backgroundRadius, 0f, 80f, "Change Box Corners", (s, v) -> s.backgroundRadius = v));
 
         addTextUnitAnimationFields(fields, clip);
     }
@@ -844,7 +846,7 @@ public class PropertyPanel extends VBox {
      */
     private void addTextUnitAnimationFields(VBox fields, Clip clip) {
         TextStyleData d = clip.effectiveTextStyle();
-        addSectionLabel(fields, "Text animation");
+        addSectionLabel(fields, I18n.t("Text animation"));
 
         ComboBox<String> unitCombo = new ComboBox<>();
         unitCombo.getItems().addAll(UNIT_LABELS);
@@ -855,12 +857,12 @@ public class PropertyPanel extends VBox {
             if (i < 0) return;
             editTextStyle(clip, "Change Text Animation Unit", s -> s.unitMode = UNIT_VALUES[i]);
         });
-        fields.getChildren().add(new VBox(4, new Label("Animate by"), unitCombo));
+        fields.getChildren().add(new VBox(4, new Label(I18n.t("Animate by")), unitCombo));
 
         if (d.unitMode == null || d.unitMode.isEmpty()) return; // the rest only matters once a unit is chosen
 
         float shownStagger = d.stagger > 0f ? d.stagger : com.vanvatcorporation.doubleclips.OpenGLEdit.DEFAULT_TEXT_STAGGER;
-        fields.getChildren().add(buildPropertyField("Stagger (%)", String.valueOf(Math.round(shownStagger * 100f)), newValue -> {
+        fields.getChildren().add(buildPropertyField(I18n.t("Stagger (%)"), String.valueOf(Math.round(shownStagger * 100f)), newValue -> {
             try {
                 float pct = Math.max(5f, Math.min(95f, Float.parseFloat(newValue.trim())));
                 editTextStyle(clip, "Change Text Stagger", s -> s.stagger = pct / 100f);
@@ -876,7 +878,7 @@ public class PropertyPanel extends VBox {
             if (i < 0) return;
             editTextStyle(clip, "Change Text Animation Order", s -> s.unitOrder = ORDER_VALUES[i]);
         });
-        fields.getChildren().add(new VBox(4, new Label("Order"), orderCombo));
+        fields.getChildren().add(new VBox(4, new Label(I18n.t("Order")), orderCombo));
 
         String note = d.hasBackground()
                 ? "A background box is on, so the text animates as one block. Turn the box off to animate each unit."
@@ -974,7 +976,7 @@ public class PropertyPanel extends VBox {
     private void importFont(Clip clip) {
         javafx.stage.Window owner = getScene() != null ? getScene().getWindow() : null;
         javafx.stage.FileChooser chooser = new javafx.stage.FileChooser();
-        chooser.setTitle("Import font");
+        chooser.setTitle(I18n.t("Import font"));
         chooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("Fonts (*.ttf, *.otf)", "*.ttf", "*.otf"));
         java.io.File picked = chooser.showOpenDialog(owner);
         if (picked == null) return;
@@ -1142,7 +1144,7 @@ public class PropertyPanel extends VBox {
     private VBox buildKeyframesSection(Clip clip) {
         VBox box = new VBox(8);
         box.setPadding(new Insets(0, 0, 8, 0));
-        Label title = new Label("Keyframes");
+        Label title = new Label(I18n.t("Keyframes"));
         title.setStyle("-fx-font-size: 13px; -fx-font-weight: bold;");
 
         int count = clip.keyframes != null && clip.keyframes.keyframes != null ? clip.keyframes.keyframes.size() : 0;
@@ -1153,14 +1155,14 @@ public class PropertyPanel extends VBox {
         HBox btnRow = new HBox(6);
         btnRow.setAlignment(Pos.CENTER_LEFT);
 
-        Button addBtn = buildButton("+ Key All at Playhead", e -> context.handleAddKeyframe(), "import-media-button");
-        Button clearBtn = buildButton("Clear All", e -> context.handleClearKeyframes(), "tool-button");
-        Button importBtn = buildButton("Import", e -> context.handleImportKeyframes(), "tool-button");
-        Button exportBtn = buildButton("Export", e -> context.handleExportKeyframes(), "tool-button");
+        Button addBtn = buildButton(I18n.t("+ Key All at Playhead"), e -> context.handleAddKeyframe(), "import-media-button");
+        Button clearBtn = buildButton(I18n.t("Clear All"), e -> context.handleClearKeyframes(), "tool-button");
+        Button importBtn = buildButton(I18n.t("Import"), e -> context.handleImportKeyframes(), "tool-button");
+        Button exportBtn = buildButton(I18n.t("Export"), e -> context.handleExportKeyframes(), "tool-button");
 
         btnRow.getChildren().addAll(addBtn, clearBtn, importBtn, exportBtn);
 
-        box.getChildren().addAll(buildSectionDivider("Keyframes"), countLbl, btnRow);
+        box.getChildren().addAll(buildSectionDivider(I18n.t("Keyframes")), countLbl, btnRow);
 
         if (count > 0) {
             VBox kfList = new VBox(4);
@@ -1251,7 +1253,7 @@ public class PropertyPanel extends VBox {
         box.getStyleClass().add("transition-properties-panel");
 
         VBox typePicker = new VBox(4);
-        Label typeLabel = new Label("Type");
+        Label typeLabel = new Label(I18n.t("Type"));
         typeLabel.getStyleClass().add("text-muted");
         typeLabel.setStyle("-fx-font-size: 11px;");
 
@@ -1300,7 +1302,7 @@ public class PropertyPanel extends VBox {
         typePicker.getChildren().addAll(typeLabel, typeButton);
 
         VBox modePicker = new VBox(4);
-        Label modeLabel = new Label("Mode");
+        Label modeLabel = new Label(I18n.t("Mode"));
         modeLabel.getStyleClass().add("text-muted");
         modeLabel.setStyle("-fx-font-size: 11px;");
 
@@ -1323,7 +1325,7 @@ public class PropertyPanel extends VBox {
         modePicker.getChildren().addAll(modeLabel, modeCombo);
 
         VBox durBox = new VBox(4);
-        Label durLabel = new Label("Duration (s)");
+        Label durLabel = new Label(I18n.t("Duration (s)"));
         durLabel.getStyleClass().add("text-muted");
         durLabel.setStyle("-fx-font-size: 11px;");
 

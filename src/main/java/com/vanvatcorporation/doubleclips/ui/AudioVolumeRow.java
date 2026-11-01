@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.editing.AnimatedProperty.KeyState;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.Keyframe;
@@ -38,7 +40,7 @@ final class AudioVolumeRow {
 
     VBox build(Clip clip) {
         float shownTime = shownTime();
-        Label label = new Label("Audio Volume");
+        Label label = new Label(I18n.t("Audio Volume"));
         label.getStyleClass().add("text-muted");
         label.setStyle("-fx-font-size: 11px;");
 

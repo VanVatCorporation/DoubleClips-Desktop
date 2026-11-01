@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.data.editing.AnimatedProperty.KeyState;
 import com.vanvatcorporation.doubleclips.data.editing.ChromaKey;
 import com.vanvatcorporation.doubleclips.data.editing.ChromaKeyframes;
@@ -54,7 +56,7 @@ final class BackgroundSection {
         // ---- the AI cut-out switch (moved here from Properties)
         HBox cutout = new HBox(8);
         cutout.setAlignment(Pos.CENTER_LEFT);
-        Label cutoutLabel = new Label("Remove Background");
+        Label cutoutLabel = new Label(I18n.t("Remove Background"));
         cutoutLabel.getStyleClass().add("text-muted");
         cutoutLabel.setStyle("-fx-font-size: 11px;");
         Region spacer = new Region();
@@ -81,14 +83,14 @@ final class BackgroundSection {
 
         // ---- the chroma keys
         List<ChromaKey> keys = clip.chromaKeys == null ? new ArrayList<>() : clip.chromaKeys;
-        Label title = new Label("Chroma key");
+        Label title = new Label(I18n.t("Chroma key"));
         title.setStyle("-fx-font-weight: bold;");
         Label count = new Label(keys.size() + " / " + ChromaKey.MAX_KEYS);
         count.getStyleClass().add("text-muted");
         count.setStyle("-fx-font-size: 11px;");
         Region gap = new Region();
         HBox.setHgrow(gap, Priority.ALWAYS);
-        Button add = new Button("+ Add");
+        Button add = new Button(I18n.t("+ Add"));
         add.getStyleClass().add("tool-button");
         add.setDisable(keys.size() >= ChromaKey.MAX_KEYS);
         add.setOnAction(e -> commit(clip, "Add Chroma Key", list -> {
@@ -127,7 +129,7 @@ final class BackgroundSection {
         name.setStyle("-fx-font-weight: bold;");
         Region gap = new Region();
         HBox.setHgrow(gap, Priority.ALWAYS);
-        Button reset = new Button("Reset");
+        Button reset = new Button(I18n.t("Reset"));
         reset.getStyleClass().add("tool-button");
         reset.setOnAction(e -> commitChange(clip, "Reset Chroma Key", () -> {
             ChromaKeyframes.clearKey(clip, index); // the sliders are plain values again ...
@@ -140,7 +142,7 @@ final class BackgroundSection {
             k.cleanUpEdge = 0f;
             clip.chromaKeys = list;
         }));
-        Button delete = new Button("Remove");
+        Button delete = new Button(I18n.t("Remove"));
         delete.getStyleClass().add("tool-button");
         delete.setOnAction(e -> commitChange(clip, "Remove Chroma Key", () -> {
             List<ChromaKey> list = ChromaKey.copyAll(clip.chromaKeys);
@@ -154,7 +156,7 @@ final class BackgroundSection {
         card.getChildren().add(top);
 
         // colour: the picker, and the eyedropper that takes it from the preview
-        Label colorLabel = new Label("Color");
+        Label colorLabel = new Label(I18n.t("Color"));
         colorLabel.getStyleClass().add("text-muted");
         colorLabel.setStyle("-fx-font-size: 11px;");
         colorLabel.setMinWidth(50);
@@ -169,7 +171,7 @@ final class BackgroundSection {
             if (hex.equalsIgnoreCase(key.color)) return;
             commit(clip, "Change Chroma Key Color", list -> list.get(index).color = hex);
         });
-        Button eyedropper = new Button("Pick");
+        Button eyedropper = new Button(I18n.t("Pick"));
         eyedropper.getStyleClass().add("tool-button");
         Label hint = note("");
         hint.setVisible(false);
@@ -198,10 +200,10 @@ final class BackgroundSection {
         colorRow.setAlignment(Pos.CENTER_LEFT);
         card.getChildren().addAll(colorRow, hint);
 
-        card.getChildren().add(slider(clip, index, ChromaKey.INTENSITY, "Intensity", "Change Chroma Key Intensity"));
-        card.getChildren().add(slider(clip, index, ChromaKey.SHADOW, "Shadow", "Change Chroma Key Shadow"));
-        card.getChildren().add(slider(clip, index, ChromaKey.FEATHER, "Feather edge", "Change Chroma Key Feather"));
-        card.getChildren().add(slider(clip, index, ChromaKey.CLEAN_UP, "Clean up edge", "Change Chroma Key Clean Up"));
+        card.getChildren().add(slider(clip, index, ChromaKey.INTENSITY, I18n.t("Intensity"), "Change Chroma Key Intensity"));
+        card.getChildren().add(slider(clip, index, ChromaKey.SHADOW, I18n.t("Shadow"), "Change Chroma Key Shadow"));
+        card.getChildren().add(slider(clip, index, ChromaKey.FEATHER, I18n.t("Feather edge"), "Change Chroma Key Feather"));
+        card.getChildren().add(slider(clip, index, ChromaKey.CLEAN_UP, I18n.t("Clean up edge"), "Change Chroma Key Clean Up"));
         card.setOpacity(key.enabled ? 1.0 : 0.55);
         return card;
     }

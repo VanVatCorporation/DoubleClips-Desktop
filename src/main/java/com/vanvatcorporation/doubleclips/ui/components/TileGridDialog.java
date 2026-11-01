@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.components;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -183,15 +185,15 @@ public final class TileGridDialog {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         footer.getChildren().addAll(names, spacer);
         if (tile.engines != null) {
-            if (tile.engines.contains(ENGINE_FFMPEG)) footer.getChildren().add(badge("FFmpeg", "#2E6BD8", "Renders with FFmpeg"));
-            if (tile.engines.contains(ENGINE_OPENGL)) footer.getChildren().add(badge("OpenGL", "#2E9B5B", "Renders with OpenGL"));
+            if (tile.engines.contains(ENGINE_FFMPEG)) footer.getChildren().add(badge(I18n.t("FFmpeg"), "#2E6BD8", I18n.t("Renders with FFmpeg")));
+            if (tile.engines.contains(ENGINE_OPENGL)) footer.getChildren().add(badge(I18n.t("OpenGL"), "#2E9B5B", I18n.t("Renders with OpenGL")));
         }
         box.getChildren().addAll(picture, footer);
 
         if (tile.deletable) {
             Button delete = new Button("\u00D7");
             delete.setStyle("-fx-background-color: #000000AA; -fx-text-fill: white; -fx-background-radius: 10; -fx-padding: 0 6 1 6; -fx-font-size: 12px;");
-            delete.setTooltip(new Tooltip("Delete this style"));
+            delete.setTooltip(new Tooltip(I18n.t("Delete this style")));
             StackPane.setAlignment(delete, Pos.TOP_RIGHT);
             StackPane.setMargin(delete, new Insets(3));
             // A click on the button must not also count as picking the tile underneath it.

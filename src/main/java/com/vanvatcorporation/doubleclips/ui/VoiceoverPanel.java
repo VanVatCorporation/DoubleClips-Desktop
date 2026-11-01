@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import atlantafx.base.controls.ToggleSwitch;
 import com.vanvatcorporation.doubleclips.voiceover.VoiceRecorder;
 import javafx.beans.property.BooleanProperty;
@@ -42,7 +44,7 @@ final class VoiceoverPanel extends VBox {
     private final Circle idleDot = new Circle(17, Color.web("#ff3b30"));
     private final Rectangle recSquare = new Rectangle(26, 26, Color.web("#ff3b30"));
     private final Label timer = new Label("00:00:00");
-    private final Label status = new Label("Recording not started");
+    private final Label status = new Label(I18n.t("Recording not started"));
     private final Canvas meter = new Canvas(280, 16);
     private final ComboBox<VoiceRecorder.Device> deviceBox = new ComboBox<>();
     private final Label deviceStatus = new Label();
@@ -63,7 +65,7 @@ final class VoiceoverPanel extends VBox {
         setMinWidth(260);
         getStyleClass().add("voiceover-panel");
 
-        Label title = new Label("Voiceover");
+        Label title = new Label(I18n.t("Voiceover"));
         title.setStyle("-fx-font-size: 15px; -fx-font-weight: bold;");
 
         // --- record button: a ring with a red dot (idle) or a red square (recording) ---
@@ -77,7 +79,7 @@ final class VoiceoverPanel extends VBox {
         recordBtn.setGraphic(btnGraphic);
         recordBtn.setStyle("-fx-background-color: transparent; -fx-padding: 2; -fx-cursor: hand;");
         recordBtn.setOnAction(e -> onRecordClicked.run());
-        recordBtn.setTooltip(new Tooltip("Click to start recording"));
+        recordBtn.setTooltip(new Tooltip(I18n.t("Click to start recording")));
 
         timer.setStyle("-fx-font-size: 20px; -fx-font-family: 'Menlo', 'Consolas', monospace;");
         status.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 12px;");
@@ -90,13 +92,13 @@ final class VoiceoverPanel extends VBox {
         meterBox.setMinHeight(18);
 
         // --- input device ---
-        Label deviceLabel = new Label("Input device");
+        Label deviceLabel = new Label(I18n.t("Input device"));
         deviceLabel.setStyle("-fx-font-size: 12px;");
         deviceBox.setMaxWidth(Double.MAX_VALUE);
         deviceStatus.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");
-        Button refresh = new Button("\u21BB");
+        Button refresh = new Button(I18n.t("\u21BB"));
         refresh.getStyleClass().add("button-transparent");
-        refresh.setTooltip(new Tooltip("Look for microphones again"));
+        refresh.setTooltip(new Tooltip(I18n.t("Look for microphones again")));
         refresh.setOnAction(e -> reloadDevices());
         HBox deviceRow = new HBox(6, deviceBox, refresh);
         HBox.setHgrow(deviceBox, Priority.ALWAYS);
@@ -104,7 +106,7 @@ final class VoiceoverPanel extends VBox {
         VBox deviceCol = new VBox(4, deviceLabel, deviceRow, deviceStatus);
 
         // --- volume ---
-        Label volLabel = new Label("Volume");
+        Label volLabel = new Label(I18n.t("Volume"));
         volLabel.setStyle("-fx-font-size: 12px;");
         volumeField.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(0, 100, (int) volume.getValue()));
         volumeField.setEditable(true);
@@ -139,12 +141,12 @@ final class VoiceoverPanel extends VBox {
         muteSwitch.selectedProperty().addListener((o, a, b) -> PREFS.putBoolean("mute", b));
         enhanceSwitch.selectedProperty().addListener((o, a, b) -> PREFS.putBoolean("enhance", b));
 
-        VBox echoRow = switchRow("Echo reduction",
-                hint("Removes the project's sound from the recording when it is played through speakers (best effort; headphones are better)."),
+        VBox echoRow = switchRow(I18n.t("Echo reduction"),
+                hint(I18n.t("Removes the project's sound from the recording when it is played through speakers (best effort; headphones are better).")),
                 echoSwitch);
-        VBox muteRow = switchRow("Mute project", hint("Sounds in all clips will be turned off while recording."), muteSwitch);
-        VBox enhanceRow = switchRow("Enhance voice",
-                hint("Automatically removes background noise, rumble, pops and mouth clicks, and evens out the level."),
+        VBox muteRow = switchRow(I18n.t("Mute project"), hint(I18n.t("Sounds in all clips will be turned off while recording.")), muteSwitch);
+        VBox enhanceRow = switchRow(I18n.t("Enhance voice"),
+                hint(I18n.t("Automatically removes background noise, rumble, pops and mouth clicks, and evens out the level.")),
                 enhanceSwitch);
 
         deviceBox.valueProperty().addListener((o, a, b) -> {

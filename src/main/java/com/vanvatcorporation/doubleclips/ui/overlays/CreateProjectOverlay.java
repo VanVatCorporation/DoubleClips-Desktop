@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.constants.Constants;
 import com.vanvatcorporation.doubleclips.data.ProjectRepository;
@@ -57,14 +59,14 @@ public class CreateProjectOverlay extends StackPane {
         step1.setPadding(new Insets(32));
         step1.setAlignment(Pos.TOP_LEFT);
 
-        Label step1Title = new Label("Create New Project");
+        Label step1Title = new Label(I18n.t("Create New Project"));
         step1Title.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
 
         HBox options = new HBox(16);
         options.setAlignment(Pos.CENTER);
         
-        VBox newProjectCard = createOptionCard(MaterialDesignP.PLUS, "New Project");
-        VBox importProjectCard = createOptionCard(MaterialDesignF.FOLDER_UPLOAD, "Import Project");
+        VBox newProjectCard = createOptionCard(MaterialDesignP.PLUS, I18n.t("New Project"));
+        VBox importProjectCard = createOptionCard(MaterialDesignF.FOLDER_UPLOAD, I18n.t("Import Project"));
 
         HBox.setHgrow(newProjectCard, Priority.ALWAYS);
         HBox.setHgrow(importProjectCard, Priority.ALWAYS);
@@ -77,23 +79,23 @@ public class CreateProjectOverlay extends StackPane {
         step2.setPadding(new Insets(32));
         step2.setAlignment(Pos.TOP_LEFT);
 
-        Label step2Title = new Label("New Project");
+        Label step2Title = new Label(I18n.t("New Project"));
         step2Title.setStyle("-fx-font-size: 24px; -fx-font-weight: bold;");
-        Label step2Sub = new Label("Give your project a name to get started.");
+        Label step2Sub = new Label(I18n.t("Give your project a name to get started."));
         step2Sub.getStyleClass().add("text-muted");
 
         titleInput = new TextField();
-        titleInput.setPromptText("Project title...");
+        titleInput.setPromptText(I18n.t("Project title..."));
         titleInput.setPrefHeight(50);
         titleInput.setStyle("-fx-background-radius: 12;");
 
-        Button createBtn = new Button("Create Project");
+        Button createBtn = new Button(I18n.t("Create Project"));
         createBtn.getStyleClass().addAll("button-primary", "button-large");
         createBtn.setMaxWidth(Double.MAX_VALUE);
         createBtn.setPrefHeight(50);
         createBtn.setOnAction(e -> handleCreate());
 
-        Button backBtn = new Button("Back");
+        Button backBtn = new Button(I18n.t("Back"));
         backBtn.getStyleClass().add("button-transparent");
         backBtn.setMaxWidth(Double.MAX_VALUE);
         backBtn.setOnAction(e -> goToStep(step2, step1));
@@ -106,14 +108,14 @@ public class CreateProjectOverlay extends StackPane {
         step3.setPadding(new Insets(32));
         step3.setAlignment(Pos.CENTER);
 
-        Label step3Title = new Label("Extracting Project...");
+        Label step3Title = new Label(I18n.t("Extracting Project..."));
         step3Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
 
         progressBar = new ProgressBar(0);
         progressBar.setMaxWidth(Double.MAX_VALUE);
         progressBar.setPrefHeight(20);
 
-        progressLabel = new Label("Preparing...");
+        progressLabel = new Label(I18n.t("Preparing..."));
         progressLabel.getStyleClass().add("text-muted");
 
         step3.getChildren().addAll(step3Title, progressBar, progressLabel);
@@ -128,19 +130,19 @@ public class CreateProjectOverlay extends StackPane {
         warningIcon.setIconSize(60);
         warningIcon.setIconColor(javafx.scene.paint.Color.web("#FF9500"));
 
-        Label step4Title = new Label("Invalid Project File");
+        Label step4Title = new Label(I18n.t("Invalid Project File"));
         step4Title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
-        Label step4Sub = new Label("This ZIP doesn't seem to be a DoubleClips project.");
+        Label step4Sub = new Label(I18n.t("This ZIP doesn't seem to be a DoubleClips project."));
         step4Sub.setWrapText(true);
         step4Sub.setAlignment(Pos.CENTER);
         step4Sub.getStyleClass().add("text-muted");
 
-        Button recoverBtn = new Button("Re-initialize as New Project");
+        Button recoverBtn = new Button(I18n.t("Re-initialize as New Project"));
         recoverBtn.getStyleClass().addAll("button-primary", "button-large");
         recoverBtn.setMaxWidth(Double.MAX_VALUE);
         recoverBtn.setOnAction(e -> handleRecover());
 
-        Button discardBtn = new Button("Discard & Delete");
+        Button discardBtn = new Button(I18n.t("Discard & Delete"));
         discardBtn.getStyleClass().add("button-transparent");
         discardBtn.setMaxWidth(Double.MAX_VALUE);
         discardBtn.setOnAction(e -> handleDiscard());
@@ -197,7 +199,7 @@ public class CreateProjectOverlay extends StackPane {
 
     private void handleImport() {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Import Project ZIP");
+        chooser.setTitle(I18n.t("Import Project ZIP"));
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Project ZIP", "*.zip"));
         File file = chooser.showOpenDialog(getScene().getWindow());
         
@@ -277,7 +279,7 @@ public class CreateProjectOverlay extends StackPane {
         task.setOnFailed(e -> {
             setProcessing(false);
             TaskbarHelper.setState(java.awt.Taskbar.State.ERROR);
-            progressLabel.setText("Failed to extract project.");
+            progressLabel.setText(I18n.t("Failed to extract project."));
             progressLabel.setStyle("-fx-text-fill: -color-danger-fg;");
         });
 

@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Label;
@@ -19,7 +21,7 @@ final class VoiceoverLiveClip extends Pane {
 
     private final Rectangle box = new Rectangle();
     private final Canvas wave = new Canvas();
-    private final Label name = new Label("Voiceover");
+    private final Label name = new Label(I18n.t("Voiceover"));
 
     VoiceoverLiveClip(double height) {
         box.setHeight(height);

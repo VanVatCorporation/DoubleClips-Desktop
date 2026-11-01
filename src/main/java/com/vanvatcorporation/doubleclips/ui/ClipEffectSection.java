@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.EffectCatalog;
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
 import com.vanvatcorporation.doubleclips.data.editing.AnimatedProperty.KeyState;
@@ -59,7 +61,7 @@ final class ClipEffectSection {
         EffectTemplate fx = clip.clipEffect;
         EffectCatalog.Style style = fx == null ? null : EffectCatalog.find(fx.style);
 
-        Label label = new Label("Clip effect");
+        Label label = new Label(I18n.t("Clip effect"));
         label.getStyleClass().add("text-muted");
         label.setStyle("-fx-font-size: 11px;");
         String shown = fx == null ? "None" : (style != null ? style.title : fx.style + " (not installed)");
@@ -70,7 +72,7 @@ final class ClipEffectSection {
         box.getChildren().add(new VBox(4, label, open));
 
         if (fx == null) {
-            box.getChildren().add(note("Pick an effect that touches only this clip. The clips on the other tracks stay as they are."));
+            box.getChildren().add(note(I18n.t("Pick an effect that touches only this clip. The clips on the other tracks stay as they are.")));
             return box;
         }
         if (style == null) {
@@ -95,7 +97,7 @@ final class ClipEffectSection {
         };
         wire(startField, applyTiming);
         wire(lengthField, applyTiming);
-        box.getChildren().addAll(row("Start (s)", startField), row("Duration (s)", lengthField));
+        box.getChildren().addAll(row(I18n.t("Start (s)"), startField), row(I18n.t("Duration (s)"), lengthField));
 
         // ---- strength (with its keyframe diamond)
         if (style.hasIntensity()) {

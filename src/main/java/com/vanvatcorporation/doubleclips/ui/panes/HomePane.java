@@ -1,5 +1,7 @@
 package com.vanvatcorporation.doubleclips.ui.panes;
 
+import com.vanvatcorporation.doubleclips.i18n.I18n;
+
 import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.FFmpegEdit;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
@@ -51,7 +53,7 @@ public class HomePane extends VBox {
         getStyleClass().add("content-pane");
 
         // 1. Header
-        Label titleLabel = new Label("Recent Projects");
+        Label titleLabel = new Label(I18n.t("Recent Projects"));
         titleLabel.setStyle("-fx-font-size: 26px; -fx-font-weight: bold;");
 
         Region spacer = new Region();
@@ -131,13 +133,13 @@ public class HomePane extends VBox {
         VBox pane = new VBox();
         pane.getStyleClass().add("welcome-pane");
         
-        Label welcomeLabel = new Label("Welcome!");
+        Label welcomeLabel = new Label(I18n.t("Welcome!"));
         welcomeLabel.getStyleClass().add("welcome-title");
         
-        Label subtitleLabel = new Label("Let's create something truly awesome.");
+        Label subtitleLabel = new Label(I18n.t("Let's create something truly awesome."));
         subtitleLabel.getStyleClass().add("welcome-subtitle");
         
-        Button startButton = new Button("Create Your First Project");
+        Button startButton = new Button(I18n.t("Create Your First Project"));
         startButton.getStyleClass().addAll("button-primary", "button-large");
         startButton.setStyle("-fx-padding: 12 24; -fx-font-size: 16px;");
         startButton.setOnAction(e -> com.vanvatcorporation.doubleclips.DoubleClipsDesktop.getInstance().showOverlay(new com.vanvatcorporation.doubleclips.ui.overlays.CreateProjectOverlay()));
@@ -223,23 +225,23 @@ public class HomePane extends VBox {
     private ContextMenu createContextMenu(ProjectData project) {
         ContextMenu menu = new ContextMenu();
         
-        MenuItem editItem = new MenuItem("Edit Title", new FontIcon(MaterialDesignP.PENCIL_OUTLINE));
+        MenuItem editItem = new MenuItem(I18n.t("Edit Title"), new FontIcon(MaterialDesignP.PENCIL_OUTLINE));
         editItem.setOnAction(e -> showRenameDialog(project));
         
-        MenuItem shareItem = new MenuItem("Share", new FontIcon(MaterialDesignS.SHARE_VARIANT));
+        MenuItem shareItem = new MenuItem(I18n.t("Share"), new FontIcon(MaterialDesignS.SHARE_VARIANT));
         shareItem.setOnAction(e -> handleShare(project));
         
         // Back up to OpenEditz in Van Vat Drive (same as Storage > Back up a project, for this one project).
-        MenuItem uploadItem = new MenuItem("Back up to Drive", new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
+        MenuItem uploadItem = new MenuItem(I18n.t("Back up to Drive"), new FontIcon(MaterialDesignU.UPLOAD_OUTLINE));
         uploadItem.setOnAction(e -> BackupProjectWindow.backup(getScene() != null ? getScene().getWindow() : null, project, null));
 
         MenuItem revealItem = new MenuItem(getRevealLabel(), new FontIcon(MaterialDesignF.FOLDER_OUTLINE));
         revealItem.setOnAction(e -> FileHelper.revealInFileBrowser(java.nio.file.Paths.get(project.getProjectPath())));
         
-        MenuItem cloneItem = new MenuItem("Clone", new FontIcon(MaterialDesignC.CONTENT_COPY));
+        MenuItem cloneItem = new MenuItem(I18n.t("Clone"), new FontIcon(MaterialDesignC.CONTENT_COPY));
         cloneItem.setOnAction(e -> ProjectRepository.getInstance().cloneProject(project));
         
-        MenuItem deleteItem = new MenuItem("Delete", new FontIcon(MaterialDesignD.DELETE_OUTLINE));
+        MenuItem deleteItem = new MenuItem(I18n.t("Delete"), new FontIcon(MaterialDesignD.DELETE_OUTLINE));
         deleteItem.getStyleClass().add("danger"); // Assumes some CSS support or just visual distinction
         deleteItem.setOnAction(e -> showDeleteConfirmation(project));
         
@@ -257,7 +259,7 @@ public class HomePane extends VBox {
         File projectDir = new File(project.getProjectPath());
 
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Share Project");
+        chooser.setTitle(I18n.t("Share Project"));
         chooser.setInitialFileName(ProjectShare.suggestedFileName(project.getProjectTitle()));
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Project ZIP", "*.zip"));
         Window owner = getScene() != null ? getScene().getWindow() : null;
@@ -269,8 +271,8 @@ public class HomePane extends VBox {
         String problem = ProjectShare.checkDestination(projectDir, destZip);
         if (problem != null) {
             Alert alert = new Alert(Alert.AlertType.ERROR, problem, ButtonType.OK);
-            alert.setTitle("Share Project");
-            alert.setHeaderText("Can't share here");
+            alert.setTitle(I18n.t("Share Project"));
+            alert.setHeaderText(I18n.t("Can't share here"));
             if (owner != null) alert.initOwner(owner);
             alert.show();
             return;
@@ -280,11 +282,11 @@ public class HomePane extends VBox {
         // done. (Deliberately a plain Stage: a JavaFX Dialog with no buttons refuses close(), so it can never be dismissed.)
         ProgressBar bar = new ProgressBar(0);
         bar.setPrefWidth(360);
-        Label status = new Label("Preparing...");
+        Label status = new Label(I18n.t("Preparing..."));
         VBox box = new VBox(10, status, bar);
         box.setPadding(new Insets(16));
         Stage progress = new Stage();
-        progress.setTitle("Compressing project");
+        progress.setTitle(I18n.t("Compressing project"));
         if (owner != null) {
             progress.initOwner(owner);
             progress.initModality(Modality.WINDOW_MODAL);
@@ -328,16 +330,16 @@ public class HomePane extends VBox {
             String error = task.getValue();
             if (error != null) {
                 Alert alert = new Alert(Alert.AlertType.ERROR, error, ButtonType.OK);
-                alert.setTitle("Share Project");
-                alert.setHeaderText("Couldn't share the project");
+                alert.setTitle(I18n.t("Share Project"));
+                alert.setHeaderText(I18n.t("Couldn't share the project"));
                 if (owner != null) alert.initOwner(owner);
                 alert.show();
                 return;
             }
             ButtonType reveal = new ButtonType(getRevealLabel(), ButtonBar.ButtonData.LEFT);
             Alert done = new Alert(Alert.AlertType.INFORMATION, "Saved to:\n" + destZip.getAbsolutePath(), ButtonType.OK, reveal);
-            done.setTitle("Share Project");
-            done.setHeaderText("Project shared");
+            done.setTitle(I18n.t("Share Project"));
+            done.setHeaderText(I18n.t("Project shared"));
             if (owner != null) done.initOwner(owner);
             done.showAndWait().filter(b -> b == reveal)
                     .ifPresent(b -> FileHelper.revealInFileBrowser(destZip.toPath()));
@@ -347,8 +349,8 @@ public class HomePane extends VBox {
             TaskbarHelper.stopProgress();
             Throwable t = task.getException();
             Alert alert = new Alert(Alert.AlertType.ERROR, t == null ? "Unknown error." : String.valueOf(t.getMessage()), ButtonType.OK);
-            alert.setTitle("Share Project");
-            alert.setHeaderText("Couldn't share the project");
+            alert.setTitle(I18n.t("Share Project"));
+            alert.setHeaderText(I18n.t("Couldn't share the project"));
             if (owner != null) alert.initOwner(owner);
             alert.show();
         });
@@ -360,9 +362,9 @@ public class HomePane extends VBox {
 
     private void showRenameDialog(ProjectData project) {
         TextInputDialog dialog = new TextInputDialog(project.getProjectTitle());
-        dialog.setTitle("Rename Project");
+        dialog.setTitle(I18n.t("Rename Project"));
         dialog.setHeaderText("Change title for " + project.getProjectTitle());
-        dialog.setContentText("New Title:");
+        dialog.setContentText(I18n.t("New Title:"));
         
         dialog.showAndWait().ifPresent(newName -> {
             if (!newName.trim().isEmpty()) {
@@ -373,9 +375,9 @@ public class HomePane extends VBox {
 
     private void showDeleteConfirmation(ProjectData project) {
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Delete Project");
+        alert.setTitle(I18n.t("Delete Project"));
         alert.setHeaderText("Delete '" + project.getProjectTitle() + "'?");
-        alert.setContentText("This will permanently remove the project folder and all its contents.");
+        alert.setContentText(I18n.t("This will permanently remove the project folder and all its contents."));
         
         alert.showAndWait().ifPresent(response -> {
             if (response == ButtonType.OK) {

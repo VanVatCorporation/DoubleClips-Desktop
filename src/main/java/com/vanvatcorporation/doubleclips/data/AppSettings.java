@@ -12,6 +12,8 @@ public class AppSettings {
     private final Preferences prefs;
 
     private final StringProperty themeMode = new SimpleStringProperty();
+    // The app's language: "system" (follow the computer) or a code from AppLanguage.SUPPORTED ("en", "vi"...).
+    private final StringProperty language = new SimpleStringProperty();
     private final BooleanProperty adsPopup = new SimpleBooleanProperty();
     private final BooleanProperty earlyAccessNotifications = new SimpleBooleanProperty();
     // Editor preview. proxy: play the low-res proxy clips instead of the originals (off = originals, like iOS).
@@ -35,6 +37,7 @@ public class AppSettings {
         
         // Load defaults or saved values
         themeMode.set(prefs.get("theme_mode", "dark")); // "dark", "light", "system"
+        language.set(prefs.get("app_language", "system"));
         adsPopup.set(prefs.getBoolean("ads_popup", true));
         earlyAccessNotifications.set(prefs.getBoolean("early_access_notifications", true));
         previewUseProxy.set(prefs.getBoolean("preview_use_proxy", false));
@@ -51,6 +54,7 @@ public class AppSettings {
 
         // Save on change
         themeMode.addListener((obs, oldVal, newVal) -> prefs.put("theme_mode", newVal));
+        language.addListener((obs, oldVal, newVal) -> prefs.put("app_language", newVal));
         adsPopup.addListener((obs, oldVal, newVal) -> prefs.putBoolean("ads_popup", newVal));
         earlyAccessNotifications.addListener((obs, oldVal, newVal) -> prefs.putBoolean("early_access_notifications", newVal));
         previewUseProxy.addListener((obs, oldVal, newVal) -> prefs.putBoolean("preview_use_proxy", newVal));
@@ -87,6 +91,11 @@ public class AppSettings {
     public String getThemeMode() { return themeMode.get(); }
     public void setThemeMode(String value) { themeMode.set(value); }
     public StringProperty themeModeProperty() { return themeMode; }
+
+    /** "system" or a language code (see AppLanguage). */
+    public String getLanguage() { return language.get(); }
+    public void setLanguage(String value) { language.set(value); }
+    public StringProperty languageProperty() { return language; }
 
     public boolean isAdsPopup() { return adsPopup.get(); }
     public void setAdsPopup(boolean value) { adsPopup.set(value); }
