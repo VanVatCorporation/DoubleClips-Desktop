@@ -27,6 +27,18 @@ public interface TemplateApiService {
     @GET("/doubleclips/api/templates")
     Call<TemplatePage> byAuthor(@Query("author") String author, @Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer, @Query("sort") String sort);
 
+    /** Hot searches ("Trending"), best first. Rows: strings or {query, count?, hot?}. */
+    @GET("/doubleclips/api/templates/search/trending")
+    Call<com.google.gson.JsonElement> trendingSearches(@Query("limit") int limit, @Query("viewer") String viewer);
+
+    /** Suggested searches for what was typed; an empty q asks for "you may like" (personal, by the viewer). */
+    @GET("/doubleclips/api/templates/search/suggest")
+    Call<com.google.gson.JsonElement> suggestSearches(@Query("q") String q, @Query("limit") int limit, @Query("viewer") String viewer);
+
+    // Body: { query, username? } - a search the user submitted, so the server can rank "Trending". Best effort.
+    @POST("/doubleclips/api/templates/search/log")
+    Call<JsonObject> logSearch(@Body Map<String, Object> body);
+
     @GET("/doubleclips/api/templates/liked")
     Call<TemplatePage> liked(@Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer);
 

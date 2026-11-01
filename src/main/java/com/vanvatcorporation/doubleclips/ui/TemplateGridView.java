@@ -102,6 +102,7 @@ public class TemplateGridView extends ScrollPane {
                 }
                 updateStatus();
                 Platform.runLater(TemplateGridView.this::maybeLoadMore);
+                onPageLoaded.run();
             }
             @Override public void onLoading(boolean isLoading) {
                 loading = isLoading;
@@ -135,6 +136,22 @@ public class TemplateGridView extends ScrollPane {
     public void start(TemplateFeedSource source) {
         errorText = null;
         pager.start(source);
+    }
+
+    private Runnable onPageLoaded = () -> { };
+
+    /** Called after each page of cards was added (the search bar's ticker uses the first titles when the server has no hot searches). */
+    public void setOnPageLoaded(Runnable r) { this.onPageLoaded = r == null ? () -> { } : r; }
+
+    /** The titles of the first {@code max} templates on the list. */
+    public List<String> titles(int max) {
+        List<String> out = new ArrayList<>();
+        for (TemplateData d : items) {
+            if (out.size() >= max) break;
+            String title = d.getTemplateTitle();
+            if (title != null && !title.trim().isEmpty()) out.add(title.trim());
+        }
+        return out;
     }
 
     public void setOnPreviewClosed(Runnable r) { this.onPreviewClosed = r == null ? () -> { } : r; }
