@@ -3766,6 +3766,9 @@ public class EditorWindow extends Stage implements PropertyContext {
             case "Effects":
                 loadEffectSamples();
                 break;
+            case "Transitions":
+                loadTransitionTiles();
+                break;
             default:
                 Label placeholder = new Label(tabName + " coming soon!");
                 placeholder.setStyle("-fx-text-fill: -color-fg-muted;");
@@ -3785,6 +3788,133 @@ public class EditorWindow extends Stage implements PropertyContext {
             textClip.textStyle = com.vanvatcorporation.doubleclips.TextPresets.defaultStyle();
             addClipToMediaGrid(mediaGrid, textClip);
         }
+    }
+
+    /**
+     * The Transitions tab: the picker's grid of tiles (every style playing between two pictures), shown in the pane. A tile is dragged
+     * onto the knot between two clips to give that transition the style; a drop on the track, a clip or anywhere else does nothing.
+     */
+    private void loadTransitionTiles() {
+        effectAnimator = new com.vanvatcorporation.doubleclips.ui.components.TilePreviewAnimator(12); // this tab's looping previews
+        final java.util.List<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> entries =
+                com.vanvatcorporation.doubleclips.ui.components.TransitionTiles.entries(null);
+        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section> sections =
+                com.vanvatcorporation.doubleclips.ui.components.TransitionTiles.sections(entries,
+                        com.vanvatcorporation.doubleclips.ui.components.TransitionTiles::plainTitle, tilePreviews);
+
+        Label hint = new Label(com.vanvatcorporation.doubleclips.i18n.I18n.t("Drag a transition onto the knot between two clips."));
+        hint.setWrapText(true);
+        hint.setStyle("-fx-text-fill: -color-fg-muted; -fx-font-size: 11px;");
+
+        VBox grid = com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.buildContent(sections, null, null, effectAnimator, null,
+                (tile, node) -> attachTransitionDrag(tile, node, entries));
+        VBox pane = new VBox(8, hint, grid);
+        pane.prefWidthProperty().bind(javafx.beans.binding.Bindings.max(140.0, mediaGrid.widthProperty().subtract(24)));
+        pane.setMaxWidth(Region.USE_PREF_SIZE);
+        mediaGrid.getChildren().add(pane);
+    }
+
+    /** The picture that follows the cursor while a transition tile is dragged (null when none is). */
+    private javafx.stage.Popup transitionGhost;
+
+    /** Makes a tile of the Transitions tab draggable onto a transition knot (the same press-drag-release the media tiles use). */
+    private void attachTransitionDrag(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile tile, javafx.scene.Node node,
+                                      java.util.List<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> entries) {
+        node.setOnMouseDragged(e -> {
+            if (transitionGhost == null) {
+                transitionGhost = buildTransitionGhost(tile);
+                transitionGhost.show(this, e.getScreenX() + 14, e.getScreenY() + 14);
+            } else {
+                transitionGhost.setX(e.getScreenX() + 14);
+                transitionGhost.setY(e.getScreenY() + 14);
+            }
+            Clip over = transitionClipAt(e.getSceneX(), e.getSceneY());
+            highlightTransitionDropTarget(over);
+            if (!transitionGhost.getContent().isEmpty()) transitionGhost.getContent().get(0).setOpacity(over != null ? 1.0 : 0.55);
+            e.consume();
+        });
+        node.setOnMouseReleased(e -> {
+            boolean dragged = transitionGhost != null;
+            if (dragged) {
+                transitionGhost.hide();
+                transitionGhost = null;
+            }
+            highlightTransitionDropTarget(null);
+            if (dragged) {
+                Clip target = transitionClipAt(e.getSceneX(), e.getSceneY());
+                int index = com.vanvatcorporation.doubleclips.TransitionStyleCatalog.indexOf(entries, tile.id);
+                if (target != null && index >= 0) applyTransitionStyle(target, entries.get(index));
+                // anywhere else the drop is discarded
+            }
+            e.consume();
+        });
+    }
+
+    private javafx.stage.Popup buildTransitionGhost(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile tile) {
+        ImageView picture = new ImageView(tile.thumbnail != null ? tile.thumbnail.get() : null);
+        picture.setFitWidth(96);
+        picture.setPreserveRatio(true);
+        Label name = new Label(tile.title == null ? "" : tile.title);
+        name.setStyle("-fx-text-fill: white; -fx-font-size: 11px;");
+        VBox box = new VBox(2, picture, name);
+        box.setPadding(new Insets(4));
+        box.setStyle("-fx-background-color: #262626; -fx-background-radius: 6;");
+        box.setMouseTransparent(true);
+        box.setOpacity(0.55); // dim until it is over a knot
+        javafx.stage.Popup popup = new javafx.stage.Popup();
+        popup.setAutoFix(false);
+        popup.setAutoHide(false);
+        popup.getContent().add(box);
+        return popup;
+    }
+
+    /** The clip whose end knot is under the point (scene coordinates), or null: a knot is the only place a transition can be dropped. */
+    private Clip transitionClipAt(double sceneX, double sceneY) {
+        javafx.geometry.Point2D inScroll = tracksScrollPane.sceneToLocal(sceneX, sceneY);
+        if (inScroll == null || !tracksScrollPane.contains(inScroll)) return null; // a knot scrolled out of view can't be reached
+        Clip best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (java.util.Map.Entry<Clip, Rectangle> entry : transitionCubes.entrySet()) {
+            Rectangle cube = entry.getValue();
+            if (cube.getParent() != tracksPane || !cube.isVisible()) continue;
+            javafx.geometry.Bounds b = cube.localToScene(cube.getBoundsInLocal());
+            double distance = Math.hypot(sceneX - (b.getMinX() + b.getMaxX()) / 2.0, sceneY - (b.getMinY() + b.getMaxY()) / 2.0);
+            double reach = Math.max(b.getWidth(), b.getHeight()) / 2.0 + 8.0; // a little forgiving: the knot is only 16 px
+            if (distance <= reach && distance < bestDistance) {
+                best = entry.getKey();
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
+
+    /** Lights up the knot a dragged tile would land on (null = none). */
+    private void highlightTransitionDropTarget(Clip clip) {
+        refreshTransitionCubeVisuals();
+        if (clip == null) return;
+        Rectangle cube = transitionCubes.get(clip);
+        if (cube != null) styleTransitionCube(cube, true, true);
+    }
+
+    /** Gives the transition after {@code clipA} the dropped style, as one undoable step, and shows it in the properties panel. */
+    private void applyTransitionStyle(Clip clipA, com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry chosen) {
+        final TransitionClip tc = clipA.endTransition;
+        if (tc == null || getTransitionNextClip(clipA) == null) return;
+        if (tc.effect != null && chosen.id.equals(tc.effect.style)) {
+            selectTransition(clipA); // already that style
+            return;
+        }
+        final com.vanvatcorporation.doubleclips.TransitionStyleApply.Before before = com.vanvatcorporation.doubleclips.TransitionStyleApply.capture(tc);
+        final String title = com.vanvatcorporation.doubleclips.ui.components.TransitionTiles.plainTitle(chosen);
+        executePropertyChange("Transition " + title, () -> {
+            com.vanvatcorporation.doubleclips.TransitionStyleApply.apply(tc, chosen);
+            saveProject();
+            selectTransition(clipA);
+        }, () -> {
+            com.vanvatcorporation.doubleclips.TransitionStyleApply.restore(tc, before);
+            saveProject();
+            updatePropertiesPane();
+        });
     }
 
     /** Every effect as a tile with a looping preview of the real effect; drag one onto the timeline for an effect clip. */

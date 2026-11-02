@@ -109,18 +109,8 @@ public final class TileGridDialog {
         TilePreviewAnimator animator = new TilePreviewAnimator(12);
         stage.setOnHidden(e -> animator.stop());
 
-        VBox content = new VBox(10);
+        VBox content = buildContent(sections, selectedId, listener, animator, stage::close, null);
         content.setPadding(new Insets(12));
-        for (Section section : sections) {
-            if (section.tiles.isEmpty()) continue;
-            Label title = new Label(section.title);
-            title.setStyle("-fx-font-weight: bold; -fx-font-size: 12px;");
-            FlowPane flow = new FlowPane(10, 10);
-            for (Tile tile : section.tiles) {
-                flow.getChildren().add(buildTile(tile, tile.id != null && tile.id.equals(selectedId), stage, flow, listener, animator));
-            }
-            content.getChildren().addAll(title, flow);
-        }
 
         ScrollPane scroll = new ScrollPane(content);
         scroll.setFitToWidth(true);
@@ -144,7 +134,32 @@ public final class TileGridDialog {
         return stage;
     }
 
-    private static Node buildTile(Tile tile, boolean selected, Stage stage, FlowPane flow, Listener listener, TilePreviewAnimator animator) {
+    /**
+     * The grid itself - a heading and a wrapping row of tiles per section - as a plain view that can sit in any pane (the dialog
+     * wraps it in a window; the editor's left pane shows it as it is). {@code listener} gets clicks and delete presses, or is null
+     * for a grid that is not clicked (one that is dragged from instead); {@code closeAction} runs before a click is reported (the
+     * dialog closes itself) or is null; {@code decorate} is called with every tile and the node drawn for it, to add behaviour such
+     * as a drag, or is null. The caller owns {@code animator} (the tiles with an animation register their pictures with it).
+     */
+    public static VBox buildContent(List<Section> sections, String selectedId, Listener listener, TilePreviewAnimator animator,
+                                    Runnable closeAction, java.util.function.BiConsumer<Tile, Node> decorate) {
+        VBox content = new VBox(10);
+        for (Section section : sections) {
+            if (section.tiles.isEmpty()) continue;
+            Label title = new Label(section.title);
+            title.setStyle("-fx-font-weight: bold; -fx-font-size: 12px;");
+            FlowPane flow = new FlowPane(10, 10);
+            for (Tile tile : section.tiles) {
+                Node node = buildTile(tile, tile.id != null && tile.id.equals(selectedId), closeAction, flow, listener, animator);
+                if (decorate != null) decorate.accept(tile, node);
+                flow.getChildren().add(node);
+            }
+            content.getChildren().addAll(title, flow);
+        }
+        return content;
+    }
+
+    private static Node buildTile(Tile tile, boolean selected, Runnable closeAction, FlowPane flow, Listener listener, TilePreviewAnimator animator) {
         StackPane picture = new StackPane();
         picture.setMinSize(TILE_WIDTH, PICTURE_HEIGHT);
         picture.setMaxSize(TILE_WIDTH, PICTURE_HEIGHT);
@@ -199,16 +214,18 @@ public final class TileGridDialog {
             // A click on the button must not also count as picking the tile underneath it.
             delete.setOnMouseClicked(javafx.scene.input.MouseEvent::consume);
             delete.setOnAction(e -> {
-                if (listener.onDelete(tile)) flow.getChildren().remove(box);
+                if (listener != null && listener.onDelete(tile)) flow.getChildren().remove(box);
             });
             picture.getChildren().add(delete);
         }
 
-        box.setOnMouseClicked(e -> {
-            if (e.isConsumed()) return;
-            stage.close();
-            listener.onPick(tile);
-        });
+        if (listener != null) {
+            box.setOnMouseClicked(e -> {
+                if (e.isConsumed()) return;
+                if (closeAction != null) closeAction.run();
+                listener.onPick(tile);
+            });
+        }
         return box;
     }
 

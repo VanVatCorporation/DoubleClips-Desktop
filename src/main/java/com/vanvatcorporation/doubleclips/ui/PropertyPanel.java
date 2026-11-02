@@ -1292,16 +1292,11 @@ public class PropertyPanel extends VBox {
         // selectable as "[not installed]", so opening the picker and closing it again never overwrites it.
         final String currentStyle = tc.effect != null ? tc.effect.style : null;
         final java.util.List<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> styleEntries =
-                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.build(
-                        com.vanvatcorporation.doubleclips.FXCommandEmitter.FXRegistry.transitionFXMap,
-                        com.vanvatcorporation.doubleclips.OpenGLEdit.SUPPORTED_TRANSITION_STYLES,
-                        com.vanvatcorporation.doubleclips.TransitionStyleLoader.list(),
-                        true,
-                        currentStyle);
+                com.vanvatcorporation.doubleclips.ui.components.TransitionTiles.entries(currentStyle);
         // The type is picked in a grid of tiles (like the effect browser): each one is the style playing between two
         // pictures, drawn by the preview worker's real renderer. The button shows the current style and opens the grid.
         final java.util.function.Function<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry, String> plainTitle =
-                entry -> entry.label.replaceAll("\\s*\\[(FFmpeg only|OpenGL only)[^\\]]*\\]$", "");
+                com.vanvatcorporation.doubleclips.ui.components.TransitionTiles::plainTitle;
         Button typeButton = new Button();
         typeButton.getStyleClass().add("tool-button");
         typeButton.setMaxWidth(Double.MAX_VALUE);
@@ -1375,48 +1370,8 @@ public class PropertyPanel extends VBox {
                                        String currentStyle,
                                        java.util.function.Consumer<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry> onChosen) {
         final com.vanvatcorporation.doubleclips.ui.components.GpuTilePreviews previews = context.tilePreviews();
-        java.util.Map<com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine, java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile>> groups =
-                new java.util.EnumMap<>(com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.class);
-        for (com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Entry entry : entries) {
-            java.util.Set<String> engines = new java.util.LinkedHashSet<>();
-            switch (entry.engine) {
-                case BOTH:
-                    engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_FFMPEG);
-                    engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_OPENGL);
-                    break;
-                case OPENGL_ONLY:
-                    engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_OPENGL);
-                    break;
-                case FFMPEG_ONLY:
-                    engines.add(com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.ENGINE_FFMPEG);
-                    break;
-                default:
-                    break;
-            }
-            String author = null;
-            com.vanvatcorporation.doubleclips.TransitionStyle dataStyle = entry.dataDriven
-                    ? com.vanvatcorporation.doubleclips.TransitionStyleLoader.get(entry.id) : null;
-            if (dataStyle != null && dataStyle.getAuthor() != null && !dataStyle.getAuthor().isBlank()) author = dataStyle.getAuthor();
-            // Only a style the OpenGL renderer draws has a picture to play; the others stay still tiles.
-            boolean drawn = entry.engine == com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.BOTH
-                    || entry.engine == com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.OPENGL_ONLY;
-            final String id = entry.id;
-            groups.computeIfAbsent(entry.engine, k -> new java.util.ArrayList<>()).add(
-                    new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile(id, plainTitle.apply(entry), author, engines,
-                            () -> previews.transitionStill(id), false,
-                            drawn && !"none".equals(id) ? () -> previews.transitionLoop(id) : null));
-        }
-        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section> sections = new java.util.ArrayList<>();
-        String[] titles = {"Both engines", "OpenGL only", "FFmpeg only", "Not installed"};
-        com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine[] order = {
-                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.BOTH,
-                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.OPENGL_ONLY,
-                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.FFMPEG_ONLY,
-                com.vanvatcorporation.doubleclips.TransitionStyleCatalog.Engine.UNKNOWN};
-        for (int i = 0; i < order.length; i++) {
-            java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Tile> tiles = groups.get(order[i]);
-            if (tiles != null) sections.add(new com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section(titles[i], tiles));
-        }
+        java.util.List<com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.Section> sections =
+                com.vanvatcorporation.doubleclips.ui.components.TransitionTiles.sections(entries, plainTitle, previews);
         javafx.stage.Window owner = getScene() != null ? getScene().getWindow() : null;
         com.vanvatcorporation.doubleclips.ui.components.TileGridDialog.show(owner, "Transition", sections,
                 currentStyle == null ? "none" : currentStyle,
