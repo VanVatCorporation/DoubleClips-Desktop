@@ -177,6 +177,12 @@ public class Clip implements Serializable, UnknownKeysHolder {
      */
     @Expose public String templateGroup;
     @Expose public boolean isReverse;
+    /**
+     * File name (in the project's Clips folder) of this clip's source reversed as a whole, {@code <clipName>.reversed.mp4},
+     * once it has been made: a reversed clip plays that copy instead of the original (see {@link com.vanvatcorporation.doubleclips.ReverseMap}).
+     * Clips sharing a source share the copy. null = not made yet. The same JSON key as on iOS ("reversedCopy").
+     */
+    @Expose public String reversedCopy;
     @Expose public boolean removeBackground;
     /**
      * Colours removed from this clip's picture (the "Background" tab), see {@link ChromaKey}: up to
@@ -264,6 +270,7 @@ public class Clip implements Serializable, UnknownKeysHolder {
         this.additionalFFmpegCommand = other.additionalFFmpegCommand;
         this.isMute = other.isMute;
         this.isReverse = other.isReverse;
+        this.reversedCopy = other.reversedCopy;
         this.removeBackground = other.removeBackground;
         this.chromaKeys = ChromaKey.copyAll(other.chromaKeys);
         this.opticalFlow = other.opticalFlow == null ? null : new ClipOpticalFlow(other.opticalFlow);

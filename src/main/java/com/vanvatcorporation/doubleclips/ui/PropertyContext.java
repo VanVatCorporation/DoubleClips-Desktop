@@ -21,6 +21,11 @@ public interface PropertyContext {
     
     void refreshTimelineUI();
     void saveProject();
+    /**
+     * The clip's Reverse flag just changed (by the toggle, its undo or its redo): the editor makes the clip's reversed copy when the
+     * flag is on, and lets go of it when it is off. The flag itself is already set. Default: nothing (no editor behind the panel).
+     */
+    default void applyReverse(Clip clip) {}
     void executePropertyChange(String name, Runnable redo, Runnable undo);
     void addPropertyUpdater(Runnable updater);
     Timeline getTimeline();

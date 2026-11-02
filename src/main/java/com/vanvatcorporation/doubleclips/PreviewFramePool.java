@@ -297,16 +297,60 @@ final class PreviewFramePool {
     private double sourceTimeFor(Clip clip, OpenGLEdit.DrawCommand cmd) {
         double t = cmd.localSourceTimeSeconds;
         if (clip.isReverse()) {
+            ReverseCopy copy = reverseCopyFor(clip);
+            if (copy != null) {
+                // the clip plays its whole-file reversed copy: time t of the original is time (copyLength - t) in the copy
+                return ReverseMap.copyTime(copy.videoLength, clip.originalDuration, clip.endClipTrim, t);
+            }
             String name = new File(clip.getAbsolutePath(project)).getName();
             if (reported.add("reverse:" + name)) {
-                log.accept("Reverse isn't previewed yet - '" + name + "' plays forward in preview (export is correct)");
+                log.accept("The reversed copy of '" + name + "' isn't ready yet - it plays forward until it is (export is correct)");
             }
             t += clip.startClipTrim;
         }
         return Math.max(0.0, t);
     }
 
+    /** A reversed clip's copy on disk and its VIDEO length (frames / frame rate), see {@link ReverseMap#copyTime}. */
+    private static final class ReverseCopy {
+        final String path;
+        final double videoLength;
+
+        ReverseCopy(String path, double videoLength) {
+            this.path = path;
+            this.videoLength = videoLength;
+        }
+    }
+
+    /** Lengths already measured, by path + modified time (counting a file's frames reads all of its packets once). */
+    private final Map<String, ReverseCopy> reverseCopies = new HashMap<>();
+
+    /** The reversed copy this clip should play, or null (no copy yet, an unreadable one, or a cut-out clip whose file isn't reversed). */
+    private ReverseCopy reverseCopyFor(Clip clip) {
+        if (!clip.isReverse() || clip.removeBackground || clip.type != ClipType.VIDEO) return null;
+        File dir = new File(project.getProjectPath(), "Clips");
+        File file = ReverseManager.copyFileOf(clip, dir);
+        if (file == null) return null;
+        String key = file.getPath() + "|" + file.lastModified() + "|" + file.length();
+        ReverseCopy known = reverseCopies.get(key);
+        if (known != null) return known;
+        if (reverseCopies.containsKey(key)) return null; // measured before and found unusable
+        long frames = ReverseProcessor.countVideoFrames(ffmpegPath, file.getPath());
+        double fps = ReverseMap.exactFps(OpenGLFrameIO.probeFrameRate(ffmpegPath, file.getPath(), 0));
+        ReverseCopy made = null;
+        if (frames > 0 && fps > 0) {
+            double length = frames / fps;
+            if (ReverseMap.plausibleLength(length, clip.originalDuration)) made = new ReverseCopy(file.getPath(), length);
+            else log.accept("The reversed copy '" + file.getName() + "' is " + length + " s but the clip's file is "
+                    + clip.originalDuration + " s - it isn't used");
+        }
+        reverseCopies.put(key, made);
+        return made;
+    }
+
     private String videoPath(Clip clip) {
+        ReverseCopy copy = reverseCopyFor(clip);
+        if (copy != null) return copy.path;
         if (useProxy && !clip.removeBackground) {
             String proxy = clip.getAbsolutePreviewPath(project, ".mp4");
             if (new File(proxy).isFile()) return proxy;

@@ -27,7 +27,7 @@ public final class ClipProcessingTracker {
     public enum State { RUNNING, DONE, FAILED }
 
     /** The feature names the editor reports under (what the user reads: "Applying Motion blur..."). */
-    public static final String OPTICAL_FLOW = "Optical flow", MOTION_BLUR = "Motion blur";
+    public static final String OPTICAL_FLOW = "Optical flow", MOTION_BLUR = "Motion blur", REVERSE = "Reverse";
 
     /** One feature being applied to one clip. */
     public final class Job {

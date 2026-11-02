@@ -325,10 +325,12 @@ public class PropertyPanel extends VBox {
                 if (newValue == oldVal) return;
                 context.executePropertyChange("Toggle Reverse", () -> {
                     selectedClip.isReverse = newValue;
+                    context.applyReverse(selectedClip);
                     context.refreshTimelineUI();
                     context.saveProject();
                 }, () -> {
                     selectedClip.isReverse = oldVal;
+                    context.applyReverse(selectedClip);
                     context.refreshTimelineUI();
                     context.saveProject();
                 });

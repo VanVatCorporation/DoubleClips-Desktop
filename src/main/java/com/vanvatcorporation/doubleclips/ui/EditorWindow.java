@@ -263,6 +263,15 @@ public class EditorWindow extends Stage implements PropertyContext {
     private double lastDragSceneX;
     private double lastDragSceneY;
 
+    private final com.vanvatcorporation.doubleclips.ReverseManager reverseManager;
+
+    @Override
+    public void applyReverse(Clip clip) {
+        if (clip == null) return;
+        if (clip.isReverse) reverseManager.apply(clip);
+        else reverseManager.release(clip);
+    }
+
     public EditorWindow(ProjectData project) {
         this.project = project;
         this.setTitle(project.getProjectTitle() + " — DoubleClips");
@@ -280,6 +289,18 @@ public class EditorWindow extends Stage implements PropertyContext {
         {
             clip.keyframes.reassignKeyframes(videoSettings.frameRate);
         }
+
+        // Reversed copies of the source files (a clip with Reverse on plays a whole-file reversed copy): made in the background, and
+        // looked at once the window is up (a flagged clip that has no copy yet gets one, a copy nobody uses any more is removed).
+        reverseManager = new com.vanvatcorporation.doubleclips.ReverseManager(
+                FFmpegEditNative.getFfmpegPath(),
+                () -> new java.io.File(project.getProjectPath(), com.vanvatcorporation.doubleclips.constants.Constants.DEFAULT_CLIP_DIRECTORY),
+                () -> timeline.getAllClips(),
+                Platform::runLater,
+                () -> { refreshTimelineUI(); saveProject(); },
+                message -> System.err.println("[Reverse] " + message),
+                com.vanvatcorporation.doubleclips.ClipProcessingTracker.get());
+        Platform.runLater(() -> { reverseManager.syncAll(); saveProject(); });
 
         BorderPane mainContent = new BorderPane();
         mainContent.getStyleClass().add("editor-root");
@@ -853,6 +874,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     private void closeWindow() {
+        if (reverseManager != null) reverseManager.shutdown();
         if (processingListener != null) {
             com.vanvatcorporation.doubleclips.ClipProcessingTracker.get().removeListener(processingListener);
             processingListener = null;
