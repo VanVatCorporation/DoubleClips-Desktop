@@ -322,7 +322,7 @@ final class PreviewFramePool {
         }
     }
 
-    /** Lengths already measured, by path + modified time (counting a file's frames reads all of its packets once). */
+    /** Copies already looked at (the length itself is cached by {@link ReverseCopies}); null = unusable. */
     private final Map<String, ReverseCopy> reverseCopies = new HashMap<>();
 
     /** The reversed copy this clip should play, or null (no copy yet, an unreadable one, or a cut-out clip whose file isn't reversed). */
@@ -331,17 +331,14 @@ final class PreviewFramePool {
         File dir = new File(project.getProjectPath(), "Clips");
         File file = ReverseManager.copyFileOf(clip, dir);
         if (file == null) return null;
-        String key = file.getPath() + "|" + file.lastModified() + "|" + file.length();
-        ReverseCopy known = reverseCopies.get(key);
-        if (known != null) return known;
-        if (reverseCopies.containsKey(key)) return null; // measured before and found unusable
-        long frames = ReverseProcessor.countVideoFrames(ffmpegPath, file.getPath());
-        double fps = ReverseMap.exactFps(OpenGLFrameIO.probeFrameRate(ffmpegPath, file.getPath(), 0));
+        String key = file.getPath() + "|" + file.lastModified() + "|" + file.length() + "|" + clip.originalDuration;
+        if (reverseCopies.containsKey(key)) return reverseCopies.get(key);
+        double length = ReverseCopies.videoLength(ffmpegPath, file.getPath());
         ReverseCopy made = null;
-        if (frames > 0 && fps > 0) {
-            double length = frames / fps;
-            if (ReverseMap.plausibleLength(length, clip.originalDuration)) made = new ReverseCopy(file.getPath(), length);
-            else log.accept("The reversed copy '" + file.getName() + "' is " + length + " s but the clip's file is "
+        if (ReverseMap.plausibleLength(length, clip.originalDuration)) {
+            made = new ReverseCopy(file.getPath(), length);
+        } else {
+            log.accept("The reversed copy '" + file.getName() + "' is " + length + " s but the clip's file is "
                     + clip.originalDuration + " s - it isn't used");
         }
         reverseCopies.put(key, made);

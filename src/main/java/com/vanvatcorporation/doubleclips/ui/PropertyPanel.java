@@ -8,6 +8,7 @@ import com.vanvatcorporation.doubleclips.data.editing.*;
 import com.vanvatcorporation.doubleclips.history.PropertyChangeCommand;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import com.vanvatcorporation.doubleclips.ClipProcessingTracker;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
@@ -335,6 +336,16 @@ public class PropertyPanel extends VBox {
                     context.saveProject();
                 });
             }));
+
+            // "Processing xx%" while the reversed copy is being made (the same line the Motion tab shows for its features)
+            reverseShown = selectedClip;
+            reverseBusy = new Label();
+            reverseBusy.getStyleClass().add("text-muted");
+            reverseBusy.setStyle("-fx-font-size: 11px;");
+            reverseBusy.setVisible(false);
+            reverseBusy.setManaged(false);
+            fields.getChildren().add(reverseBusy);
+            refreshReverseBusy();
         }
 
         getChildren().addAll(sectionTitle, fields);
@@ -372,6 +383,20 @@ public class PropertyPanel extends VBox {
     /** A clip feature that is pre-processed moved (see ClipProcessingTracker): the Motion tab's "Processing xx%" lines follow. Call on the FX thread. */
     public void refreshProcessing() {
         motionSection.refreshProcessing();
+        refreshReverseBusy();
+    }
+
+    /** The Reverse switch's own progress line (shown on the General tab); the clip it was built for is {@code reverseShown}. */
+    private Clip reverseShown;
+    private Label reverseBusy;
+
+    private void refreshReverseBusy() {
+        if (reverseBusy == null || reverseShown == null) return;
+        ClipProcessingTracker.Job job = ClipProcessingTracker.get().find(reverseShown, ClipProcessingTracker.REVERSE);
+        boolean busy = job != null;
+        reverseBusy.setVisible(busy);
+        reverseBusy.setManaged(busy);
+        if (busy) reverseBusy.setText("Processing " + ClipProcessingTracker.percent(job.progress()));
     }
 
     private void buildClipEffectTab(Clip clip) {

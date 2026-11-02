@@ -29,8 +29,8 @@ import java.util.function.Consumer;
  * It mixes what the OpenGL export's audio graph produces: each clip's source audio, trimmed to
  * [startClipTrim, startClipTrim + duration), placed at startTime, scaled by the clip's volume (valueVolume, or its keyframes),
  * and summed (amix normalize=0). Video clips contribute only when they have audio and aren't muted;
- * audio clips always do. Reverse and clip speed aren't applied (the export doesn't change audio
- * speed either).
+ * audio clips always do. A reversed video clip is played backwards (its used range from the end, like the export's areverse);
+ * clip speed is a varispeed of the source.
  * <p>
  * Source material is the mono 22.05 kHz preview WAVs written at import; they are resampled
  * (linear) and widened to the line's 44.1 kHz stereo here.
@@ -361,11 +361,15 @@ public final class AudioEngine {
             com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap speedMap = clip.timeMap();
             double l0 = (t0 + i0 / (double) RATE) - c0, l1 = (t0 + i1 / (double) RATE) - c0;
             double s0 = speedMap.sourceOffset(l0), s1 = speedMap.sourceOffset(l1);
-            double srcSeconds = s0 + clip.startClipTrim;
-            double step = (s1 - s0) / (i1 - i0) * src.sampleRate;
+            // A reversed clip plays the used range of the original backwards: it starts at the range's end (the file's length minus the
+            // end trim, as the export's atrim + areverse does) and the source position falls as the clip plays.
+            boolean reverse = clip.type == ClipType.VIDEO && clip.isReverse();
+            double srcSeconds = reverse ? (clip.originalDuration - clip.endClipTrim) - s0 : s0 + clip.startClipTrim;
+            double step = (reverse ? -(s1 - s0) : (s1 - s0)) / (i1 - i0) * src.sampleRate; // negative when reversed
             double pos0 = srcSeconds * src.sampleRate;
-            long first = (long) Math.floor(pos0);
-            int count = (int) Math.ceil((i1 - i0) * step) + 3;
+            double posLast = pos0 + (i1 - i0) * step;                  // the lowest position of a reversed chunk, the highest of a forward one
+            long first = (long) Math.floor(Math.min(pos0, posLast));
+            int count = (int) Math.ceil(Math.abs(posLast - pos0)) + 3;
             short[] samples = src.read(first, count);
             int ch = src.channels;
 

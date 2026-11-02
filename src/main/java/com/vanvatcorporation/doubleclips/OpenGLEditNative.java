@@ -274,6 +274,7 @@ public class OpenGLEditNative {
      * clip's USED range (startClipTrim .. originalDuration - endClipTrim) is cut out
      * and reversed by ffmpeg into a temp file BEFORE the worker ever opens it.
      * OpenGLEdit then addresses that file from local time 0, with no trim offset.
+     * A clip that already has its cached whole-file reversed copy (see ReverseManager) maps to that copy instead and nothing is rendered.
      * Video only - reversed AUDIO is handled by FFmpegEdit's own areverse in the
      * audio pass, against the original file.
      * <p>
@@ -301,9 +302,24 @@ public class OpenGLEditNative {
         if (reversed.isEmpty()) return result;
 
         String ffmpegPath = FFmpegEditNative.getFfmpegPath();
+        File clipsDir = new File(project.getProjectPath(), "Clips");
         for (int i = 0; i < reversed.size(); i++) {
             if (isCancelled != null && isCancelled.getAsBoolean()) break;
             Clip clip = reversed.get(i);
+
+            // The project's cached whole-file reversed copy (made when Reverse was switched on, see ReverseManager) is used as it is:
+            // nothing to render, and every export after the first one skips this pass. The exporter offsets the clip's time into it.
+            File cached = ReverseManager.copyFileOf(clip, clipsDir);
+            if (cached != null) {
+                double length = ReverseCopies.videoLength(ffmpegPath, cached.getPath());
+                if (ReverseMap.plausibleLength(length, clip.originalDuration)) {
+                    if (listener != null) listener.onLog("Reversed clip " + (i + 1) + "/" + reversed.size() + ": using the cached copy of " + clip.getClipName());
+                    result.put(clip, cached.getPath());
+                    continue;
+                }
+                if (listener != null) listener.onLog("The cached reversed copy of " + clip.getClipName() + " is not usable, reversing it for this export");
+            }
+
             String outPath = IOHelper.CombinePath(project.getProjectPath(), "opengl_reversed_" + i + "_tmp.mp4");
             float trimEnd = clip.originalDuration - clip.endClipTrim;
             if (listener != null) listener.onLog("Reversing clip " + (i + 1) + "/" + reversed.size() + ": " + clip.getClipName());
@@ -355,7 +371,11 @@ public class OpenGLEditNative {
 
     public static void deleteReversedIntermediates(Map<Clip, String> reversedClipPaths) {
         if (reversedClipPaths == null) return;
-        for (String path : reversedClipPaths.values()) deleteQuietly(Path.of(path));
+        for (String path : reversedClipPaths.values()) {
+            // only this export's own temp files: a project's cached reversed copy is in the map too and must stay
+            if (ReverseMap.isCacheName(new File(path).getName())) continue;
+            deleteQuietly(Path.of(path));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────

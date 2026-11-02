@@ -319,6 +319,12 @@ public final class OpenGLTimelineExporter {
         final OpenGLFrameIO.ClipFrameSource source;
         final Layer layer;
         boolean uploadedOnce = false;
+        /**
+         * Seconds added to the clip's source time before it is handed to the decoder: 0 for a normal file and for a per-export reversed
+         * intermediate (which starts at the clip's own trim), the copy's start offset for a project's cached whole-file reversed copy
+         * (see {@link ReverseMap#copyTime}).
+         */
+        double timeOffset = 0.0;
 
         VideoLayer(OpenGLFrameIO.ClipFrameSource source, Layer layer) {
             this.source = source;
@@ -564,13 +570,19 @@ public final class OpenGLTimelineExporter {
             if (video == null) {
                 String override = reversedClipPaths.get(clip);
                 String path = override != null ? override : sourcePathFor(clip, projectData);
+                double timeOffset = 0.0;
+                if (override != null && ReverseMap.isCacheName(new File(override).getName())) {
+                    double copyLength = ReverseCopies.videoLength(ffmpegPath, override);
+                    if (copyLength > 0) timeOffset = ReverseMap.copyTime(copyLength, clip.originalDuration, clip.endClipTrim, 0.0);
+                }
                 try {
                     OpenGLFrameIO.ClipFrameSource source = new OpenGLFrameIO.ClipFrameSource(
-                            ffmpegPath, path, clip.width, clip.height, cmd.localSourceTimeSeconds, frameRate);
+                            ffmpegPath, path, clip.width, clip.height, Math.max(0.0, cmd.localSourceTimeSeconds + timeOffset), frameRate);
                     if ((clip.hasOpticalFlow() || clip.hasMotionBlur()) && compositor.supportsOpticalFlow()) {
                         source.keepPrevious(); // optical flow draws between this frame and the one before, motion blur smears along the motion since it
                     }
                     video = new VideoLayer(source, compositor.createLayer(source.getWidth(), source.getHeight()));
+                    video.timeOffset = timeOffset;
                     videoLayers.put(clip, video);
                 } catch (IOException | RuntimeException e) {
                     if (reported.add(clip)) {
@@ -584,7 +596,8 @@ public final class OpenGLTimelineExporter {
             // the one the time falls in) and the frame before it is kept too.
             final boolean flow = clip.hasOpticalFlow() && video.source.hasKeptPrevious() && compositor.supportsOpticalFlow();
             final double sourceFps = video.source.getSourceFps();
-            if (!video.source.advanceToTime(flow ? cmd.localSourceTimeSeconds + 1.0 / sourceFps : cmd.localSourceTimeSeconds)) {
+            final double localTime = Math.max(0.0, cmd.localSourceTimeSeconds + video.timeOffset);
+            if (!video.source.advanceToTime(flow ? localTime + 1.0 / sourceFps : localTime)) {
                 // Only when the decoder never produced a single frame. Once per clip.
                 if (reported.add(clip)) {
                     String detail = video.source.errorTail();
@@ -595,7 +608,7 @@ public final class OpenGLTimelineExporter {
             }
 
             if (flow) {
-                double position = OpticalFlowMath.framePosition(cmd.localSourceTimeSeconds, sourceFps);
+                double position = OpticalFlowMath.framePosition(localTime, sourceFps);
                 long first = (long) Math.floor(position);
                 long index = video.source.currentFrameIndex();
                 // No frame after the last one: at the very end of the file the last frame is held (the plain path below).
