@@ -65,6 +65,8 @@ public class EditorWindow extends Stage implements PropertyContext {
     private VideoSettings videoSettings;
 
     private TimelineRenderer timelineRenderer;
+    /** The Source view of the preview: a file clicked in the Media tab, shown alone with its own seek bar. */
+    private SourcePreview sourcePreview;
     private com.vanvatcorporation.doubleclips.ui.renderer.PreviewGizmo previewGizmo;
     private final HistoryManager historyManager = new HistoryManager();
     { historyManager.setBeforeChange(this::endTakeFromEditor); }   // an edit / undo / redo ends a running voiceover take
@@ -350,6 +352,12 @@ public class EditorWindow extends Stage implements PropertyContext {
             // Settings is recording a new shortcut: it needs the raw key press, not the action bound to it.
             if (AppSettings.getInstance().isRecordingKeybind())
                 return;
+
+            // The Source view is up: I / O set the in / out points, Esc goes back to the whole file
+            if (sourcePreview != null && sourcePreview.handleKey(event)) {
+                event.consume();
+                return;
+            }
 
             AppSettings settings = AppSettings.getInstance();
 
@@ -664,6 +672,10 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void triggerPlayAction()
     {
+        if (sourcePreview != null && sourcePreview.isActive()) {   // the Source view is up: Space plays / pauses the file
+            sourcePreview.togglePlay();
+            return;
+        }
         if (voiceover != null && voiceover.isRecording()) {   // Space / the play button ends the take
             voiceover.stopFromEditor();
             return;
@@ -679,6 +691,7 @@ public class EditorWindow extends Stage implements PropertyContext {
     private void startPlayback() {
         if (isPlaying)
             return;
+        if (sourcePreview != null && sourcePreview.isActive()) sourcePreview.showProject();   // the project plays: back to it
         isPlaying = true;
         lastTimerUpdate = System.nanoTime();
         playbackTimer.start();
@@ -883,6 +896,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (dock != null) dock.shutdown();
         stopPlayback();
         saveProject();
+        if (sourcePreview != null) sourcePreview.shutdown();
         if (timelineRenderer != null) timelineRenderer.shutdown();
         DoubleClipsDesktop.getInstance().closeEditor(this);
     }
@@ -1682,7 +1696,8 @@ public class EditorWindow extends Stage implements PropertyContext {
         box.setPrefWidth(80);
         box.setPrefHeight(80);
         box.getStyleClass().add("media-grid-item");
-        box.setStyle("-fx-border-color: #555; -fx-border-radius: 4px; -fx-background-color: #222; -fx-padding: 4px;");
+        box.getProperties().put("mediaClipName", clip.getClipName());
+        markMediaTile(box, mediaRanges.containsKey(clip.getClipName()));   // an amber border when the file has a pre-trim range
 
         javafx.scene.Node graphicNode;
 
@@ -1756,20 +1771,33 @@ public class EditorWindow extends Stage implements PropertyContext {
         }
         mediaGrid.getChildren().add(box);
 
-        box.setOnMousePressed(e -> {
-            Clip copyClip = new Clip(clip);
+        attachNewClipDrag(box, () -> mediaDragClip(clip), true, () -> {
+            // A click (no drag): show the file in the preview's Source view. A drag adds the file (with its pre-trim range, if any).
+            if (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO || clip.type == ClipType.IMAGE) openInSource(clip);
+        });
+    }
+
+    /**
+     * Makes {@code node} a source of NEW clips: pressing it and dragging over the timeline shows a ghost, dropping adds the clip
+     * {@code source} gives (a Media tab file; the Source view's chosen part). A click without a drag runs {@code onClick} (may be null).
+     * {@code grabOffset}: the ghost keeps the grab point inside the node (a tile) instead of starting at the pointer.
+     */
+    private void attachNewClipDrag(javafx.scene.Node node, java.util.function.Supplier<Clip> source, boolean grabOffset, Runnable onClick) {
+        node.setOnMousePressed(e -> {
+            Clip copyClip = source.get();
+            if (copyClip == null) return;
             copyClip.trackIndex = 0;
 
             activeDrag.clip = copyClip;
             activeDrag.currentTrackIdx = 0;
-            activeDrag.dragOffsetX = e.getX();
+            activeDrag.dragOffsetX = grabOffset ? e.getX() : 0;
             activeDrag.dragging = false;
             activeDrag.ghost = null;
             activeDrag.isNewClip = true;
             e.consume();
         });
 
-        box.setOnMouseDragged(e -> {
+        node.setOnMouseDragged(e -> {
             if (activeDrag.clip == null || !activeDrag.isNewClip)
                 return;
 
@@ -1796,10 +1824,15 @@ public class EditorWindow extends Stage implements PropertyContext {
             e.consume();
         });
 
-        box.setOnMouseReleased(e -> {
+        node.setOnMouseReleased(e -> {
             edgeScrollTimer.stop();
             if (activeDrag.clip == null || !activeDrag.isNewClip)
                 return;
+
+            // A click (no drag), e.g. on a Media tab file: its own action. A drag adds the clip to the timeline.
+            if (!activeDrag.dragging && onClick != null && e.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+                onClick.run();
+            }
 
             if (activeDrag.dragging && activeDrag.ghost != null) {
                 double finalX = activeDrag.ghost.getLayoutX();
@@ -1828,6 +1861,90 @@ public class EditorWindow extends Stage implements PropertyContext {
             activeDrag.isNewClip = false;
             e.consume();
         });
+    }
+
+    // ---- Pre-trim (Source view) ----------------------------------------------------------------------------------
+
+    /** The in / out range ({in, out} seconds of the file) chosen in the Source view for a Media tab file; kept while the editor is open. */
+    private final java.util.Map<String, float[]> mediaRanges = new java.util.HashMap<>();
+    private static final String MEDIA_TILE_STYLE = "-fx-border-color: %s; -fx-border-radius: 4px; -fx-background-color: #222; -fx-padding: 4px;";
+
+    private void markMediaTile(javafx.scene.Node tile, boolean trimmed) {
+        tile.setStyle(String.format(MEDIA_TILE_STYLE, trimmed ? "#FFB020" : "#555"));
+    }
+
+    private void rememberMediaRange(String clipName, float in, float out, boolean whole) {
+        if (whole) mediaRanges.remove(clipName);
+        else mediaRanges.put(clipName, new float[]{in, out});
+        if (mediaGrid == null) return;
+        for (javafx.scene.Node n : mediaGrid.getChildren()) {
+            if (clipName.equals(n.getProperties().get("mediaClipName"))) markMediaTile(n, !whole);
+        }
+    }
+
+    /** A new clip for a Media tab file being dragged out: the whole file, or the range chosen for it in the Source view. */
+    private Clip mediaDragClip(Clip tileClip) {
+        Clip c = new Clip(tileClip);
+        c.trackIndex = 0;
+        float[] r = mediaRanges.get(c.getClipName());
+        if (r != null) SourcePreview.applyRange(c, r[0], r[1]);
+        return c;
+    }
+
+    /** True when {@code clip} suits {@code track}: sound goes on tracks that hold only sound, pictures on tracks without any. */
+    private static boolean trackFits(Track track, Clip clip) {
+        boolean hasAudio = false, hasOther = false;
+        for (Clip x : track.clips) {
+            if (x.type == ClipType.AUDIO) hasAudio = true; else hasOther = true;
+        }
+        return clip.type == ClipType.AUDIO ? !hasOther : !hasAudio;
+    }
+
+    /** The track "Add to Timeline" uses: the selected track (or the selected clip's) when it suits the clip, else the first that does, else a new one. */
+    private int sourceTargetTrack(Clip clip) {
+        if (selectedTrack != null && timeline.tracks.contains(selectedTrack) && trackFits(selectedTrack, clip)) {
+            return timeline.tracks.indexOf(selectedTrack);
+        }
+        for (int i = 0; i < timeline.tracks.size(); i++) {
+            if (trackFits(timeline.tracks.get(i), clip)) return i;
+        }
+        return timeline.tracks.size();
+    }
+
+    /** Source view "Add to Timeline": the clip goes on the timeline at the playhead, and the playhead moves to its end so the next add follows. */
+    private void addSourceClipToTimeline(Clip clip, PlaceClipCommand.Mode mode) {
+        int trackIdx = sourceTargetTrack(clip);
+        clip.startTime = currentTime;
+        clip.trackIndex = trackIdx;
+        historyManager.execute(new PlaceClipCommand(timeline, clip, trackIdx, mode, () -> {
+            updateCurrentClipEnd();
+            refreshTimelineUI();
+            saveProject();
+        }));
+        updateCurrentTime(clip.startTime + clip.duration);
+        Platform.runLater(this::revealPlayhead);
+    }
+
+    /** Scrolls the timeline so the playhead is in view (it is not moved by playing here, so nothing else would). */
+    private void revealPlayhead() {
+        double playheadX = currentTime * pixelsPerSecond;
+        double contentWidth = tracksScrollPane.getContent().getBoundsInLocal().getWidth();
+        double viewportWidth = tracksScrollPane.getViewportBounds().getWidth();
+        double room = Math.max(1, contentWidth - viewportWidth);
+        double scrollX = tracksScrollPane.getHvalue() * room;
+        if (playheadX < scrollX || playheadX > scrollX + viewportWidth) {
+            tracksScrollPane.setHvalue(Math.max(0, Math.min(1, (playheadX - viewportWidth * 0.5) / room)));
+        }
+    }
+
+    /** Click on a Media tab file: the project pauses and the preview shows that file alone (Source view). */
+    private void openInSource(Clip mediaClip) {
+        if (sourcePreview == null) return;
+        if (isPlaying) {
+            stopPlayback();
+            playBtn.setGraphic(playIcon);
+        }
+        sourcePreview.open(mediaClip);
     }
 
     // ====================================================================
@@ -1882,11 +1999,22 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
         }, timelineRenderer, videoSettings);
         canvas.getChildren().add(previewGizmo.getNode());
+        // Source view: a file clicked in the Media tab, shown over the project's picture (and gizmo) with its own controls.
+        sourcePreview = new SourcePreview(project, videoSettings, new SourcePreview.Host() {
+            @Override public int fps() { return rulerFps(); }
+            @Override public void modeChanged(boolean source) { if (sourceControlsSwap != null) sourceControlsSwap.accept(source); }
+            @Override public void addToTimeline(Clip clip, PlaceClipCommand.Mode mode) { addSourceClipToTimeline(clip, mode); }
+            @Override public float[] savedRange(String clipName) { return mediaRanges.get(clipName); }
+            @Override public void rangeChanged(String clipName, float in, float out, boolean whole) { rememberMediaRange(clipName, in, out, whole); }
+        });
+        // Dragging the source picture onto the timeline adds the chosen part (in / out), like dragging a Media tab file
+        attachNewClipDrag(sourcePreview.overlay(), sourcePreview::chosenClip, false, null);
         // "Applying N feature..." while a clip feature is being pre-processed (see ClipProcessingTracker)
         processingBadge = new ProcessingBadge();
         StackPane.setAlignment(processingBadge, Pos.TOP_LEFT);
         StackPane.setMargin(processingBadge, new Insets(10));
         canvas.getChildren().add(processingBadge);
+        canvas.getChildren().add(sourcePreview.overlay());   // on top of everything: the Source view covers the project picture
         startProcessingWatch();
         maskEditState.setOnChange(() -> { if (previewGizmo != null) previewGizmo.refresh(); });
 
@@ -1957,10 +2085,16 @@ public class EditorWindow extends Stage implements PropertyContext {
                 pbLeft, playBtn, pbRight,
                 fpsLabel, resLabel, hdrLabel, fullScreenBtn);
 
-        panel.getChildren().addAll(canvas, controls);
+        // The project's playback row gives way to the source's own while the Source view is up.
+        sourceControlsSwap = on -> {
+            controls.setVisible(!on);
+            controls.setManaged(!on);
+        };
+        panel.getChildren().addAll(canvas, controls, sourcePreview.controls(), sourcePreview.tabs());
         return panel;
     }
 
+    private java.util.function.Consumer<Boolean> sourceControlsSwap;
     private Label fpsBadge, resBadge;
     /** Re-fits the preview picture into its canvas (set when the canvas is built). */
     private Runnable relayoutPreview;
@@ -2002,6 +2136,8 @@ public class EditorWindow extends Stage implements PropertyContext {
             timelineRenderer.applyVideoSettings();
         }
         if (change.size && relayoutPreview != null) relayoutPreview.run();
+        if (change.size && sourcePreview != null) sourcePreview.applyVideoSettings();
+        if (change.frameRate && sourcePreview != null) sourcePreview.frameRateChanged();
         refreshTimelineUI(); // the ruler, the clips on the new frame grid, the duration
         currentTimeLabel.setText(formatTimecode(currentTime));
         durationLabel.setText(formatTimecode(timeline.duration));
