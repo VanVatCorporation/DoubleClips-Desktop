@@ -291,6 +291,18 @@ public class Clip implements Serializable, UnknownKeysHolder {
     public void setStartTime(float startTime) { this.startTime = startTime; }
     public void setStartTime(float startTime, int frameRate) { this.startTime = FrameHelper.calculateToNearestFrame(startTime, frameRate); }
 
+    /**
+     * Moves the END of the clip (start + duration) to the nearest frame, keeping the start; a video / audio clip's end trim follows in
+     * source seconds and never past the end of the source (see {@link ClipEndSnap}).
+     */
+    public void snapEndToFrame(int frameRate) {
+        boolean trims = (type == ClipType.VIDEO || type == ClipType.AUDIO) && originalDuration > 0;
+        ClipEndSnap.Result r = ClipEndSnap.snap(startTime, duration, endClipTrim, frameRate, trims ? timeMapSnapshot() : null, trims);
+        if (!r.changed) return;
+        duration = r.duration;
+        endClipTrim = r.endClipTrim;
+    }
+
     public float getDuration() { return duration; }
     public void setDuration(float duration) { this.duration = duration; }
 

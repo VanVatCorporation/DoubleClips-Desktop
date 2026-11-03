@@ -191,12 +191,32 @@ public final class DockManager {
         INSTANCES.add(this);
     }
 
+    /** True while the editor is taking the keyboard focus back after its panels were raised (see {@link #followMainWindow}). */
+    private boolean restoringEditorFocus;
+
     /** macOS: the floating windows have no owner (see {@link #MAC}); this keeps them behaving like owned ones. */
     private void followMainWindow() {
         // Clicking the editor brings its panels back in front of it, as an owned window would stay.
         mainStage.focusedProperty().addListener((o, was, focused) -> {
-            if (!focused || closed) return;
-            for (DockPanel p : panels) if (p.floating && p.stage != null && !p.stage.isIconified()) p.stage.toFront();
+            if (!focused || closed || restoringEditorFocus) return;
+            boolean raised = false;
+            for (DockPanel p : panels) {
+                if (p.floating && p.stage != null && !p.stage.isIconified()) {
+                    p.stage.toFront();
+                    raised = true;
+                }
+            }
+            if (raised) {
+                // On macOS toFront() makes the panel's window the KEY window too, which took the keyboard focus straight back from
+                // whatever was just clicked in the editor (a text box in the properties wouldn't take the caret after the preview
+                // panel had been used). Give the editor the focus back once the panels are in front; the flag keeps the focus
+                // changes of this round trip from starting another one.
+                restoringEditorFocus = true;
+                Platform.runLater(() -> {
+                    if (!closed && !mainStage.isFocused()) mainStage.requestFocus();
+                    Platform.runLater(() -> restoringEditorFocus = false);
+                });
+            }
         });
         // ... and they minimise / come back with it.
         mainStage.iconifiedProperty().addListener((o, was, iconified) -> {

@@ -65,8 +65,6 @@ public class EditorWindow extends Stage implements PropertyContext {
     private VideoSettings videoSettings;
 
     private TimelineRenderer timelineRenderer;
-    /** The Source view of the preview: a file clicked in the Media tab, shown alone with its own seek bar. */
-    private SourcePreview sourcePreview;
     private com.vanvatcorporation.doubleclips.ui.renderer.PreviewGizmo previewGizmo;
     private final HistoryManager historyManager = new HistoryManager();
     { historyManager.setBeforeChange(this::endTakeFromEditor); }   // an edit / undo / redo ends a running voiceover take
@@ -666,10 +664,6 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void triggerPlayAction()
     {
-        if (sourcePreview != null && sourcePreview.isActive()) {   // the Source view is up: Space plays / pauses the file
-            sourcePreview.togglePlay();
-            return;
-        }
         if (voiceover != null && voiceover.isRecording()) {   // Space / the play button ends the take
             voiceover.stopFromEditor();
             return;
@@ -685,7 +679,6 @@ public class EditorWindow extends Stage implements PropertyContext {
     private void startPlayback() {
         if (isPlaying)
             return;
-        if (sourcePreview != null && sourcePreview.isActive()) sourcePreview.showProject();   // the project plays: back to it
         isPlaying = true;
         lastTimerUpdate = System.nanoTime();
         playbackTimer.start();
@@ -890,7 +883,6 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (dock != null) dock.shutdown();
         stopPlayback();
         saveProject();
-        if (sourcePreview != null) sourcePreview.shutdown();
         if (timelineRenderer != null) timelineRenderer.shutdown();
         DoubleClipsDesktop.getInstance().closeEditor(this);
     }
@@ -1809,12 +1801,6 @@ public class EditorWindow extends Stage implements PropertyContext {
             if (activeDrag.clip == null || !activeDrag.isNewClip)
                 return;
 
-            // A click (no drag): show the file in the preview's Source view. A drag still adds the whole file to the timeline.
-            if (!activeDrag.dragging && e.getButton() == javafx.scene.input.MouseButton.PRIMARY
-                    && (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO || clip.type == ClipType.IMAGE)) {
-                openInSource(clip);
-            }
-
             if (activeDrag.dragging && activeDrag.ghost != null) {
                 double finalX = activeDrag.ghost.getLayoutX();
                 int newTrackIdx = activeDrag.currentTrackIdx;
@@ -1842,16 +1828,6 @@ public class EditorWindow extends Stage implements PropertyContext {
             activeDrag.isNewClip = false;
             e.consume();
         });
-    }
-
-    /** Click on a Media tab file: the project pauses and the preview shows that file alone (Source view). */
-    private void openInSource(Clip mediaClip) {
-        if (sourcePreview == null) return;
-        if (isPlaying) {
-            stopPlayback();
-            playBtn.setGraphic(playIcon);
-        }
-        sourcePreview.open(mediaClip);
     }
 
     // ====================================================================
@@ -1906,17 +1882,11 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
         }, timelineRenderer, videoSettings);
         canvas.getChildren().add(previewGizmo.getNode());
-        // Source view: a file clicked in the Media tab, shown over the project's picture (and gizmo) with its own controls.
-        // Created before the playback row below, which it replaces while it is up.
-        sourcePreview = new SourcePreview(project, videoSettings, this::rulerFps, on -> {
-            if (sourceControlsSwap != null) sourceControlsSwap.accept(on);
-        });
         // "Applying N feature..." while a clip feature is being pre-processed (see ClipProcessingTracker)
         processingBadge = new ProcessingBadge();
         StackPane.setAlignment(processingBadge, Pos.TOP_LEFT);
         StackPane.setMargin(processingBadge, new Insets(10));
         canvas.getChildren().add(processingBadge);
-        canvas.getChildren().add(sourcePreview.overlay());   // on top of everything: the Source view covers the project picture
         startProcessingWatch();
         maskEditState.setOnChange(() -> { if (previewGizmo != null) previewGizmo.refresh(); });
 
@@ -1987,16 +1957,10 @@ public class EditorWindow extends Stage implements PropertyContext {
                 pbLeft, playBtn, pbRight,
                 fpsLabel, resLabel, hdrLabel, fullScreenBtn);
 
-        // The project's playback row gives way to the source's own while the Source view is up.
-        sourceControlsSwap = on -> {
-            controls.setVisible(!on);
-            controls.setManaged(!on);
-        };
-        panel.getChildren().addAll(canvas, controls, sourcePreview.controls(), sourcePreview.tabs());
+        panel.getChildren().addAll(canvas, controls);
         return panel;
     }
 
-    private java.util.function.Consumer<Boolean> sourceControlsSwap;
     private Label fpsBadge, resBadge;
     /** Re-fits the preview picture into its canvas (set when the canvas is built). */
     private Runnable relayoutPreview;
@@ -2038,7 +2002,6 @@ public class EditorWindow extends Stage implements PropertyContext {
             timelineRenderer.applyVideoSettings();
         }
         if (change.size && relayoutPreview != null) relayoutPreview.run();
-        if (change.size && sourcePreview != null) sourcePreview.applyVideoSettings();
         refreshTimelineUI(); // the ruler, the clips on the new frame grid, the duration
         currentTimeLabel.setText(formatTimecode(currentTime));
         durationLabel.setText(formatTimecode(timeline.duration));
@@ -2606,20 +2569,41 @@ public class EditorWindow extends Stage implements PropertyContext {
      * A video clip's own audio as a thin band along the bottom of its tiles (the iOS app does the same). Generated
      * like the audio clips' waveform: only near the viewport, only when what it shows changed, off the FX thread.
      */
+    /** The widest stretch of a clip that gets a waveform bitmap (one bar per pixel column). */
+    private static final double WAVE_WINDOW_PX = 4096.0;
+
     private void ensureWaveBand(ClipNode node) {
         Clip clip = node.getContainerClip();
         if (clip.type != ClipType.VIDEO || !clip.isClipHasAudio()) return;
-        final String sig = "W|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature()
-                + "|" + com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.signature(clip);
+        final float scale = pixelsPerSecond;
+
+        // A long clip at a high zoom is far wider than a bitmap can be, so only the stretch around the viewport is drawn (at one bar
+        // per pixel, where the whole clip squeezed into 4096 columns and stretched back smeared each bar over dozens of pixels). The
+        // stretch moves in quarter-window steps, so scrolling redraws it only now and then.
+        final double clipPx = clip.duration * scale;
+        final double windowPx = Math.min(clipPx, WAVE_WINDOW_PX);
+        double startPx = 0;
+        if (clipPx > WAVE_WINDOW_PX) {
+            double centerPx = currentScrollPx() + tracksScrollPane.getViewportBounds().getWidth() / 2.0 - clip.startTime * scale;
+            double step = WAVE_WINDOW_PX / 4.0;
+            startPx = Math.floor((centerPx - WAVE_WINDOW_PX / 2.0) / step) * step;
+            startPx = Math.max(0, Math.min(clipPx - windowPx, startPx));
+        }
+        final double x = startPx, w = windowPx;
+        final double fromSeconds = x / scale, toSeconds = (x + w) / scale;
+
+        final String sig = "W|" + scale + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature()
+                + "|" + com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.signature(clip)
+                + "|" + Math.round(x) + "|" + Math.round(w);
         if (sig.equals(node.getWaveSignature())) return;
         node.setWaveSignature(sig);
-        final float scale = pixelsPerSecond;
         thumbnailExecutor.submit(() -> {
             if (node.getParent() == null || !sig.equals(node.getWaveSignature())) return;     // removed / re-zoomed meanwhile
-            Image band = AudioUtils.generateVideoWaveformBand(clip.getAbsolutePreviewPath(project, ".wav"), clip, scale, 20);
+            Image band = AudioUtils.generateVideoWaveformBand(clip.getAbsolutePreviewPath(project, ".wav"), clip, scale, 20,
+                    fromSeconds, toSeconds);
             javafx.application.Platform.runLater(() -> {
                 if (!sig.equals(node.getWaveSignature())) return;
-                if (band != null) node.setWaveformBand(band);
+                if (band != null) node.setWaveformBand(band, x, w);
                 else node.setWaveSignature(null);          // no preview audio yet: a later refresh tries again
             });
         });

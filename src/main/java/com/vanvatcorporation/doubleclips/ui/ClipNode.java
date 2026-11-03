@@ -43,6 +43,7 @@ public class ClipNode extends Pane {
     private final ImageView singleImageOverlay;
     /** A video clip's own audio as a thin waveform band along the bottom edge (like the iOS app). */
     private final ImageView waveBand;
+    private final javafx.beans.property.DoubleProperty waveBandWidth = new javafx.beans.property.SimpleDoubleProperty(0);
     private static final double WAVE_BAND_HEIGHT = 20;
     private volatile String waveSignature;
     private final Label   nameLabel;
@@ -157,7 +158,10 @@ public class ClipNode extends Pane {
         waveBand = new ImageView();
         waveBand.setMouseTransparent(true);
         waveBand.setPreserveRatio(false);
-        waveBand.fitWidthProperty().bind(widthProperty());
+        // The band covers one stretch of the clip (the part around the viewport), placed by setWaveformBand; it never reaches past the clip
+        // (a trim in progress makes the clip shorter before the band is redrawn).
+        waveBand.fitWidthProperty().bind(javafx.beans.binding.Bindings.max(0.0,
+                javafx.beans.binding.Bindings.min(waveBandWidth, widthProperty().subtract(waveBand.layoutXProperty()))));
         waveBand.setFitHeight(WAVE_BAND_HEIGHT);
         waveBand.layoutYProperty().bind(heightProperty().subtract(WAVE_BAND_HEIGHT));
         waveBand.setVisible(false);
@@ -246,9 +250,14 @@ public class ClipNode extends Pane {
         return (int) Math.ceil(w / (h * THUMB_ASPECT)) + 1;
     }
 
-    /** The audio band of a video clip; null hides it. */
-    public void setWaveformBand(Image image) {
+    /**
+     * The audio band of a video clip; null hides it. The image shows the stretch of the clip that starts {@code x} pixels from its left
+     * edge and is {@code width} pixels wide (a long clip only gets the stretch around the viewport, one bar per pixel).
+     */
+    public void setWaveformBand(Image image, double x, double width) {
         waveBand.setImage(image);
+        waveBand.setLayoutX(x);
+        waveBandWidth.set(width);
         waveBand.setVisible(image != null);
     }
 

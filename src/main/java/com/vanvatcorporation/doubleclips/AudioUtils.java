@@ -167,7 +167,20 @@ public class AudioUtils {
      * memory. Returns null when the preview WAV is missing or not 16-bit PCM.
      */
     public static Image generateVideoWaveformBand(String wavPath, Clip clip, float pixelsPerSecond, int bandHeight) {
-        final int bmpW = (int) Math.max(64, Math.min(4096, clip.duration * pixelsPerSecond));
+        return generateVideoWaveformBand(wavPath, clip, pixelsPerSecond, bandHeight, 0.0, clip.duration);
+    }
+
+    /**
+     * The band for ONE STRETCH of the clip, {@code fromSeconds}..{@code toSeconds} of its own timeline (0 = the clip's start), one
+     * bar per pixel column. A long clip at a high zoom is far wider than any bitmap can be: drawing the whole clip into a capped
+     * bitmap and stretching it over the clip's width smeared every bar over dozens of pixels, so the caller asks only for the
+     * stretch around the viewport and places the image there. At most 4096 columns.
+     */
+    public static Image generateVideoWaveformBand(String wavPath, Clip clip, float pixelsPerSecond, int bandHeight,
+                                                  double fromSeconds, double toSeconds) {
+        final double from = Math.max(0.0, fromSeconds);
+        final double span = Math.max(1e-3, Math.min(clip.duration, toSeconds) - from);
+        final int bmpW = (int) Math.max(8, Math.min(4096, Math.round(span * pixelsPerSecond)));
         final int bars = bmpW;                                    // one bar per pixel column
         final double[] sumSq = new double[bars];
         final int[] count = new int[bars];
@@ -180,7 +193,8 @@ public class AudioUtils {
                 if (fmt.getSampleSizeInBits() != 16 || fmt.isBigEndian()) return null;
                 int frameSize = fmt.getFrameSize();
                 double rate = fmt.getSampleRate();
-                long startFrame = (long) (clip.startClipTrim * rate);
+                final double windowSource = speedMap.sourceOffset(from);          // source seconds, from the trim, where the stretch begins
+                long startFrame = (long) ((clip.startClipTrim + windowSource) * rate);
                 long toSkip = startFrame * frameSize, skipped = 0;
                 while (skipped < toSkip) {
                     long r = ais.skip(toSkip - skipped);
@@ -189,14 +203,14 @@ public class AudioUtils {
                 }
                 // Source frame (relative to the trim) at which each bar ends.
                 double[] edge = new double[bars];
-                for (int b = 0; b < bars; b++) edge[b] = speedMap.sourceOffset(clip.duration * (b + 1) / (double) bars) * rate;
+                for (int b = 0; b < bars; b++) edge[b] = (speedMap.sourceOffset(from + span * (b + 1) / (double) bars) - windowSource) * rate;
                 float volume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip);
                 // A keyframed volume: each bar is as loud as the volume at its own moment.
                 final boolean keyedVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.isAnimated(clip);
                 final float[] barVolume = new float[bars];
                 for (int b = 0; b < bars; b++) {
                     barVolume[b] = keyedVolume
-                            ? com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.gainAt(clip, clip.startTime + clip.duration * (b + 0.5f) / bars)
+                            ? com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.gainAt(clip, (float) (clip.startTime + from + span * (b + 0.5) / bars))
                             : volume;
                 }
                 byte[] buf = new byte[frameSize * 2048];

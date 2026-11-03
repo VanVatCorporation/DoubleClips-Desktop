@@ -63,6 +63,7 @@ public class Track implements Serializable, UnknownKeysHolder {
 
         for (Clip clip : clips) {
             clip.setStartTime(clip.getStartTime(), framePerSecond);
+            clip.snapEndToFrame(framePerSecond); // the end too, or a trimmed clip ends between frames and leaves a gap
         }
     }
     public List<Clip> getClipsAtCurrentTime(float playheadTime) {

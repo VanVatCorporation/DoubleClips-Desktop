@@ -871,23 +871,13 @@ public class FFmpegEdit {
                                 templateSettings.audioOnly ? "opengl_audio_only_tmp.m4a" :
                                         (templateSettings.isFinal ? "" : (templateSettings.renderingIndex + "_")) + Constants.DEFAULT_EXPORT_CLIP_FILENAME);
 
-        // audioOnly: keep ONLY the audio statements ("[N:a]...[audio-X];" per
-        // clip, plus the final amix -> [aout]). Every audio statement is
-        // self-contained, so dropping the video statements leaves a valid
-        // graph with no dangling video outputs and no video decoding at all.
-        // Mirrors Android's identical slicing in its own generateExportCmdPartially.
-        // (Caller must not request audioOnly for a timeline with no audio
-        // clips - the graph would be empty.)
+        // audioOnly: keep ONLY what the final [aout] depends on (AudioGraphSlicer walks back from it), so the video statements are
+        // dropped - no dangling video outputs and no video decoding at all - while a clip's intermediate audio steps stay (a clip at
+        // another speed is "[N:a]...[asp0];" then "[asp0]...[audio-X];"; keeping only statements that start with [N:a] lost the
+        // second one). The caller must not request audioOnly for a timeline with no audio clips - the graph would be empty.
         String graphText = filterComplex.toString();
         if (templateSettings.audioOnly) {
-            StringBuilder audioGraph = new StringBuilder();
-            for (String statement : graphText.split(";\n")) {
-                String trimmed = statement.trim();
-                if (trimmed.matches("(?s)^\\[\\d+:a\\].*") || trimmed.contains("[aout]")) {
-                    audioGraph.append(trimmed).append(";\n");
-                }
-            }
-            graphText = audioGraph.toString();
+            graphText = AudioGraphSlicer.slice(graphText, "[aout]");
         }
         cmd.append("-filter_complex \"").append(graphText).append("\" ");
 
