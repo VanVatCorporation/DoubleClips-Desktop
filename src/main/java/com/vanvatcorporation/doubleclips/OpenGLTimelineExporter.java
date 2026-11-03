@@ -129,6 +129,16 @@ public final class OpenGLTimelineExporter {
         void applyEffectToSlot(int slot, String style, float intensity, float progress, float time, float elapsed);
 
         /**
+         * A data-driven effect ({@link EffectStyle}: its channels already evaluated into one frame) on everything drawn so far:
+         * the whole picture is moved, rotated, scaled, slid, motion-blurred and graded. Default: nothing (a compositor without it
+         * leaves the canvas as it is).
+         */
+        default void applyFrameEffect(ClipAnimationFrame frame) {}
+
+        /** The same data-driven effect on ONE clip's transparent layer in scratch canvas {@code slot}, in place. */
+        default void applyFrameEffectToSlot(int slot, ClipAnimationFrame frame) {}
+
+        /**
          * Starts a clip that has an effect of its own: from here until {@link #endClipGroup}, every draw (and blur / streak /
          * transition result) that goes to "the main canvas" goes into a cleared, transparent layer instead.
          */
@@ -265,7 +275,8 @@ public final class OpenGLTimelineExporter {
             }
             if (layer.effect != null) {
                 OpenGLEdit.EffectCommand fx = layer.effect;
-                compositor.applyEffect(fx.style, fx.intensity, fx.progress, outputTimeSeconds, fx.elapsed);
+                if (fx.frame != null) compositor.applyFrameEffect(fx.frame);
+                else compositor.applyEffect(fx.style, fx.intensity, fx.progress, outputTimeSeconds, fx.elapsed);
                 continue;
             }
             // Transition: each side is rendered to its own full-canvas transparent
@@ -277,13 +288,15 @@ public final class OpenGLTimelineExporter {
             drawer.draw(transition.clipACommand, outputTimeSeconds);
             if (transition.clipAEffect != null) {
                 OpenGLEdit.EffectCommand own = transition.clipAEffect; // the outgoing clip's own effect filters its side only
-                compositor.applyEffectToSlot(0, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
+                if (own.frame != null) compositor.applyFrameEffectToSlot(0, own.frame);
+                else compositor.applyEffectToSlot(0, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
             }
             compositor.beginOffscreen(1);
             drawer.draw(transition.clipBCommand, outputTimeSeconds);
             if (transition.clipBEffect != null) {
                 OpenGLEdit.EffectCommand own = transition.clipBEffect;
-                compositor.applyEffectToSlot(1, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
+                if (own.frame != null) compositor.applyFrameEffectToSlot(1, own.frame);
+                else compositor.applyEffectToSlot(1, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
             }
             compositor.endOffscreen();
             int mode = transition.blendMode();

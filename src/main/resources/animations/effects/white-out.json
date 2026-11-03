@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "white-out",
+  "name": "White Out",
+  "description": "Bleaches the frame to pure white. Strength controls how far the exposure is pushed.",
+  "intensity": {
+    "label": "Intensity",
+    "min": 0.1,
+    "max": 1
+  },
+  "filters": [
+    {
+      "op": "exposure",
+      "stops": 6
+    },
+    {
+      "op": "brightness",
+      "amount": 1
+    }
+  ]
+}

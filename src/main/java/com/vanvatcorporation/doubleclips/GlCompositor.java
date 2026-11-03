@@ -656,7 +656,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private int effectProgram = 0;
     private boolean effectsUnavailable = false;
     private int uFxTexLoc, uFxTex2Loc, uFxStyleLoc, uFxPassLoc, uFxIntensityLoc, uFxProgressLoc, uFxTimeLoc, uFxElapsedLoc,
-            uFxWanderLoc, uFxResolutionLoc, uFxRandLoc, uFxLayerLoc;
+            uFxWanderLoc, uFxResolutionLoc, uFxRandLoc, uFxLayerLoc,
+            uFxFrameTLoc, uFxFrameCLoc, uFxFrameMLoc, uFxFrameKLoc, uFxFrameTapsLoc;
 
     GlCompositor(int width, int height) {
         this.width = width;
@@ -1131,6 +1132,11 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uFxResolutionLoc = glGetUniformLocation(effectProgram, "uResolution");
             uFxRandLoc = glGetUniformLocation(effectProgram, "uRand");
             uFxLayerLoc = glGetUniformLocation(effectProgram, "uLayer");
+            uFxFrameTLoc = glGetUniformLocation(effectProgram, "uFrameT");
+            uFxFrameCLoc = glGetUniformLocation(effectProgram, "uFrameC");
+            uFxFrameMLoc = glGetUniformLocation(effectProgram, "uFrameM");
+            uFxFrameKLoc = glGetUniformLocation(effectProgram, "uFrameK");
+            uFxFrameTapsLoc = glGetUniformLocation(effectProgram, "uFrameTaps");
             return true;
         } catch (RuntimeException | java.io.IOException e) {
             effectsUnavailable = true;
@@ -1181,6 +1187,69 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     public void applyEffectToSlot(int slot, String style, float intensity, float progress, float time, float elapsed) {
         applyEffectCore(scratchTarget(slot), GROUP_FX_BASE, true, style, intensity, progress, time, elapsed);
         bindMain();
+    }
+
+    /** The shader's STYLE_FRAME: a data-driven effect, not a position in {@link EffectCatalog}'s built-in list. */
+    private static final int EFFECT_FRAME_STYLE = 100;
+
+    @Override
+    public void applyFrameEffect(ClipAnimationFrame frame) {
+        applyFrameCore(mainTarget, 0, false, frame);
+    }
+
+    @Override
+    public void applyFrameEffectToSlot(int slot, ClipAnimationFrame frame) {
+        applyFrameCore(scratchTarget(slot), GROUP_FX_BASE, true, frame);
+        bindMain();
+    }
+
+    /**
+     * A data-driven effect (an {@link EffectStyle}'s channels at this moment, as one frame) on everything in {@code dst}: the picture
+     * is moved / rotated / scaled about the canvas centre, slid with its edges filled, motion-blurred along an angle and graded, all in
+     * the effect shader (STYLE_FRAME). Reads a copy of {@code dst} in scratch canvas {@code base} and writes {@code dst}, like the
+     * built-in effects. Channels it doesn't draw (hue, temperature, brightness, gaussian blur, warp, opacity) are left as they are.
+     */
+    private void applyFrameCore(GlTarget dst, int base, boolean layer, ClipAnimationFrame f) {
+        if (f == null || f.isNeutral() || !prepareEffects()) return;
+        glDisable(GL_BLEND);
+        try {
+            glBindVertexArray(vao);
+            GlTarget copy = scratchTarget(base);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, dst.fbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copy.fbo);
+            glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+            glUseProgram(effectProgram);
+            glUniform1i(uFxTexLoc, 0);
+            glUniform1i(uFxTex2Loc, 1);
+            glUniform1i(uFxStyleLoc, EFFECT_FRAME_STYLE);
+            glUniform1i(uFxLayerLoc, layer ? 1 : 0);
+            glUniform1f(uFxIntensityLoc, 1f);
+            glUniform1f(uFxProgressLoc, 0f);
+            glUniform1f(uFxTimeLoc, 0f);
+            glUniform1f(uFxElapsedLoc, 0f);
+            glUniform1f(uFxWanderLoc, 0f);
+            glUniform2f(uFxResolutionLoc, width, height);
+
+            float streakPx = Math.max(0f, f.motionBlurWidthFraction()) * width;
+            int taps = 1;
+            if (streakPx > 0.5f) {
+                taps = Math.min(STREAK_MAX_TAPS, Math.max(9, (int) Math.ceil(streakPx / STREAK_TAP_SPACING_PIXELS))) | 1;
+            }
+            glUniform4f(uFxFrameTLoc, f.scale(), f.offsetX() * width, f.offsetY() * height, (float) Math.toRadians(f.rotationDegrees()));
+            glUniform4f(uFxFrameCLoc, f.exposure(), f.saturation(), f.contrast(), f.redTint());
+            glUniform4f(uFxFrameMLoc, streakPx, (float) Math.toRadians(f.blurAngleDegrees()),
+                    f.edgeSlideFraction() * width, f.edgeSlideYFraction() * height);
+            glUniform2f(uFxFrameKLoc, f.whiteMix(), f.edgeFill() ? 1f : 0f);
+            glUniform1i(uFxFrameTapsLoc, taps);
+
+            bindTarget(dst);
+            effectPass(0, base, -1);
+        } finally {
+            glEnable(GL_BLEND); // draw() assumes it; beginFrame set it up once
+            glUseProgram(program);
+            glActiveTexture(GL_TEXTURE0);
+        }
     }
 
     /**
@@ -1271,7 +1340,10 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     @Override
     public void endClipGroup(OpenGLEdit.EffectCommand fx, float time, int blendMode, boolean backdrop) {
         baseTarget = null;
-        if (fx != null) applyEffectToSlot(GROUP_SLOT, fx.style, fx.intensity, fx.progress, time, fx.elapsed);
+        if (fx != null) {
+            if (fx.frame != null) applyFrameEffectToSlot(GROUP_SLOT, fx.frame);
+            else applyEffectToSlot(GROUP_SLOT, fx.style, fx.intensity, fx.progress, time, fx.elapsed);
+        }
         bindMain();
         glEnable(GL_BLEND);
         if (blendMode != 0 && backdrop) {

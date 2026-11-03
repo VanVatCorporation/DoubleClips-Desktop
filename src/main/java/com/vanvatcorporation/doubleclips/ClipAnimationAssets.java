@@ -20,9 +20,10 @@ import java.util.List;
  * and {@code /animations/out/*.json} ("out" animations); the folder a file is in must match the
  * direction it declares. A classpath folder can't be listed once the app is packed into a jar,
  * so the bundled files are named in {@code /animations/index.txt} (one {@code in/name.json},
- * {@code out/name.json} or {@code transitions/name.json} per line; blank lines and lines starting with # are
- * ignored). To add a bundled animation, drop its .json into the folder AND add its line to that list.
- * {@code transitions/} files are data-driven transition styles ({@link TransitionStyleLoader}).
+ * {@code out/name.json}, {@code transitions/name.json} or {@code effects/name.json} per line; blank lines and lines
+ * starting with # are ignored). To add a bundled animation, drop its .json into the folder AND add its line to that list.
+ * {@code transitions/} files are data-driven transition styles ({@link TransitionStyleLoader}); {@code effects/} files are
+ * data-driven effect styles ({@link EffectStyleLoader}).
  * <p>
  * Installed packs live in {@code <app directory>/animation_packs/<packId>/}, where the app
  * directory is {@link StorageHelper#getAppDirectory()}. The OpenGL export runs in a separate
@@ -79,9 +80,14 @@ public final class ClipAnimationAssets {
         }
         List<Pending> pending = new ArrayList<>();
         List<String> transitionFiles = new ArrayList<>(); // transitions/<file>.json: data-driven transition styles
+        List<String> effectFiles = new ArrayList<>();     // effects/<file>.json: data-driven effect styles
         for (String line : index.split("\\R")) {
             String n = line.trim();
             if (n.isEmpty() || n.startsWith("#")) continue;
+            if (n.startsWith(EffectStyleLoader.ASSET_FOLDER + "/") && n.endsWith(".json")) {
+                effectFiles.add(n);
+                continue;
+            }
             if (n.startsWith(TransitionStyleLoader.ASSET_FOLDER + "/") && n.endsWith(".json")) {
                 transitionFiles.add(n);
                 continue;
@@ -127,6 +133,17 @@ public final class ClipAnimationAssets {
             pending = stillPending;
         }
         for (Pending p : pending) errors.add(p.name + ": its \"mirrorOf\" animation was never loaded");
+
+        // Effect styles are independent files too (a bad one is reported and skipped, the others still load).
+        for (String name : effectFiles) {
+            try {
+                EffectStyleLoader.register(readResource(name), name);
+            } catch (ClipAnimationLoader.FormatException e) {
+                errors.add(e.getMessage());
+            } catch (IOException e) {
+                errors.add(name + ": can't read file: " + e.getMessage());
+            }
+        }
 
         // Transition styles are independent files (they never mirror anything), so one pass is enough.
         for (String name : transitionFiles) {

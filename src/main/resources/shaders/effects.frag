@@ -23,9 +23,16 @@ uniform float uWander;          // vhs: where the tracking line is
 uniform int uLayer;             // 1 = a clip's transparent layer (see above)
 uniform vec2 uResolution;       // canvas size in pixels
 uniform float uRand[32];        // the step's random numbers, by salt (made on the CPU so CPU and GPU agree)
+// uStyle == STYLE_FRAME: a data-driven effect (EffectStyle JSON: channels evaluated on the CPU into one ClipAnimationFrame)
+uniform vec4 uFrameT;           // scale about the canvas centre, offset x px, offset y px (+ = right / down), rotation radians
+uniform vec4 uFrameC;           // exposure (multiplier), saturation, contrast, redTint
+uniform vec4 uFrameM;           // motion-blur LENGTH px, its angle radians, edge slide x px, edge slide y px
+uniform vec2 uFrameK;           // whiteMix, edgeFill (1 = the picture's edge pixels fill the canvas)
+uniform int uFrameTaps;         // motion-blur taps (odd; 1 = no blur)
 out vec4 fragColor;
 
 const float PI = 3.14159265358979;
+const int STYLE_FRAME = 100;    // GlCompositor.EFFECT_FRAME_STYLE: not a position in EffectCatalog's built-in list
 
 // alpha of the picture at p (1 on an opaque picture)
 float tapA(vec2 p) { return uLayer == 1 ? texture(uTexture, p / uResolution).a : 1.0; }
@@ -92,6 +99,15 @@ vec3 vhsBase(vec2 p, float br) {
 vec3 zoomed(vec2 p, float z) {
     vec2 c = uResolution / 2.0;
     return tapG(c + (p - c) / z);
+}
+
+// frame effect: the picture at q as (rgb * alpha, alpha). Outside the canvas it is nothing (black on the opaque canvas, transparent on a
+// layer) unless edge fill is on, which stretches the edge pixels outward instead.
+vec4 frameTap(vec2 q) {
+    if (uFrameK.y > 0.5) q = clamp(q, vec2(0.5), uResolution - vec2(0.5));
+    else if (q.x < 0.0 || q.y < 0.0 || q.x > uResolution.x || q.y > uResolution.y) return vec4(0.0);
+    float a = tapA(q);
+    return vec4(tap(q) * a, a);
 }
 
 void main() {
@@ -254,6 +270,32 @@ void main() {
     } else if (uStyle == 21) {              // fade-out
         if (uLayer == 1) gA = frameA * clamp01(1.0 - pr);
         else o = frame * clamp01(1.0 - pr);
+    } else if (uStyle == STYLE_FRAME) {     // a data-driven effect
+        // Where this pixel reads from: undo the slide, then the offset, rotation and scale (about the canvas centre).
+        // Forward transform: p' = c + offset + scale * R(theta) * (q - c); R turns clockwise on screen (y points down).
+        float cs = cos(uFrameT.w), sn = sin(uFrameT.w);
+        vec2 d = (p - uFrameM.zw - c - uFrameT.yz) / max(uFrameT.x, 0.0001);
+        vec2 q = c + vec2(d.x * cs + d.y * sn, -d.x * sn + d.y * cs);
+        vec4 acc = vec4(0.0);
+        int taps = max(uFrameTaps, 1);
+        if (taps > 1) {
+            vec2 dir = vec2(cos(uFrameM.y), sin(uFrameM.y));
+            for (int i = 0; i < taps && i < 129; i++) {
+                float t = (float(i) / float(taps - 1) - 0.5) * uFrameM.x;
+                acc += frameTap(q + dir * t);
+            }
+            acc /= float(taps);
+        } else {
+            acc = frameTap(q);
+        }
+        gA = acc.a;
+        o = uLayer == 1 ? (acc.a > 0.0001 ? acc.rgb / acc.a : vec3(0.0)) : acc.rgb;
+        // colour like iOS: saturation + contrast (CIColorControls), then exposure with the red cast and the wash toward white
+        o = colorControls(o, uFrameC.y, 0.0, uFrameC.z);
+        float keep = 1.0 - uFrameK.x;
+        o = o * vec3(uFrameC.x * (1.0 + 0.15 * uFrameC.w) * keep,
+                     uFrameC.x * (1.0 - 0.6 * uFrameC.w) * keep,
+                     uFrameC.x * (1.0 - 0.6 * uFrameC.w) * keep) + vec3(uFrameK.x);
     }
     if (uLayer == 1) {
         float alpha = clamp01(gA);

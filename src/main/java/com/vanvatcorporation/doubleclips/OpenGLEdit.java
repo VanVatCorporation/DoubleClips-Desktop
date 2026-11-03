@@ -434,12 +434,25 @@ public class OpenGLEdit {
         /** Seconds since the effect clip began. */
         public final float elapsed;
 
-        EffectCommand(Clip clip, String style, float intensity, float progress, float elapsed) {
+        /**
+         * For a data-driven style ({@link EffectCatalog.Style#dataDriven}): its channels at this moment, already pushed by
+         * the strength; the compositor draws that instead of a built-in effect. null for a built-in style.
+         */
+        public final ClipAnimationFrame frame;
+
+        EffectCommand(Clip clip, String style, float intensity, float progress, float elapsed, ClipAnimationFrame frame) {
             this.clip = clip;
             this.style = style;
             this.intensity = intensity;
             this.progress = progress;
             this.elapsed = elapsed;
+            this.frame = frame;
+        }
+
+        /** The command for {@code style} {@code elapsed} seconds into an effect that lasts {@code length} seconds. */
+        static EffectCommand of(Clip clip, EffectCatalog.Style style, float intensity, float progress, float elapsed, float length) {
+            ClipAnimationFrame frame = style.dataDriven && style.data != null ? style.data.frameAt(elapsed, length, intensity) : null;
+            return new EffectCommand(clip, style.key, intensity, progress, elapsed, frame);
         }
     }
 
@@ -590,7 +603,7 @@ public class OpenGLEdit {
         float elapsed = t - clip.startTime - start;
         if (elapsed < 0f || elapsed > length) return null;
         float progress = length > 1e-3f ? Math.max(0f, Math.min(1f, elapsed / length)) : 1f;
-        return new EffectCommand(clip, style.key, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.clipEffect, t)), progress, elapsed);
+        return EffectCommand.of(clip, style, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.clipEffect, t)), progress, elapsed, length);
     }
 
     /** An active OVERLAP-mode, built-in-style (two-sided blend) transition on a track at some t. */
@@ -812,7 +825,7 @@ public class OpenGLEdit {
         if (style == null) return null;
         float elapsed = Math.max(0f, t - clip.startTime);
         float progress = clip.duration > 1e-3f ? Math.max(0f, Math.min(1f, elapsed / clip.duration)) : 1f;
-        return new EffectCommand(clip, style.key, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.effect, t)), progress, elapsed);
+        return EffectCommand.of(clip, style, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.effect, t)), progress, elapsed, clip.duration);
     }
 
     /**
