@@ -1552,10 +1552,11 @@ public class EditorWindow extends Stage implements PropertyContext {
 
                     // Never overwrite a different file that has this name: the clips using the old one would silently
                     // change. The same file imported again is reused; another one becomes "name (1).ext".
-                    boolean existedBefore = new File(clipDir, f.getName()).exists();
+                    String safeName = com.vanvatcorporation.doubleclips.ProjectLibrary.safeFileName(f.getName());   // what copyIn will call it
+                    boolean existedBefore = new File(clipDir, safeName).exists();
                     String filename = ProjectLibrary.copyIn(f, project.getProjectPath());
                     File targetFile = new File(clipDir, filename);
-                    boolean reused = existedBefore && filename.equals(f.getName());
+                    boolean reused = existedBefore && filename.equals(safeName);
 
                     MediaHelper.MediaInfo info = MediaHelper.probeMediaInfo(targetFile.getAbsolutePath());
 
@@ -3509,10 +3510,28 @@ public class EditorWindow extends Stage implements PropertyContext {
     // =========================================================================
     // Clip Interaction — CapCut-style: click = select, drag = immediate move
     // =========================================================================
+    /** Bumped on every clip press: a "drag is over" reset queued by an earlier release must not end a newer drag. */
+    private int dragGeneration = 0;
+
+    /**
+     * Removes every drag ghost still in the timeline and shows every clip again. A fast second press can arrive before
+     * the first drag was torn down (or the first clip's node was rebuilt mid-drag, so its release never came); the
+     * ghosts of that drag were then forgotten by activeDrag and stayed on screen, on top of the real clips.
+     */
+    private void discardStaleDragGhosts() {
+        tracksPane.getChildren().removeIf(n -> n instanceof ClipNode && n.getStyleClass().contains("clip-node-ghost"));
+        clearPhantomTracks();
+        for (Clip c : timeline.getAllClips()) {
+            if (c.viewRef instanceof ClipNode cn && !cn.isVisible()) cn.setVisible(true);
+        }
+    }
+
     private void setupClipInteraction(ClipNode node) {
         Clip clip = node.getContainerClip();
 
         node.setOnMousePressed(e -> {
+            dragGeneration++;
+            discardStaleDragGhosts();   // a new gesture starts clean, whatever the last one left behind
             activeDrag.collapseOnRelease = false;
             activeDrag.members.clear();
             activeDrag.ghosts.clear();
@@ -3653,7 +3672,8 @@ public class EditorWindow extends Stage implements PropertyContext {
             activeDrag.members.clear();
             activeDrag.ghosts.clear();
             activeDrag.collapseOnRelease = false;
-            Platform.runLater(() -> activeDrag.dragging = false);
+            final int releasedGeneration = dragGeneration;
+            Platform.runLater(() -> { if (dragGeneration == releasedGeneration) activeDrag.dragging = false; });
 
             // Refresh so clips redraw at their committed position
             refreshTimelineUI();

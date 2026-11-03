@@ -182,7 +182,7 @@ public final class ProjectLibrary {
     public static String copyIn(File source, String projectPath) throws LibraryException {
         File directory = clipsDirectory(projectPath);
         if (!directory.isDirectory() && !directory.mkdirs()) throw new LibraryException("Couldn't open the project's Clips folder.");
-        String name = source.getName();
+        String name = safeFileName(source.getName());   // the same name for the same file, so re-importing still reuses it
         File target = new File(directory, name);
         if (target.exists()) {
             if (sameLocation(source, target) || target.length() == source.length()) return name;
@@ -192,6 +192,33 @@ public final class ProjectLibrary {
         }
         copy(source, target);
         return name;
+    }
+
+    /**
+     * A file name that every tool in the pipeline (ffmpeg command lines, the preview worker, the exporter) can open:
+     * letters of any script, digits, spaces and . _ - ( ) [ ] stay (so "Cảnh đẹp.mp4" is untouched); emoji and other
+     * symbols, control characters and characters a file system rejects are dropped. A name left with nothing becomes "media".
+     */
+    public static String safeFileName(String name) {
+        String normalized = java.text.Normalizer.normalize(name == null ? "" : name, java.text.Normalizer.Form.NFC);
+        int dot = normalized.lastIndexOf('.');
+        String stem = dot > 0 ? normalized.substring(0, dot) : normalized;
+        String ext = dot > 0 ? normalized.substring(dot + 1) : "";
+        stem = cleanPart(stem).replaceAll("^[ .]+|[ .]+$", "");
+        ext = cleanPart(ext).replace(" ", "");
+        if (stem.isEmpty()) stem = "media";
+        return ext.isEmpty() ? stem : stem + "." + ext;
+    }
+
+    private static String cleanPart(String text) {
+        StringBuilder out = new StringBuilder();
+        text.codePoints().forEach(cp -> {
+            if (cp == '\u200D' || cp == '\u20E3' || (cp >= 0xFE00 && cp <= 0xFE0F)) return;   // emoji joiners / variation selectors
+            if (Character.isLetterOrDigit(cp) || "._-()[]".indexOf(cp) >= 0) out.appendCodePoint(cp);
+            else if (Character.isWhitespace(cp) || cp == '\u00A0') out.append(' ');
+            else if (Character.getType(cp) == Character.NON_SPACING_MARK || Character.getType(cp) == Character.COMBINING_SPACING_MARK) out.appendCodePoint(cp);
+        });
+        return out.toString().replaceAll(" {2,}", " ");
     }
 
     private static boolean sameLocation(File a, File b) {
