@@ -46,7 +46,7 @@ public final class SourceSeekBar extends Pane {
     public SourceSeekBar() {
         track.setStyle("-fx-background-color: -color-bg-inset; -fx-background-radius: 3;");
         range.setStyle("-fx-background-color: #007AFF; -fx-background-radius: 3;");
-        playhead.setStyle("-fx-background-color: white;");
+        playhead.setStyle("-fx-background-color: -color-fg-default;");
         playhead.setMouseTransparent(true);
         for (Polygon p : new Polygon[]{inArrow, outArrow}) {
             p.setFill(Color.web("#FFB020"));

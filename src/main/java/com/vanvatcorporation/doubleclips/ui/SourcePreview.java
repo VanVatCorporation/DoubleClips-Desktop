@@ -45,7 +45,8 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
  *
  * The picture comes from a second {@link TimelineRenderer} that holds a one-clip timeline (a copy of the file's clip,
  * untrimmed), so every format the project preview can play is shown the same way here, with its sound.
- * The renderer is created on the first click, not when the editor opens.
+ * The renderer is created on the first click, not when the editor opens. Its canvas has the FILE's own aspect ratio (the
+ * clip's width / height from the import probe, already swapped for a rotated video), not the project's.
  */
 public class SourcePreview {
 
@@ -68,7 +69,8 @@ public class SourcePreview {
     }
 
     private final ProjectData project;
-    private final VideoSettings settings;
+    private final VideoSettings projectSettings;   // the project's canvas: only its size and frame rate are looked at
+    private final VideoSettings settings;          // this view's own canvas: the file's aspect ratio, see fitCanvasTo
     private final Host host;
 
     private TimelineRenderer renderer;
@@ -117,10 +119,14 @@ public class SourcePreview {
         }
     };
 
-    public SourcePreview(ProjectData project, VideoSettings settings, Host host) {
+    public SourcePreview(ProjectData project, VideoSettings projectSettings, Host host) {
         this.project = project;
-        this.settings = settings;
+        this.projectSettings = projectSettings;
         this.host = host;
+        // Starts as a copy of the project's canvas (kept for a file with no picture); each file then reshapes it
+        this.settings = new VideoSettings(projectSettings.videoWidth, projectSettings.videoHeight, projectSettings.frameRate,
+                projectSettings.crf, projectSettings.clipCap, projectSettings.preset, projectSettings.tune);
+        this.settings.isStretchToFull = false;   // the file fits its own canvas exactly
         buildUi();
     }
 
@@ -162,13 +168,15 @@ public class SourcePreview {
         resetBtn.setTooltip(new Tooltip("Use the whole file again (Esc)"));
         resetBtn.setOnAction(e -> resetRange());
         addBtn.setText("Add to Timeline");
-        addBtn.setTooltip(new Tooltip("Puts the chosen part at the playhead, over what is there"));
-        addBtn.setOnAction(e -> add(PlaceClipCommand.Mode.OVERWRITE));
-        MenuItem overwrite = new MenuItem("Overwrite at playhead");
+        addBtn.setTooltip(new Tooltip("Puts the chosen part at the playhead and leaves what is there as it is"));
+        addBtn.setOnAction(e -> add(PlaceClipCommand.Mode.OVERLAP));
+        MenuItem overlap = new MenuItem("Overlap at playhead (default)");
+        overlap.setOnAction(e -> add(PlaceClipCommand.Mode.OVERLAP));
+        MenuItem overwrite = new MenuItem("Overwrite at playhead (replaces what is there)");
         overwrite.setOnAction(e -> add(PlaceClipCommand.Mode.OVERWRITE));
         MenuItem insert = new MenuItem("Insert at playhead (moves what follows)");
         insert.setOnAction(e -> add(PlaceClipCommand.Mode.INSERT));
-        addBtn.getItems().addAll(overwrite, insert);
+        addBtn.getItems().addAll(overlap, overwrite, insert);
         addBtn.setDisable(true);
         HBox row1 = new HBox(12, timeLabel, sep, durationLabel, left, playBtn, right, resetBtn, addBtn);
         row1.setAlignment(Pos.CENTER);
@@ -242,6 +250,7 @@ public class SourcePreview {
         if (c.duration <= 0f) c.duration = 5f;
         clip = c;
 
+        fitCanvasTo(c);
         ensureRenderer();
         Timeline tl = new Timeline();
         Track track = new Track();
@@ -457,16 +466,40 @@ public class SourcePreview {
         pictureGroup.setLayoutY(b.getHeight() / 2.0 - settings.videoHeight / 2.0);
     }
 
-    /** The project's canvas size changed: the source picture follows. */
-    public void applyVideoSettings() {
-        if (renderer == null) return;
-        renderer.applyVideoSettings();
-        layoutPicture();
+    /**
+     * Gives this view's canvas the aspect ratio of {@code c}: the clip's width / height (from the import probe, so a video
+     * recorded sideways is already the right way round). The long side is the project canvas's long side, but never more
+     * than the file itself (a small file is not blown up); both sides are even. A file with no picture (sound) or no known
+     * size gets the project's canvas. If the renderer exists and the size or frame rate changed, it is resized (the preview
+     * worker restarts at the new size).
+     */
+    private void fitCanvasTo(Clip c) {
+        int w = projectSettings.videoWidth, h = projectSettings.videoHeight;
+        if (c.type != ClipType.AUDIO && c.width > 0 && c.height > 0) {
+            double budget = Math.max(projectSettings.videoWidth, projectSettings.videoHeight);
+            double k = Math.min(1.0, budget / Math.max(c.width, c.height));
+            w = Math.max(2, ((int) Math.round(c.width * k)) & ~1);
+            h = Math.max(2, ((int) Math.round(c.height * k)) & ~1);
+        }
+        boolean changed = w != settings.videoWidth || h != settings.videoHeight || settings.frameRate != projectSettings.frameRate;
+        settings.videoWidth = w;
+        settings.videoHeight = h;
+        settings.frameRate = projectSettings.frameRate;
+        if (changed && renderer != null) {
+            renderer.applyVideoSettings();
+            layoutPicture();
+        }
     }
 
-    /** The project's frame rate changed: the seek bar's frame step follows. */
+    /** The project's canvas size changed: the long side this view uses follows. */
+    public void applyVideoSettings() {
+        if (clip != null) fitCanvasTo(clip);
+    }
+
+    /** The project's frame rate changed: the seek bar's frame step and the preview's frame rate follow. */
     public void frameRateChanged() {
         seek.setFrame(frame());
+        if (clip != null) fitCanvasTo(clip);
     }
 
     private String timecode(float seconds) {

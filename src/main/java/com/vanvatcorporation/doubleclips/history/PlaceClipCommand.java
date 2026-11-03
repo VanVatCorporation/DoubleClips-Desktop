@@ -10,6 +10,8 @@ import java.util.List;
 /**
  * Puts a clip on a track at its own start time, as one undo step, the way a source monitor does:
  *
+ *  - OVERLAP: the clip is just added; whatever is already there stays untouched (clips may overlap on a track, as when a
+ *    file is dragged onto the timeline).
  *  - OVERWRITE: the span the new clip covers is cleared first. A clip inside it goes; a clip that sticks out of one side
  *    is cut back; a clip that spans the whole thing is cut in two (a hole is left where the new clip lands).
  *  - INSERT: the track opens up. A clip that starts at or after the new start moves later by the new clip's length; a clip
@@ -19,7 +21,7 @@ import java.util.List;
  */
 public class PlaceClipCommand implements Command {
 
-    public enum Mode { OVERWRITE, INSERT }
+    public enum Mode { OVERLAP, OVERWRITE, INSERT }
 
     private static final float EPS = 0.0005f;
 
@@ -75,7 +77,9 @@ public class PlaceClipCommand implements Command {
         final float e = s + len;
         List<Clip> existing = new ArrayList<>(track.clips);
 
-        if (mode == Mode.OVERWRITE) {
+        if (mode == Mode.OVERLAP) {
+            // nothing else is touched
+        } else if (mode == Mode.OVERWRITE) {
             for (Clip c : existing) {
                 float cs = c.startTime, ce = cs + c.duration;
                 if (ce <= s + EPS || cs >= e - EPS) continue;          // not touched
@@ -135,7 +139,8 @@ public class PlaceClipCommand implements Command {
 
     @Override
     public String getName() {
-        return (mode == Mode.INSERT ? "Insert Clip: " : "Overwrite Clip: ") + clip.getClipName();
+        String verb = mode == Mode.INSERT ? "Insert Clip: " : mode == Mode.OVERWRITE ? "Overwrite Clip: " : "Add Clip: ";
+        return verb + clip.getClipName();
     }
 
     // ── cutting ─────────────────────────────────────────────────────────
