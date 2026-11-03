@@ -12,7 +12,9 @@ import java.util.regex.Pattern;
 public class MediaHelper {
 
     public static class MediaInfo {
-        public float duration = 3.0f;
+        public float duration = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().getDefaultClipDuration();
+        /** False for a file with no length of its own (a still image, or a file ffmpeg reports no duration for): it got the default. */
+        public boolean hasOwnDuration = false;
         public int width = 0;
         public int height = 0;
         public boolean hasAudio = false;
@@ -40,11 +42,19 @@ public class MediaHelper {
             // Improved video pattern to avoid catching SAR/DAR values
             Pattern videoPattern = Pattern.compile("Video:.*\\s(\\d{2,5})x(\\d{2,5})");
             Pattern audioPattern = Pattern.compile("Audio:");
+            Pattern inputPattern = Pattern.compile("Input #0, ([^,]+)");
+            boolean stillImage = false;
             // Captures "rotation of -90.00" or "rotation of 90"
             Pattern rotatePattern = Pattern.compile("(?:rotate|rotation of|rotate\\s*[:=])\\s*(-?\\d+\\.?\\d*)");
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    Matcher inMatcher = inputPattern.matcher(line);
+                    if (inMatcher.find()) {
+                        String fmt = inMatcher.group(1).trim();
+                        // image2 = jpg/png sequence reader, *_pipe = single-image readers (png_pipe, jpeg_pipe, webp_pipe...)
+                        stillImage = fmt.equals("image2") || fmt.endsWith("_pipe");
+                    }
                     // 1. Check Duration
                     Matcher durMatcher = durationPattern.matcher(line);
                     if (durMatcher.find()) {
@@ -52,6 +62,7 @@ public class MediaHelper {
                         int minutes = Integer.parseInt(durMatcher.group(2));
                         float seconds = Float.parseFloat(durMatcher.group(3));
                         info.duration = hours * 3600 + minutes * 60 + seconds;
+                        info.hasOwnDuration = true;
                     }
 
                     // 2. Check Video Dimensions
@@ -76,6 +87,12 @@ public class MediaHelper {
             }
 
             process.waitFor();
+
+            // A still image has no length: it gets the default one from the preferences (some ffmpeg builds report 0.04 s).
+            if (stillImage && !info.hasAudio) {
+                info.duration = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().getDefaultClipDuration();
+                info.hasOwnDuration = false;
+            }
 
             // Final Correction: If the video is rotated sideways, swap width and height
             // We check for 90 or 270 (and their negatives)

@@ -122,6 +122,27 @@ public class SettingsOverlay extends StackPane {
 
         generalGroup.getChildren().addAll(themeRow, new Separator(), languageRow, new Separator(), adsRow, new Separator(), notifyRow);
         
+        // --- EDITING ---
+        VBox editingGroup = createGroup(I18n.t("EDITING"));
+        HBox durationRow = createSettingRow(I18n.t("Default clip duration"),
+                I18n.t("Seconds given to text, images, effects and anything else without a length of its own"),
+                new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignT.TIMER_OUTLINE));
+        TextField durationField = new TextField(formatSeconds(settings.getDefaultClipDuration()));
+        durationField.setPrefWidth(90);
+        durationField.setMinWidth(Region.USE_PREF_SIZE);
+        Runnable commitDuration = () -> {
+            try {
+                float v = Float.parseFloat(durationField.getText().trim().replace(',', '.'));
+                if (v > 0f && !Float.isNaN(v) && !Float.isInfinite(v)) settings.setDefaultClipDuration(v);
+            } catch (NumberFormatException ignored) { }
+            durationField.setText(formatSeconds(settings.getDefaultClipDuration()));   // shows what was kept (clamped, or the old value)
+        };
+        durationField.setOnAction(e -> commitDuration.run());
+        durationField.focusedProperty().addListener((obs, was, now) -> { if (!now) commitDuration.run(); });
+        Label secondsLabel = new Label(I18n.t("s"));
+        durationRow.getChildren().addAll(durationField, secondsLabel);
+        editingGroup.getChildren().add(durationRow);
+
         // --- KEYBOARD SHORTCUTS ---
         VBox shortcutsGroup = createGroup(I18n.t("KEYBOARD SHORTCUTS"));
         HBox undoRow = createKeybindRow(I18n.t("Undo"), I18n.t("Shortcut to revert last action"), settings.undoKeybindProperty());
@@ -177,7 +198,7 @@ public class SettingsOverlay extends StackPane {
         driveGroup.getChildren().add(new HBox(18, terms, privacy));
         bindDriveThumbnails(thumbsSwitch);
 
-        content.getChildren().addAll(generalGroup, shortcutsGroup, layoutGroup, driveGroup);
+        content.getChildren().addAll(generalGroup, editingGroup, shortcutsGroup, layoutGroup, driveGroup);
         scrollPane.setContent(content);
 
         settingsCard.getChildren().addAll(header, scrollPane);
@@ -189,6 +210,10 @@ public class SettingsOverlay extends StackPane {
                 onClose.accept(null);
             }
         });
+    }
+
+    private static String formatSeconds(float v) {
+        return v == Math.rint(v) ? String.valueOf((long) v) : String.valueOf(v);
     }
 
     /** One entry of the language picker: the stored value ("system" or a code) and what is shown for it. */

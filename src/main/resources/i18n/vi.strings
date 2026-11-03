@@ -433,3 +433,7 @@
 "Show all searches" = "Hiện tất cả lượt tìm kiếm";
 "You may like" = "Có thể bạn thích";
 "Trending" = "Thịnh hành";
+"EDITING" = "CHỈNH SỬA";
+"Default clip duration" = "Thời lượng clip mặc định";
+"Seconds given to text, images, effects and anything else without a length of its own" = "Số giây dành cho văn bản, ảnh, hiệu ứng và mọi thứ khác không có độ dài riêng";
+"s" = "giây";

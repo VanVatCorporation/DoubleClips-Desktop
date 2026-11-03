@@ -247,7 +247,7 @@ public class SourcePreview {
         c.startClipTrim = 0f;      // the whole file; the range is applied when it is added
         c.endClipTrim = 0f;
         if (c.originalDuration > 0f) c.duration = c.originalDuration;
-        if (c.duration <= 0f) c.duration = 5f;
+        if (c.duration <= 0f) c.duration = com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().getDefaultClipDuration();
         clip = c;
 
         fitCanvasTo(c);

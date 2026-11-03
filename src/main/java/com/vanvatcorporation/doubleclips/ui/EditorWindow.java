@@ -15,6 +15,7 @@ import com.vanvatcorporation.doubleclips.data.editing.*;
 import com.vanvatcorporation.doubleclips.history.*;
 import com.vanvatcorporation.doubleclips.ui.renderer.TimelineRenderer;
 import com.vanvatcorporation.doubleclips.ProjectLibrary;
+import com.vanvatcorporation.doubleclips.helper.FrameHelper;
 import com.vanvatcorporation.doubleclips.helper.MediaHelper;
 import com.vanvatcorporation.doubleclips.helper.IOHelper;
 import com.vanvatcorporation.doubleclips.constants.Constants;
@@ -725,6 +726,11 @@ public class EditorWindow extends Stage implements PropertyContext {
         playbackTimer.stop();
         lastTimerUpdate = 0;
 
+        // The clock runs between frames; a paused playhead sits on the frame that was showing.
+        if (currentTime < timeline.duration) currentTime = floorToFrame(currentTime);
+        currentTimeLabel.setText(formatTimecode(currentTime));
+        updatePlayheadPosition();
+
         // Notify the renderer that we have paused
         if (timelineRenderer != null) {
             timelineRenderer.updateTime(currentTime, true);
@@ -792,7 +798,9 @@ public class EditorWindow extends Stage implements PropertyContext {
         propertyUpdaters.forEach(Runnable::run);
 
         // Position relative to viewport left edge
-        playheadLine.setTranslateX(currentTime * pixelsPerSecond - scrollX);
+        // While playing the clock is between frames: draw the line on the frame being shown, like the preview.
+        float shownTime = isPlaying ? floorToFrame(currentTime) : currentTime;
+        playheadLine.setTranslateX(shownTime * pixelsPerSecond - scrollX);
 
         if (tempTime >= 0) {
             ghostPlayheadLine.setTranslateX(tempTime * pixelsPerSecond - scrollX);
@@ -2421,15 +2429,15 @@ public class EditorWindow extends Stage implements PropertyContext {
                 double clampedX = Math.max(0, rawX);
                 int trackIdx = trackIdxFromLocalY(local.getY());
 
-                tempTime = (float) (clampedX / pixelsPerSecond);
+                tempTime = snapToFrame((float) (clampedX / pixelsPerSecond));
                 updatePlayheadPosition();
 
                 if (activeDrag.ghost == null) {
-                    Clip ghostClip = new Clip("Importing...", 0, 5.0f, 0, ClipType.VIDEO, false, 1280, 720);
+                    Clip ghostClip = new Clip("Importing...", 0, defaultClipDuration(), 0, ClipType.VIDEO, false, 1280, 720);
                     ClipNode ghost = new ClipNode(ghostClip, this);
                     ghost.getStyleClass().add("clip-node-ghost");
                     ghost.setOpacity(0.4);
-                    double targetWidth = 5.0f * pixelsPerSecond;
+                    double targetWidth = defaultClipDuration() * pixelsPerSecond;
                     ghost.setPrefWidth(targetWidth);
                     ghost.setPrefHeight(TRACK_HEIGHT);
                     ghost.setMinWidth(targetWidth);
@@ -2465,7 +2473,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             boolean success = false;
             if (db.hasFiles()) {
                 javafx.geometry.Point2D local = tracksPane.sceneToLocal(event.getSceneX(), event.getSceneY());
-                float dropTime = (float) (Math.max(0, local.getX()) / pixelsPerSecond);
+                float dropTime = snapToFrame((float) (Math.max(0, local.getX()) / pixelsPerSecond));
                 int dropTrack = trackIdxFromLocalY(local.getY());
 
                 handleImportFiles(db.getFiles(), this.mediaGrid, dropTime, dropTrack);
@@ -2777,6 +2785,18 @@ public class EditorWindow extends Stage implements PropertyContext {
         return Math.max(1, videoSettings.frameRate);
     }
 
+    /** The time of the NEAREST frame (what a click or hover on the ruler lands on). */
+    private float snapToFrame(float seconds) {
+        return FrameHelper.calculateToNearestFrame(Math.max(0f, seconds), rulerFps());
+    }
+
+    /** The time at the start of the frame {@code seconds} is inside (what playback is showing at that moment). */
+    private float floorToFrame(float seconds) {
+        int fps = rulerFps();
+        double frame = Math.floor(Math.max(0f, seconds) * (double) fps + 1e-4);
+        return (float) (frame / fps);
+    }
+
     private float getRulerInterval(float pixelsPerSecond) {
         int fps = rulerFps();
         // Preferred intervals in seconds: 1, 2, 5, 10, 15 frames (the ones shorter than a second), then whole seconds, doubling
@@ -2885,7 +2905,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         ruler.setOnMouseEntered(e -> ghostPlayheadLine.setVisible(true));
         ruler.setOnMouseMoved(e -> {
             double x = e.getX();
-            tempTime = (float) (x / pixelsPerSecond);
+            tempTime = snapToFrame((float) (x / pixelsPerSecond));   // the ghost line sits on a whole frame
             currentTimeLabel.setText(formatTimecode(tempTime));
             updatePlayheadPosition();
             if (timelineRenderer != null) {
@@ -2902,7 +2922,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             }
         });
         ruler.setOnMouseClicked(e -> {
-            updateCurrentTime((float) (e.getX() / pixelsPerSecond));
+            updateCurrentTime(snapToFrame((float) (e.getX() / pixelsPerSecond)));   // the playhead lands on a whole frame
         });
     }
 
@@ -3136,6 +3156,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                     node = new ClipNode(clip, this);
                     setupClipInteraction(node);
                     node.setOnKeyframeClicked(kf -> {
+                        selectClipForKeyframe(clip);   // picking a keyframe picks its clip too
                         updateCurrentTime(kf.getGlobalTime(clip));
                         refreshTimelineUI();
                     });
@@ -3156,6 +3177,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                         });
                     });
                     node.setOnMaskKeyframeClicked(time -> {
+                        selectClipForKeyframe(clip);
                         updateCurrentTime(time);
                         refreshTimelineUI();
                     });
@@ -3759,6 +3781,15 @@ public class EditorWindow extends Stage implements PropertyContext {
         updatePropertiesPane(); // once, at the end, not on every mouse move
     }
 
+    /**
+     * A keyframe was clicked on the timeline: its clip becomes the selected one (so the properties panel shows the
+     * keyframe's clip). A clip that is already part of a multi-selection stays in it and just becomes the primary.
+     */
+    private void selectClipForKeyframe(Clip clip) {
+        if (selectedClips.contains(clip)) makePrimary(clip);
+        else selectClip(clip);
+    }
+
     /** Select ONLY this clip. */
     private void selectClip(Clip clip) {
         // Move playhead at the beginning of the clip
@@ -3889,8 +3920,12 @@ public class EditorWindow extends Stage implements PropertyContext {
         historyManager.execute(new PropertyChangeCommand(name, redo, undo));
     }
 
+    /** Length of anything without a length of its own (text, effect, image...), from the preferences. */
+    private static float defaultClipDuration() {
+        return com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().getDefaultClipDuration();
+    }
     private void handleAddText() {
-        Clip textClip = new Clip("Text", currentTime, 5.0f, 0, ClipType.TEXT, false, 1280, 720);
+        Clip textClip = new Clip("Text", currentTime, defaultClipDuration(), 0, ClipType.TEXT, false, 1280, 720);
         textClip.textContent = "New Text";
         textClip.fontSize = 48;
         textClip.textStyle = com.vanvatcorporation.doubleclips.TextPresets.defaultStyle(); // iOS format; the Classic look: white, centred
@@ -3939,7 +3974,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         float[] sizes = {48, 24, 96};
         
         for (int i = 0; i < presets.length; i++) {
-            Clip textClip = new Clip(presets[i], 0, 5.0f, 0, ClipType.TEXT, false, 1280, 720);
+            Clip textClip = new Clip(presets[i], 0, defaultClipDuration(), 0, ClipType.TEXT, false, 1280, 720);
             textClip.textContent = presets[i];
             textClip.fontSize = sizes[i];
             textClip.textStyle = com.vanvatcorporation.doubleclips.TextPresets.defaultStyle();
@@ -4078,8 +4113,8 @@ public class EditorWindow extends Stage implements PropertyContext {
     private void loadEffectSamples() {
         effectAnimator = new com.vanvatcorporation.doubleclips.ui.components.TilePreviewAnimator(12);
         for (com.vanvatcorporation.doubleclips.EffectCatalog.Style style : com.vanvatcorporation.doubleclips.EffectCatalog.styles()) {
-            Clip effectClip = new Clip(style.title, 0, 5.0f, 0, ClipType.EFFECT, false, 1280, 720);
-            effectClip.effect = new EffectTemplate(style.key, 5.0f, 0);
+            Clip effectClip = new Clip(style.title, 0, defaultClipDuration(), 0, ClipType.EFFECT, false, 1280, 720);
+            effectClip.effect = new EffectTemplate(style.key, defaultClipDuration(), 0);
             addClipToMediaGrid(mediaGrid, effectClip);
             decorateEffectTile((VBox) mediaGrid.getChildren().get(mediaGrid.getChildren().size() - 1), style);
         }

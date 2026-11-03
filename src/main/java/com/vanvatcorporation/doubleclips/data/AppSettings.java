@@ -23,6 +23,12 @@ public class AppSettings {
     // Hardware (e.g. VideoToolbox) decoding for the GPU preview. Off by default: it can corrupt frames after a seek.
     private final BooleanProperty previewHardwareDecode = new SimpleBooleanProperty();
     
+    // Length (seconds) given to anything that has no length of its own: text, images, effects, stickers...
+    public static final float DEFAULT_CLIP_DURATION = 3.0f;
+    public static final float MIN_CLIP_DURATION = 0.1f;
+    public static final float MAX_CLIP_DURATION = 3600f;
+    private final javafx.beans.property.FloatProperty defaultClipDuration = new javafx.beans.property.SimpleFloatProperty();
+
     private final StringProperty deleteKeybind = new SimpleStringProperty();
     private final StringProperty selectAllKeybind = new SimpleStringProperty();
     private final StringProperty undoKeybind = new SimpleStringProperty();
@@ -43,6 +49,7 @@ public class AppSettings {
         previewUseProxy.set(prefs.getBoolean("preview_use_proxy", false));
         gpuPreview.set(prefs.getBoolean("gpu_preview", true));
         previewHardwareDecode.set(prefs.getBoolean("preview_hw_decode", false));
+        defaultClipDuration.set(clampDuration(prefs.getFloat("default_clip_duration", DEFAULT_CLIP_DURATION)));
         deleteKeybind.set(prefs.get("delete_keybind", "DELETE"));
         selectAllKeybind.set(prefs.get("select_all_keybind", "Shortcut+A"));
         undoKeybind.set(prefs.get("undo_keybind", "Shortcut+Z"));
@@ -60,6 +67,7 @@ public class AppSettings {
         previewUseProxy.addListener((obs, oldVal, newVal) -> prefs.putBoolean("preview_use_proxy", newVal));
         gpuPreview.addListener((obs, oldVal, newVal) -> prefs.putBoolean("gpu_preview", newVal));
         previewHardwareDecode.addListener((obs, oldVal, newVal) -> prefs.putBoolean("preview_hw_decode", newVal));
+        defaultClipDuration.addListener((obs, oldVal, newVal) -> prefs.putFloat("default_clip_duration", newVal.floatValue()));
         deleteKeybind.addListener((obs, oldVal, newVal) -> prefs.put("delete_keybind", newVal));
         selectAllKeybind.addListener((obs, oldVal, newVal) -> prefs.put("select_all_keybind", newVal));
         undoKeybind.addListener((obs, oldVal, newVal) -> prefs.put("undo_keybind", newVal));
@@ -116,6 +124,16 @@ public class AppSettings {
     public boolean isGpuPreview() { return gpuPreview.get(); }
     public void setGpuPreview(boolean value) { gpuPreview.set(value); }
     public BooleanProperty gpuPreviewProperty() { return gpuPreview; }
+
+    private static float clampDuration(float v) {
+        if (Float.isNaN(v) || Float.isInfinite(v)) return DEFAULT_CLIP_DURATION;
+        return Math.max(MIN_CLIP_DURATION, Math.min(MAX_CLIP_DURATION, v));
+    }
+
+    /** Seconds a clip without a length of its own (text, image, effect, sticker...) gets when it is added. */
+    public float getDefaultClipDuration() { return defaultClipDuration.get(); }
+    public void setDefaultClipDuration(float value) { defaultClipDuration.set(clampDuration(value)); }
+    public javafx.beans.property.FloatProperty defaultClipDurationProperty() { return defaultClipDuration; }
 
     public String getDeleteKeybind() { return deleteKeybind.get(); }
     public void setDeleteKeybind(String value) { deleteKeybind.set(value); }
