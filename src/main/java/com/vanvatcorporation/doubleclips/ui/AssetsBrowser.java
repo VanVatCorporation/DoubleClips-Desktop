@@ -9,6 +9,7 @@ import com.vanvatcorporation.doubleclips.drive.DriveError;
 import com.vanvatcorporation.doubleclips.i18n.I18n;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
+import javafx.geometry.Rectangle2D;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
 import javafx.scene.Node;
@@ -26,6 +27,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.shape.Rectangle;
 import javafx.stage.Window;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignR;
@@ -284,32 +286,58 @@ public final class AssetsBrowser extends VBox {
         statusLabel.setVisible(text != null);
     }
 
+    /** The "project-card" style pads 16 px and draws a 1 px border on each side: the content inside is this much narrower than the card. */
+    private static final double CARD_CHROME = 34;
+
+    /** The part of a w x h picture that fills a box of this width / height ratio, centred. */
+    static Rectangle2D coverViewport(double w, double h, double boxRatio) {
+        if (w / h > boxRatio) {
+            double vw = h * boxRatio;
+            return new Rectangle2D((w - vw) / 2, 0, vw, h);
+        }
+        double vh = w / boxRatio;
+        return new Rectangle2D(0, (h - vh) / 2, w, vh);
+    }
+
     private Node createCard(CommunityAsset a) {
+        // cardWidth is the width of the CONTENT (picture and texts); the card around it is wider by the style's padding and border,
+        // so the picture fills the card exactly instead of sticking out of it.
+        final double inner = cardWidth;
+        final double outer = cardWidth + CARD_CHROME;
         VBox card = new VBox(8);
         card.getStyleClass().add("project-card");
-        card.setPrefWidth(cardWidth);
-        card.setMinWidth(cardWidth);
-        card.setMaxWidth(cardWidth);
+        card.setPrefWidth(outer);
+        card.setMinWidth(outer);
+        card.setMaxWidth(outer);
         card.setCursor(Cursor.HAND);
 
-        double thumbHeight = Math.round(cardWidth * 0.62);
+        final double thumbHeight = Math.round(inner * 0.62);
         StackPane thumb = new StackPane();
         thumb.getStyleClass().add("project-thumbnail");
-        thumb.setPrefSize(cardWidth, thumbHeight);
-        thumb.setMinSize(cardWidth, thumbHeight);
-        thumb.setMaxSize(cardWidth, thumbHeight);
+        thumb.setPrefSize(inner, thumbHeight);
+        thumb.setMinSize(inner, thumbHeight);
+        thumb.setMaxSize(inner, thumbHeight);
+        Rectangle round = new Rectangle(inner, thumbHeight);      // nothing drawn inside leaves the rounded box
+        round.setArcWidth(20);
+        round.setArcHeight(20);
+        thumb.setClip(round);
         FontIcon placeholder = new FontIcon(AssetUi.icon(a.kind));
         placeholder.setIconSize(30);
         thumb.getChildren().add(placeholder);
         if (a.previewUrl != null) {
             // The poster's small JPEG: browsing never touches the poster's file or allowance. Background loading keeps the grid responsive.
-            Image image = new Image(a.previewUrl, cardWidth, 0, true, true, true);
+            Image image = new Image(a.previewUrl, inner, 0, true, true, true);
             ImageView view = new ImageView(image);
-            view.setFitWidth(cardWidth);
+            view.setPreserveRatio(false);
+            view.setFitWidth(inner);
             view.setFitHeight(thumbHeight);
-            view.setPreserveRatio(true);
             view.setVisible(false);
-            Runnable decide = () -> view.setVisible(image.getProgress() >= 1.0 && !image.isError());
+            // filled and cropped to the box (a tall phone video no longer sits in the middle of dark bars), like the iOS card
+            Runnable decide = () -> {
+                boolean ready = image.getProgress() >= 1.0 && !image.isError() && image.getWidth() > 0 && image.getHeight() > 0;
+                if (ready) view.setViewport(coverViewport(image.getWidth(), image.getHeight(), inner / thumbHeight));
+                view.setVisible(ready);
+            };
             image.progressProperty().addListener((o, was, now) -> decide.run());
             image.errorProperty().addListener((o, was, now) -> decide.run());
             decide.run();
@@ -319,7 +347,7 @@ public final class AssetsBrowser extends VBox {
         Label title = new Label(a.title);
         title.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
         title.setWrapText(true);
-        title.setMaxWidth(cardWidth - 24);
+        title.setMaxWidth(inner);
         title.setMaxHeight(40);
         Label owner = new Label(a.ownerName == null ? "" : "@" + a.ownerName);
         owner.setStyle("-fx-font-size: 12px; -fx-text-fill: -color-fg-muted;");
