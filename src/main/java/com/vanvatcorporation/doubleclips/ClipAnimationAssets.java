@@ -157,6 +157,10 @@ public final class ClipAnimationAssets {
         }
         TransitionStyleLoader.markBuiltInsLoaded();
 
+        // Effects downloaded from the Assets tab: registered right after the built-in effect styles, at every start (a download
+        // never replaces a built-in style: AssetLibrary.installEffect refuses an id that is already taken).
+        errors.addAll(AssetLibrary.loadInstalledEffects());
+
         builtInsLoaded = true;
         return errors;
     }

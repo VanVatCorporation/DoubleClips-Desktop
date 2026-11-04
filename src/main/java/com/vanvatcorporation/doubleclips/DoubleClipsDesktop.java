@@ -220,13 +220,13 @@ public class DoubleClipsDesktop extends Application {
         // Nav buttons: text-only, bold, left-aligned (no icons) — matching the sketch
         ToggleButton homeBtn = createNavButton(I18n.t("Home"), navGroup);
         ToggleButton templateBtn = createNavButton(I18n.t("Template"), navGroup);
-        ToggleButton searchBtn = createNavButton(I18n.t("Search"), navGroup);
+        ToggleButton assetsBtn = createNavButton(I18n.t("Assets"), navGroup);
         ToggleButton storageBtn = createNavButton(I18n.t("Storage"), navGroup);
         ToggleButton profileBtn = createNavButton(I18n.t("Profile"), navGroup);
 
         homeBtn.setSelected(true);
 
-        sidebar.getChildren().addAll(startCreatingBtn, homeBtn, templateBtn, searchBtn, storageBtn, profileBtn);
+        sidebar.getChildren().addAll(startCreatingBtn, homeBtn, templateBtn, assetsBtn, storageBtn, profileBtn);
 
         // 2. Content Area Construction
         contentArea = new StackPane();
@@ -240,7 +240,7 @@ public class DoubleClipsDesktop extends Application {
         
         homeBtn.setOnAction(e -> switchPane("Home"));
         templateBtn.setOnAction(e -> switchPane("Template"));
-        searchBtn.setOnAction(e -> switchPane("Search"));
+        assetsBtn.setOnAction(e -> switchPane("Assets"));
         storageBtn.setOnAction(e -> switchPane("Storage"));
         profileBtn.setOnAction(e -> switchPane("Profile"));
 
@@ -256,7 +256,7 @@ public class DoubleClipsDesktop extends Application {
             switch (k) {
                 case "Home": return new HomePane();
                 case "Template": return new TemplatePane();
-                case "Search": return new SearchPane();
+                case "Assets": return new AssetsPane();
                 case "Storage": return new StoragePane();
                 case "Profile": return new ProfilePane();
                 default: return new HomePane();

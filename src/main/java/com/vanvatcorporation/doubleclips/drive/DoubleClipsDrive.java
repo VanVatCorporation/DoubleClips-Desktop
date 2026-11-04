@@ -15,6 +15,9 @@ public final class DoubleClipsDrive {
     /** The OpenEditz client: the part of the Drive API the editor needs, locked to the protected OpenEditz folder. */
     public static final OpenEditzClient openEditz = new OpenEditzClient(client);
 
+    /** The community Assets API (the Assets tab and the editor's Assets window). Browsing needs no sign-in. */
+    public static final AssetsClient assets = new AssetsClient(client);
+
     static {
         // The server hands out a fresh token when the current one is close to expiring: keep it, or the session would
         // end on a date the server already moved.

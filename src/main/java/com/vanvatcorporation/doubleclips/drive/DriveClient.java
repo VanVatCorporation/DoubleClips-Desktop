@@ -164,6 +164,31 @@ public final class DriveClient {
         return o != null ? o : new JsonObject();
     }
 
+    /**
+     * One JSON call to any route under /api/v2/drive (the Assets API uses it). {@code authed} = false is for the anonymous
+     * /public/... routes: no token is needed (or sent), so browsing works signed out.
+     */
+    JsonObject json(String method, String path, Map<String, String> query, String jsonBody, boolean authed) throws IOException {
+        HttpRequest.Builder b = builderAt(base, path, query, Duration.ofSeconds(60), authed);
+        if (jsonBody != null) {
+            b.header("Content-Type", "application/json");
+            b.method(method, HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8));
+        } else {
+            b.method(method, HttpRequest.BodyPublishers.noBody());
+        }
+        HttpResponse<byte[]> r = exec(b.build(), HttpResponse.BodyHandlers.ofByteArray());
+        check(r.statusCode(), r.headers(), r.body());
+        JsonObject o = tryObject(r.body());
+        return o != null ? o : new JsonObject();
+    }
+
+    /** A link the server gave as a path ("/api/v2/drive/public/assets/x/preview") made absolute; absolute links stay as they are. */
+    public String absoluteUrl(String url) {
+        if (url == null || url.isEmpty()) return null;
+        if (url.startsWith("http://") || url.startsWith("https://")) return url;
+        return root + (url.startsWith("/") ? "" : "/") + url;
+    }
+
     private static JsonObject need(JsonObject o, String key) throws DriveError {
         if (o.has(key) && o.get(key).isJsonObject()) return o.getAsJsonObject(key);
         throw new DriveError(0, "bad_answer", "The server's answer is not what was expected.");
@@ -273,7 +298,12 @@ public final class DriveClient {
      * {@code progress} gets the bytes received so far; {@code cancel} stops it (CancellationException).
      */
     public void download(DriveNode node, File dest, LongConsumer progress, AtomicBoolean cancel) throws IOException {
-        HttpRequest req = builder("/files/" + node.id + "/content", null, Duration.ofSeconds(60)).GET().build();
+        downloadPath("/files/" + node.id + "/content", dest, progress, cancel);
+    }
+
+    /** The same download for any signed-in content route under /api/v2/drive (a community asset's file is one). */
+    public void downloadPath(String path, File dest, LongConsumer progress, AtomicBoolean cancel) throws IOException {
+        HttpRequest req = builder(path, null, Duration.ofSeconds(60)).GET().build();
         HttpResponse<InputStream> r = exec(req, HttpResponse.BodyHandlers.ofInputStream());
         try (InputStream in = r.body()) {
             if (r.statusCode() < 200 || r.statusCode() > 299) {

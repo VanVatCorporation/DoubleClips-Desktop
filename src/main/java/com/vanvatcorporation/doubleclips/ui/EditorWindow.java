@@ -1214,7 +1214,13 @@ public class EditorWindow extends Stage implements PropertyContext {
         searchBtn.setGraphic(new FontIcon(MaterialDesignM.MAGNIFY));
         searchBtn.getStyleClass().add("button-transparent");
 
-        importBar.getChildren().addAll(importBtn, ibSpacer, searchBtn);
+        // Community assets (iOS: the Assets button next to Files): opens the live list beside the editor; what you get goes into this project.
+        Button assetsBtn = new Button(I18n.t("Assets"));
+        assetsBtn.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignP.PALETTE));
+        assetsBtn.getStyleClass().add("button-transparent");
+        assetsBtn.setOnAction(e -> openAssets());
+
+        importBar.getChildren().addAll(importBtn, assetsBtn, ibSpacer, searchBtn);
 
         // --- Media grid (placeholder)
         mediaGrid = new FlowPane(8, 8);
@@ -1511,6 +1517,40 @@ public class EditorWindow extends Stage implements PropertyContext {
         toastAnimation = new javafx.animation.SequentialTransition(pause, fade);
         toastAnimation.setOnFinished(e -> toastLabel.setVisible(false));
         toastAnimation.play();
+    }
+
+    /** The editor's Assets window (null until first opened). One at a time: pressing the button again brings it forward. */
+    private com.vanvatcorporation.doubleclips.ui.AssetsWindow assetsWindow;
+
+    private void openAssets() {
+        if (assetsWindow != null && assetsWindow.isShowing()) {
+            assetsWindow.toFront();
+            return;
+        }
+        assetsWindow = new com.vanvatcorporation.doubleclips.ui.AssetsWindow(new com.vanvatcorporation.doubleclips.ui.AssetTarget() {
+            @Override public javafx.stage.Window window() { return EditorWindow.this; }
+            @Override public String projectTitle() { return project.getProjectTitle(); }
+            @Override public String add(File file, com.vanvatcorporation.doubleclips.drive.AssetKind kind)
+                    throws com.vanvatcorporation.doubleclips.AssetLibrary.InstallException {
+                return addAssetFile(file, kind);
+            }
+        });
+        assetsWindow.show();
+    }
+
+    /**
+     * Puts a downloaded community asset into this project. A font goes into the project's Fonts folder (the text clip's font list shows
+     * it); video, image and audio take the same road as the Import button (copy into Clips without overwriting, preview proxies).
+     */
+    private String addAssetFile(File file, com.vanvatcorporation.doubleclips.drive.AssetKind kind)
+            throws com.vanvatcorporation.doubleclips.AssetLibrary.InstallException {
+        if (kind == com.vanvatcorporation.doubleclips.drive.AssetKind.FONT) {
+            String family = com.vanvatcorporation.doubleclips.AssetLibrary.addFont(file, project);
+            return I18n.f("Font \u201c%s\u201d added. Pick it in a text clip's font list.", family);
+        }
+        mediaTab.setSelected(true);   // the import redraws the Media tab: show it
+        handleImportFiles(java.util.Collections.singletonList(file), mediaGrid, -1f, -1);
+        return I18n.t("Added to the Media tab.");
     }
 
     private void handleImportMedia(FlowPane mediaGrid) {
