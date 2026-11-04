@@ -171,13 +171,21 @@ public class TemplatePreviewOverlay extends StackPane {
         use.setOnAction(e -> useTemplate());
         useButton = use;
 
+        // "..." menu: hide this template (it leaves the Templates tab and the search; Settings > Hidden content shows it again)
+        javafx.scene.control.MenuButton more = new javafx.scene.control.MenuButton();
+        more.setGraphic(new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignD.DOTS_HORIZONTAL));
+        more.getStyleClass().add("button-transparent");
+        javafx.scene.control.MenuItem hide = new javafx.scene.control.MenuItem(I18n.t("Hide this template"));
+        hide.setOnAction(e -> hideTemplate());
+        more.getItems().add(hide);
+
         Button closeBtn = new Button();
         closeBtn.setGraphic(new FontIcon(MaterialDesignC.CLOSE));
         closeBtn.getStyleClass().add("button-transparent");
         closeBtn.setTooltip(new javafx.scene.control.Tooltip(I18n.t("Close (Esc)")));
         closeBtn.setOnAction(e -> close());
 
-        HBox header = new HBox(12, titles, likeBtn, bookmarkBtn, use, closeBtn);
+        HBox header = new HBox(12, titles, likeBtn, bookmarkBtn, use, more, closeBtn);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(16, 20, 14, 24));
         return header;
@@ -638,6 +646,20 @@ public class TemplatePreviewOverlay extends StackPane {
     private void renderWithOpenGl() {
         close();
         TemplateUseWindow.showInstance(data);
+    }
+
+    /** Asks, then hides the template on this computer and closes the preview (the list underneath drops its card). */
+    private void hideTemplate() {
+        String name = data.getTemplateTitle() == null || data.getTemplateTitle().trim().isEmpty() ? "Template" : data.getTemplateTitle().trim();
+        javafx.scene.control.Alert confirm = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.CONFIRMATION,
+                I18n.t("It will leave the Templates tab and the template search. You can show it again in Settings > Hidden content."),
+                javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);
+        if (getScene() != null) confirm.initOwner(getScene().getWindow());
+        confirm.setHeaderText(I18n.f("Hide \u201c%s\u201d?", name));
+        java.util.Optional<javafx.scene.control.ButtonType> answer = confirm.showAndWait();
+        if (!answer.isPresent() || answer.get() != javafx.scene.control.ButtonType.OK) return;
+        com.vanvatcorporation.doubleclips.auth.HiddenTemplates.hide(data);
+        close();
     }
 
     private void close() {

@@ -4,6 +4,7 @@ import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
 import com.vanvatcorporation.doubleclips.auth.TemplateFeedSource;
 import com.vanvatcorporation.doubleclips.auth.TemplatePager;
 import com.vanvatcorporation.doubleclips.auth.TemplateRepository;
+import com.vanvatcorporation.doubleclips.auth.HiddenTemplates;
 import com.vanvatcorporation.doubleclips.data.TemplateData;
 import com.vanvatcorporation.doubleclips.ui.overlays.TemplatePreviewOverlay;
 import javafx.application.Platform;
@@ -95,6 +96,7 @@ public class TemplateGridView extends ScrollPane {
             }
             @Override public void onPage(List<TemplateData> fresh, boolean hasMore) {
                 for (TemplateData d : fresh) {
+                    if (isHidden(d)) continue;
                     items.add(d);
                     Node card = createCard(d);
                     cards.put(d.getTemplateId().toLowerCase(), card);
@@ -156,15 +158,25 @@ public class TemplateGridView extends ScrollPane {
 
     public void setOnPreviewClosed(Runnable r) { this.onPreviewClosed = r == null ? () -> { } : r; }
 
-    /** Drops the cards that no longer belong (a template unliked in the preview leaves the Liked list). */
+    /**
+     * Templates the user hid stay out of the discovery lists (the Templates tab and the template search: {@code keep} == null).
+     * The Liked / Saved lists ({@code keep} set) are the user's own picks and show them anyway.
+     */
+    private boolean isHidden(TemplateData d) {
+        return keep == null && HiddenTemplates.contains(d.getTemplateId());
+    }
+
+    /**
+     * Drops the cards that no longer belong: a template unliked in the preview leaves the Liked list, one that was just hidden
+     * leaves the Templates tab.
+     */
     public void prune() {
-        if (keep == null) return;
         TemplateRepository repo = TemplateRepository.getInstance();
         boolean changed = false;
         for (Iterator<TemplateData> it = items.iterator(); it.hasNext(); ) {
             TemplateData d = it.next();
-            repo.applyCached(d);
-            if (!keep.keep(d)) {
+            if (keep != null) repo.applyCached(d);
+            if (isHidden(d) || (keep != null && !keep.keep(d))) {
                 String k = d.getTemplateId().toLowerCase();
                 Node card = cards.remove(k);
                 if (card != null) grid.getChildren().remove(card);

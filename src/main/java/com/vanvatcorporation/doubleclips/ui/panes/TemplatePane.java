@@ -28,6 +28,10 @@ public class TemplatePane extends VBox {
     private TemplateGridView gridView = new TemplateGridView(null, "");
     private TemplateSearchBar searchBar;
     private Runnable hotListener;
+    /** A template shown again in Settings > Hidden content: the feed reloads so it can come back (hiding one just closes its card). */
+    private final java.util.function.Consumer<Boolean> hiddenListener = unhid -> {
+        if (unhid) javafx.application.Platform.runLater(() -> gridView.start(TemplateFeedSource.feed()));
+    };
 
     public TemplatePane() {
         setSpacing(24);
@@ -65,8 +69,10 @@ public class TemplatePane extends VBox {
                 TemplateSearchHints.getInstance().addListener(hotListener);
                 TemplateSearchHints.getInstance().refresh(false);
                 updateHotTerms();
+                com.vanvatcorporation.doubleclips.auth.HiddenTemplates.addListener(hiddenListener);
             } else {
                 TemplateSearchHints.getInstance().removeListener(hotListener);
+                com.vanvatcorporation.doubleclips.auth.HiddenTemplates.removeListener(hiddenListener);
             }
         });
 

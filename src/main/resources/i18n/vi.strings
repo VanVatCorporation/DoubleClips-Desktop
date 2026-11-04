@@ -532,3 +532,19 @@
 "Sign in from the Profile tab to post and manage your assets." = "Hãy đăng nhập ở tab Hồ sơ để đăng và quản lý tài nguyên của bạn.";
 /* Assets search */
 "Search assets..." = "Tìm tài nguyên...";
+/* Hidden content, change picture */
+"Hidden content" = "Nội dung đã ẩn";
+"HIDDEN CONTENT" = "NỘI DUNG ĐÃ ẨN";
+"Hidden: %1$d asset authors, %2$d templates" = "Đã ẩn: %1$d tác giả tài nguyên, %2$d mẫu";
+"Manage\u2026" = "Quản lý\u2026";
+"What you hid stays hidden on this computer only. Show it again here." = "Những gì bạn đã ẩn chỉ bị ẩn trên máy tính này. Hãy hiện lại chúng tại đây.";
+"Asset authors" = "Tác giả tài nguyên";
+"No hidden asset authors." = "Không có tác giả tài nguyên nào bị ẩn.";
+"No hidden templates." = "Không có mẫu nào bị ẩn.";
+"Show all" = "Hiện tất cả";
+"Show again" = "Hiện lại";
+"Hide this template" = "Ẩn mẫu này";
+"It will leave the Templates tab and the template search. You can show it again in Settings > Hidden content." = "Mẫu sẽ biến mất khỏi tab Mẫu và kết quả tìm kiếm mẫu. Bạn có thể hiện lại trong Cài đặt > Nội dung đã ẩn.";
+"Hide “%s”?" = "Ẩn “%s”?";
+"Add picture\u2026" = "Thêm ảnh\u2026";
+"Change picture\u2026" = "Đổi ảnh\u2026";

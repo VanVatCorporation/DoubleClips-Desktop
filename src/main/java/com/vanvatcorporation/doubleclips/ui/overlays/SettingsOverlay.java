@@ -177,6 +177,21 @@ public class SettingsOverlay extends StackPane {
         layoutRow.getChildren().add(restoreLayoutBtn);
         layoutGroup.getChildren().add(layoutRow);
 
+        // --- HIDDEN CONTENT ---
+        // Asset authors hidden in the Assets tab and templates hidden in the template preview (both only on this computer).
+        VBox hiddenGroup = createGroup(I18n.t("HIDDEN CONTENT"));
+        HBox hiddenRow = createSettingRow(I18n.t("Hidden content"),
+                com.vanvatcorporation.doubleclips.ui.HiddenContentWindow.summary(),
+                new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignT.TUNE));
+        Label hiddenSummary = (Label) ((VBox) hiddenRow.getChildren().get(1)).getChildren().get(1);
+        Button manageHidden = new Button(I18n.t("Manage\u2026"));
+        manageHidden.setMinWidth(Region.USE_PREF_SIZE);
+        manageHidden.setOnAction(e -> com.vanvatcorporation.doubleclips.ui.HiddenContentWindow.show(
+                manageHidden.getScene() == null ? null : manageHidden.getScene().getWindow(),
+                () -> hiddenSummary.setText(com.vanvatcorporation.doubleclips.ui.HiddenContentWindow.summary())));
+        hiddenRow.getChildren().add(manageHidden);
+        hiddenGroup.getChildren().add(hiddenRow);
+
         // --- VANVATDRIVE ---
         // This setting lives on the account (shared with the web and the Drive apps), so it is not stored on this computer.
         VBox driveGroup = createGroup(I18n.t("VANVATDRIVE"));
@@ -198,7 +213,7 @@ public class SettingsOverlay extends StackPane {
         driveGroup.getChildren().add(new HBox(18, terms, privacy));
         bindDriveThumbnails(thumbsSwitch);
 
-        content.getChildren().addAll(generalGroup, editingGroup, shortcutsGroup, layoutGroup, driveGroup);
+        content.getChildren().addAll(generalGroup, editingGroup, shortcutsGroup, layoutGroup, hiddenGroup, driveGroup);
         scrollPane.setContent(content);
 
         settingsCard.getChildren().addAll(header, scrollPane);

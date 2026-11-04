@@ -1,5 +1,6 @@
 package com.vanvatcorporation.doubleclips.ui;
 
+import com.vanvatcorporation.doubleclips.AssetPreviewMaker;
 import com.vanvatcorporation.doubleclips.drive.AssetsClient;
 import com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive;
 import com.vanvatcorporation.doubleclips.drive.DriveError;
@@ -27,14 +28,18 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignR;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -55,6 +60,8 @@ public final class MyAssetsWindow {
     private final VBox rows = new VBox(10);
     private final Label status = new Label();
     private final List<MyAsset> items = new ArrayList<>();
+    /** Assets whose picture was replaced in this window: their link gets a version so the new picture shows (the server caches the old one for a day). */
+    private final Map<String, Long> pictureVersion = new HashMap<>();
     private int generation;
 
     /** @param onClosed runs when the window closes (the tab reloads its list: link changes may have added or removed assets) */
@@ -167,7 +174,9 @@ public final class MyAssetsWindow {
         thumb.setMaxSize(80, 54);
         thumb.getChildren().add(new FontIcon(AssetUi.icon(asset.kind)));
         if (asset.previewUrl != null) {
-            Image image = new Image(asset.previewUrl, 80, 0, true, true, true);
+            Long version = pictureVersion.get(asset.id);
+            String url = version == null ? asset.previewUrl : asset.previewUrl + (asset.previewUrl.contains("?") ? "&" : "?") + "v=" + version;
+            Image image = new Image(url, 80, 0, true, true, true);
             ImageView view = new ImageView(image);
             view.setFitWidth(80);
             view.setFitHeight(54);
@@ -215,7 +224,10 @@ public final class MyAssetsWindow {
         Button remove = new Button(I18n.t("Remove\u2026"));
         remove.getStyleClass().add("app-button");
         remove.setOnAction(e -> remove(asset));
-        HBox buttons = new HBox(8, edit, remove);
+        Button picture = new Button(I18n.t(asset.previewUrl == null ? "Add picture\u2026" : "Change picture\u2026"));
+        picture.getStyleClass().add("app-button");
+        picture.setOnAction(e -> changePicture(asset, picture));
+        HBox buttons = new HBox(8, edit, picture, remove);
         card.getChildren().add(buttons);
         return card;
     }
@@ -258,6 +270,44 @@ public final class MyAssetsWindow {
                 });
             }
         }, "my-assets-link");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
+     * Picks a picture and sends it as the asset's preview (the small JPEG the tab shows), for an asset posted without one or
+     * to replace the one it has. Any image this computer can read; it is shrunk to fit the 200 KB the server accepts.
+     */
+    private void changePicture(MyAsset asset, Button button) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("Choose a picture\u2026"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(I18n.t("Pictures"), "*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp"));
+        File picked = chooser.showOpenDialog(stage);
+        if (picked == null) return;
+        button.setDisable(true);
+        Thread t = new Thread(() -> {
+            byte[] jpeg = AssetPreviewMaker.jpegFromPicture(picked);
+            if (jpeg == null) {
+                Platform.runLater(() -> {
+                    button.setDisable(false);
+                    showError(I18n.t("That picture couldn't be read."));
+                });
+                return;
+            }
+            try {
+                DoubleClipsDrive.assets.uploadPreview(asset.id, jpeg);
+                Platform.runLater(() -> {
+                    pictureVersion.put(asset.id, System.currentTimeMillis());
+                    reload();     // the row is rebuilt with the new picture
+                });
+            } catch (IOException | RuntimeException e) {
+                String message = DriveError.describe(e);
+                Platform.runLater(() -> {
+                    button.setDisable(false);
+                    showError(message);
+                });
+            }
+        }, "my-assets-picture");
         t.setDaemon(true);
         t.start();
     }
