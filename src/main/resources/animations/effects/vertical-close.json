@@ -12,12 +12,30 @@
     "scale": {
       "kind": "knots",
       "interp": "linear",
-      "points": [[0, 1], [1, 1.15]]
+      "points": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          1.15
+        ]
+      ]
     },
-    "ty": {
+    "offsetY": {
       "kind": "knots",
       "interp": "linear",
-      "points": [[0, -0.08], [1, 0]]
+      "points": [
+        [
+          0,
+          -0.08
+        ],
+        [
+          1,
+          0
+        ]
+      ]
     }
   }
 }

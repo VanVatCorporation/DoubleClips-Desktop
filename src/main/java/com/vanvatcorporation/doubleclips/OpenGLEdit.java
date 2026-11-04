@@ -161,9 +161,12 @@ public class OpenGLEdit {
                         && clip.endTransition.effect != null && !"none".equals(clip.endTransition.effect.style)) {
                     TransitionStyle dataStyle = TransitionStyleLoader.get(clip.endTransition.effect.style);
                     if (dataStyle != null) {
-                        // Data-driven styles are drawn in every timing mode, but only "cut" ones: layers / mask styles
-                        // (both pictures at once, B revealed through a mask) are not drawn by this renderer yet.
-                        if (dataStyle.getMode() != TransitionStyle.Mode.CUT) {
+                        // Data-driven styles are drawn in every timing mode, but only "cut" ones: layers / mask / crop styles
+                        // (both pictures at once, B revealed through a mask) are not drawn from their JSON by this renderer yet.
+                        // One that also has a built-in shader (SUPPORTED_TRANSITION_STYLES: circleopen, circlecrop, rectcrop,
+                        // distance...) is still drawn by that, so there is nothing to report for it.
+                        if (dataStyle.getMode() != TransitionStyle.Mode.CUT
+                                && !SUPPORTED_TRANSITION_STYLES.contains(clip.endTransition.effect.style)) {
                             found.add("The '" + dataStyle.getName() + "' transition style (its \"" + dataStyle.getMode().json
                                     + "\" mode is not drawn by the OpenGL export yet; it plays as a plain cut)");
                         }
@@ -218,10 +221,14 @@ public class OpenGLEdit {
         public final boolean edgeFill;
         /** The picture's own bounding box on the canvas (minU, minV, maxU, maxV): what edge fill extends from. */
         public final float boxMinU, boxMinV, boxMaxU, boxMaxV;
+        /** Pixelate: the square block's size in canvas u / v (0 = none); the grid starts at the picture's box corner (boxMinU, boxMinV). */
+        public final float pixelU, pixelV;
 
         private PostFx(float streakU, float streakV, float streakLengthFraction, float slideU, float slideV,
                        float squeezeX, float squeezeAnchor, boolean edgeFill,
-                       float boxMinU, float boxMinV, float boxMaxU, float boxMaxV) {
+                       float boxMinU, float boxMinV, float boxMaxU, float boxMaxV, float pixelU, float pixelV) {
+            this.pixelU = pixelU;
+            this.pixelV = pixelV;
             this.streakU = streakU;
             this.streakV = streakV;
             this.streakLengthFraction = streakLengthFraction;
@@ -251,7 +258,10 @@ public class OpenGLEdit {
             boolean hasSlideU = Math.abs(slideU) > POST_FX_EPSILON;
             boolean hasSlideV = Math.abs(slideV) > POST_FX_EPSILON;
             boolean hasSqueeze = Math.abs(squeeze - 1f) > 0.002f;
-            if (!fill && !hasStreak && !hasSlideU && !hasSlideV && !hasSqueeze) return null;
+            // Pixelate: blocks a fraction of the canvas WIDTH wide; like iOS, anything under 1.5 px is none.
+            float pixelFraction = anim.pixelateWidthFraction();
+            boolean hasPixel = pixelFraction * canvasWidth > 1.5f;
+            if (!fill && !hasStreak && !hasSlideU && !hasSlideV && !hasSqueeze && !hasPixel) return null;
 
             // The picture's bounding box: where the quad's corners land (mvp maps the unit quad to NDC; NDC +1 = canvas top = v 1).
             float minU = Float.MAX_VALUE, minV = Float.MAX_VALUE, maxU = -Float.MAX_VALUE, maxV = -Float.MAX_VALUE;
@@ -279,7 +289,8 @@ public class OpenGLEdit {
                     hasStreak ? motion : 0f,
                     hasSlideU ? slideU : 0f, hasSlideV ? slideV : 0f,
                     hasSqueeze ? squeeze : 1f, anim.squeezeAnchor(), fill,
-                    minU, minV, maxU, maxV);
+                    minU, minV, maxU, maxV,
+                    hasPixel ? pixelFraction : 0f, hasPixel ? pixelFraction * aspect : 0f);
         }
     }
 
@@ -440,7 +451,19 @@ public class OpenGLEdit {
          */
         public final ClipAnimationFrame frame;
 
+        /** The style's {@code tile_grid} filter at this moment (1 x 1 = none): the picture is repeated cols x rows times after the channels. */
+        public final int tileCols, tileRows;
+
+        public boolean hasTile() { return tileCols > 1 || tileRows > 1; }
+
         EffectCommand(Clip clip, String style, float intensity, float progress, float elapsed, ClipAnimationFrame frame) {
+            this(clip, style, intensity, progress, elapsed, frame, 1, 1);
+        }
+
+        EffectCommand(Clip clip, String style, float intensity, float progress, float elapsed, ClipAnimationFrame frame,
+                      int tileCols, int tileRows) {
+            this.tileCols = Math.max(1, tileCols);
+            this.tileRows = Math.max(1, tileRows);
             this.clip = clip;
             this.style = style;
             this.intensity = intensity;
@@ -452,7 +475,15 @@ public class OpenGLEdit {
         /** The command for {@code style} {@code elapsed} seconds into an effect that lasts {@code length} seconds. */
         static EffectCommand of(Clip clip, EffectCatalog.Style style, float intensity, float progress, float elapsed, float length) {
             ClipAnimationFrame frame = style.dataDriven && style.data != null ? style.data.frameAt(elapsed, length, intensity) : null;
-            return new EffectCommand(clip, style.key, intensity, progress, elapsed, frame);
+            int cols = 1, rows = 1;
+            if (style.data != null) {
+                for (EffectFilterOps.Filter filter : style.data.getFilters()) {
+                    if (!"tile_grid".equals(filter.getOp())) continue;
+                    cols = Math.round((float) style.data.filterValue(filter, "cols", elapsed, length, intensity));
+                    rows = Math.round((float) style.data.filterValue(filter, "rows", elapsed, length, intensity));
+                }
+            }
+            return new EffectCommand(clip, style.key, intensity, progress, elapsed, frame, cols, rows);
         }
     }
 

@@ -551,6 +551,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "uniform float uAnchorU;\n" +   // u the squeeze holds still
             "uniform vec2 uHalfStreak;\n" + // half of the motion-blur streak in uv
             "uniform int uTaps;\n" +        // motion-blur taps (1 = none)
+            "uniform vec2 uPixel;\n" +      // pixelate: block size in uv, 0 = none
+            "uniform vec2 uPixelOrigin;\n" + // where the block grid starts: the picture's box corner
             "out vec4 fragColor;\n" +
             "vec2 clampTo(vec2 p, vec4 r) { return clamp(p, r.xy, r.zw); }\n" +
             "vec4 lookAt(vec2 q) {\n" +
@@ -562,6 +564,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "    if (uSlide != vec2(0.0)) {\n" +
             "        p = clampTo(p - uSlide, uExtent);\n" +
             "    }\n" +
+            "    if (uPixel.x > 0.0) p = (floor((p - uPixelOrigin) / uPixel) + 0.5) * uPixel + uPixelOrigin;\n" +
             "    return texture(uTexture, clampTo(p, uBox));\n" +
             "}\n" +
             "void main() {\n" +
@@ -651,13 +654,13 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     private int uBlendLayerLoc, uBlendBackdropLoc, uBlendModeLoc;
     private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc, uTransAspectLoc, uTransCanvasLoc;
     private int uBlurTexLoc, uBlurDirLoc, uBlurTexelLoc, uBlurSigmaLoc;
-    private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc;
+    private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc, uStrPixelLoc, uStrPixelOriginLoc;
     // Effect clips: one program for the whole catalog (resources/shaders/effects.frag), built on first use.
     private int effectProgram = 0;
     private boolean effectsUnavailable = false;
     private int uFxTexLoc, uFxTex2Loc, uFxStyleLoc, uFxPassLoc, uFxIntensityLoc, uFxProgressLoc, uFxTimeLoc, uFxElapsedLoc,
             uFxWanderLoc, uFxResolutionLoc, uFxRandLoc, uFxLayerLoc,
-            uFxFrameTLoc, uFxFrameCLoc, uFxFrameMLoc, uFxFrameKLoc, uFxFrameTapsLoc;
+            uFxFrameTLoc, uFxFrameCLoc, uFxFrameMLoc, uFxFrameKLoc, uFxFrameTapsLoc, uFxTileLoc;
 
     GlCompositor(int width, int height) {
         this.width = width;
@@ -1038,6 +1041,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uStrAnchorLoc = glGetUniformLocation(streakProgram, "uAnchorU");
             uStrHalfLoc = glGetUniformLocation(streakProgram, "uHalfStreak");
             uStrTapsLoc = glGetUniformLocation(streakProgram, "uTaps");
+            uStrPixelLoc = glGetUniformLocation(streakProgram, "uPixel");
+            uStrPixelOriginLoc = glGetUniformLocation(streakProgram, "uPixelOrigin");
         }
     }
 
@@ -1100,6 +1105,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glUniform1f(uStrAnchorLoc, anchorU);
         glUniform2f(uStrHalfLoc, fx.streakU, fx.streakV);
         glUniform1i(uStrTapsLoc, taps);
+        glUniform2f(uStrPixelLoc, fx.pixelU, fx.pixelV);
+        glUniform2f(uStrPixelOriginLoc, fx.boxMinU, fx.boxMinV);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         if (toMain) useStraightBlend(); else glEnable(GL_BLEND);
         bindMain();
@@ -1137,6 +1144,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uFxFrameMLoc = glGetUniformLocation(effectProgram, "uFrameM");
             uFxFrameKLoc = glGetUniformLocation(effectProgram, "uFrameK");
             uFxFrameTapsLoc = glGetUniformLocation(effectProgram, "uFrameTaps");
+            uFxTileLoc = glGetUniformLocation(effectProgram, "uTile");
             return true;
         } catch (RuntimeException | java.io.IOException e) {
             effectsUnavailable = true;
@@ -1191,6 +1199,56 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
 
     /** The shader's STYLE_FRAME: a data-driven effect, not a position in {@link EffectCatalog}'s built-in list. */
     private static final int EFFECT_FRAME_STYLE = 100;
+
+    /** The shader's STYLE_TILE: the tile_grid filter op. */
+    private static final int EFFECT_TILE_STYLE = 101;
+
+    @Override
+    public void applyTileEffect(int cols, int rows) {
+        applyTileCore(mainTarget, 0, false, cols, rows);
+    }
+
+    @Override
+    public void applyTileEffectToSlot(int slot, int cols, int rows) {
+        applyTileCore(scratchTarget(slot), GROUP_FX_BASE, true, cols, rows);
+        bindMain();
+    }
+
+    /** Everything in {@code dst} repeated cols x rows times (reads a copy of dst in scratch canvas {@code base}, writes dst). */
+    private void applyTileCore(GlTarget dst, int base, boolean layer, int cols, int rows) {
+        int c = Math.max(1, cols), r = Math.max(1, rows);
+        if ((c == 1 && r == 1) || !prepareEffects()) return;
+        glDisable(GL_BLEND);
+        try {
+            glBindVertexArray(vao);
+            GlTarget copy = scratchTarget(base);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, dst.fbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copy.fbo);
+            glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+            glUseProgram(effectProgram);
+            glUniform1i(uFxTexLoc, 0);
+            glUniform1i(uFxTex2Loc, 1);
+            glUniform1i(uFxStyleLoc, EFFECT_TILE_STYLE);
+            glUniform1i(uFxLayerLoc, layer ? 1 : 0);
+            glUniform1f(uFxIntensityLoc, 1f);
+            glUniform1f(uFxProgressLoc, 0f);
+            glUniform1f(uFxTimeLoc, 0f);
+            glUniform1f(uFxElapsedLoc, 0f);
+            glUniform1f(uFxWanderLoc, 0f);
+            glUniform2f(uFxResolutionLoc, width, height);
+            // One cell's shape against the canvas's is rows / cols: the wider side of the picture is cropped to match.
+            float k = (float) r / c;
+            glUniform4f(uFxTileLoc, c, r, Math.min(k, 1f), Math.min(1f / k, 1f));
+
+            bindTarget(dst);
+            effectPass(0, base, -1);
+        } finally {
+            glEnable(GL_BLEND); // draw() assumes it; beginFrame set it up once
+            glUseProgram(program);
+            glActiveTexture(GL_TEXTURE0);
+        }
+    }
 
     @Override
     public void applyFrameEffect(ClipAnimationFrame frame) {
@@ -1343,6 +1401,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         if (fx != null) {
             if (fx.frame != null) applyFrameEffectToSlot(GROUP_SLOT, fx.frame);
             else applyEffectToSlot(GROUP_SLOT, fx.style, fx.intensity, fx.progress, time, fx.elapsed);
+            if (fx.hasTile()) applyTileEffectToSlot(GROUP_SLOT, fx.tileCols, fx.tileRows);
         }
         bindMain();
         glEnable(GL_BLEND);

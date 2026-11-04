@@ -139,6 +139,15 @@ public final class OpenGLTimelineExporter {
         default void applyFrameEffectToSlot(int slot, ClipAnimationFrame frame) {}
 
         /**
+         * The {@code tile_grid} filter op of a data-driven effect: everything drawn so far repeated {@code cols} x {@code rows} times,
+         * each copy cropped to the cell's shape. Default: nothing.
+         */
+        default void applyTileEffect(int cols, int rows) {}
+
+        /** The same on ONE clip's transparent layer in scratch canvas {@code slot}, in place. */
+        default void applyTileEffectToSlot(int slot, int cols, int rows) {}
+
+        /**
          * Starts a clip that has an effect of its own: from here until {@link #endClipGroup}, every draw (and blur / streak /
          * transition result) that goes to "the main canvas" goes into a cleared, transparent layer instead.
          */
@@ -277,6 +286,7 @@ public final class OpenGLTimelineExporter {
                 OpenGLEdit.EffectCommand fx = layer.effect;
                 if (fx.frame != null) compositor.applyFrameEffect(fx.frame);
                 else compositor.applyEffect(fx.style, fx.intensity, fx.progress, outputTimeSeconds, fx.elapsed);
+                if (fx.hasTile()) compositor.applyTileEffect(fx.tileCols, fx.tileRows);
                 continue;
             }
             // Transition: each side is rendered to its own full-canvas transparent
@@ -290,6 +300,7 @@ public final class OpenGLTimelineExporter {
                 OpenGLEdit.EffectCommand own = transition.clipAEffect; // the outgoing clip's own effect filters its side only
                 if (own.frame != null) compositor.applyFrameEffectToSlot(0, own.frame);
                 else compositor.applyEffectToSlot(0, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
+                if (own.hasTile()) compositor.applyTileEffectToSlot(0, own.tileCols, own.tileRows);
             }
             compositor.beginOffscreen(1);
             drawer.draw(transition.clipBCommand, outputTimeSeconds);
@@ -297,6 +308,7 @@ public final class OpenGLTimelineExporter {
                 OpenGLEdit.EffectCommand own = transition.clipBEffect;
                 if (own.frame != null) compositor.applyFrameEffectToSlot(1, own.frame);
                 else compositor.applyEffectToSlot(1, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
+                if (own.hasTile()) compositor.applyTileEffectToSlot(1, own.tileCols, own.tileRows);
             }
             compositor.endOffscreen();
             int mode = transition.blendMode();

@@ -29,9 +29,11 @@ uniform vec4 uFrameC;           // exposure (multiplier), saturation, contrast, 
 uniform vec4 uFrameM;           // motion-blur LENGTH px, its angle radians, edge slide x px, edge slide y px
 uniform vec2 uFrameK;           // whiteMix, edgeFill (1 = the picture's edge pixels fill the canvas)
 uniform int uFrameTaps;         // motion-blur taps (odd; 1 = no blur)
+uniform vec4 uTile;             // uStyle == STYLE_TILE (tile_grid): cols, rows, then how much of the picture one cell shows (u, v extents about the middle)
 out vec4 fragColor;
 
 const float PI = 3.14159265358979;
+const int STYLE_TILE = 101;     // GlCompositor.EFFECT_TILE_STYLE: the tile_grid filter op
 const int STYLE_FRAME = 100;    // GlCompositor.EFFECT_FRAME_STYLE: not a position in EffectCatalog's built-in list
 
 // alpha of the picture at p (1 on an opaque picture)
@@ -270,6 +272,9 @@ void main() {
     } else if (uStyle == 21) {              // fade-out
         if (uLayer == 1) gA = frameA * clamp01(1.0 - pr);
         else o = frame * clamp01(1.0 - pr);
+    } else if (uStyle == STYLE_TILE) {      // tile_grid: the picture repeated cols x rows times, each copy cropped (not stretched) to its cell
+        vec2 cell = fract(vUV * uTile.xy);
+        o = tapG((vec2(0.5) + (cell - vec2(0.5)) * uTile.zw) * res);
     } else if (uStyle == STYLE_FRAME) {     // a data-driven effect
         // Where this pixel reads from: undo the slide, then the offset, rotation and scale (about the canvas centre).
         // Forward transform: p' = c + offset + scale * R(theta) * (q - c); R turns clockwise on screen (y points down).
