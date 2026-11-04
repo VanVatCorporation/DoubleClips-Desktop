@@ -1,10 +1,15 @@
 package com.vanvatcorporation.doubleclips.ui.panes;
 
+import com.vanvatcorporation.doubleclips.DoubleClipsDesktop;
+import com.vanvatcorporation.doubleclips.auth.TrendingSearch;
 import com.vanvatcorporation.doubleclips.drive.DoubleClipsDrive;
 import com.vanvatcorporation.doubleclips.i18n.I18n;
+import com.vanvatcorporation.doubleclips.ui.AssetSearchHints;
+import com.vanvatcorporation.doubleclips.ui.AssetSearchOverlay;
 import com.vanvatcorporation.doubleclips.ui.AssetsBrowser;
 import com.vanvatcorporation.doubleclips.ui.MyAssetsWindow;
 import com.vanvatcorporation.doubleclips.ui.PostAssetWindow;
+import com.vanvatcorporation.doubleclips.ui.components.TemplateSearchBar;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
@@ -20,6 +25,9 @@ import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignF;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignU;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * The Assets tab (it replaces the old Search tab; iOS did the same): what the community posted, live from the server. Videos,
  * images, audio, fonts, effects and animation packs, on the same Van Vat Drive as OpenEditz: an asset is a file in the poster's Drive
@@ -29,6 +37,8 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignU;
 public class AssetsPane extends VBox {
 
     private final AssetsBrowser browser = new AssetsBrowser(null, 220);
+    private final TemplateSearchBar searchBar = new TemplateSearchBar(I18n.t("Search assets..."), this::openSearch);
+    private final Runnable hotListener = this::updateHotTerms;
 
     public AssetsPane() {
         setSpacing(18);
@@ -59,8 +69,36 @@ public class AssetsPane extends VBox {
         HBox header = new HBox(10, title, spacer, mine, post);
         header.setAlignment(Pos.CENTER_LEFT);
 
-        getChildren().addAll(header, browser);
+        // The hot searches take turns in the bar; a click opens the search window (suggestions, trending, results).
+        browser.setOnPageLoaded(this::updateHotTerms);   // no hot searches from the server: the bar uses the first titles
+        sceneProperty().addListener((o, was, scene) -> {
+            if (scene != null) {
+                AssetSearchHints.getInstance().addListener(hotListener);
+                AssetSearchHints.getInstance().refresh(false);
+                updateHotTerms();
+            } else {
+                AssetSearchHints.getInstance().removeListener(hotListener);
+            }
+        });
+        updateHotTerms();
+
+        getChildren().addAll(header, searchBar, browser);
         VBox.setVgrow(browser, Priority.ALWAYS);
+    }
+
+    /** What the bar rotates through: the server's hot searches, else the titles of the first assets in the list. */
+    private void updateHotTerms() {
+        List<String> terms = new ArrayList<>();
+        for (TrendingSearch t : AssetSearchHints.getInstance().trending()) terms.add(t.text);
+        if (terms.isEmpty()) terms = browser.titles(8);
+        searchBar.setTerms(terms);
+    }
+
+    private void openSearch(String hotTerm) {
+        final AssetSearchOverlay[] ref = new AssetSearchOverlay[1];
+        ref[0] = new AssetSearchOverlay(hotTerm, () -> browser.titles(40), null, 220,
+                v -> DoubleClipsDesktop.getInstance().hideOverlay(ref[0]));
+        DoubleClipsDesktop.getInstance().showOverlay(ref[0]);
     }
 
     private Window window() { return getScene() == null ? null : getScene().getWindow(); }

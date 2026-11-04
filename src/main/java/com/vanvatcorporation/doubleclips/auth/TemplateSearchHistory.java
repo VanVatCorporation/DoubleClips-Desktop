@@ -11,11 +11,14 @@ public final class TemplateSearchHistory {
 
     public static final int LIMIT = 20;
     private static final String KEY = "templateSearchHistory";
+    private static final String ASSETS_KEY = "assetSearchHistory";
     private static final int MAX_QUERY_LENGTH = 100;
 
     private static TemplateSearchHistory instance;
+    private static TemplateSearchHistory assetsInstance;
 
     private final Preferences prefs;
+    private final String key;
     private final List<String> items = new ArrayList<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
@@ -26,10 +29,23 @@ public final class TemplateSearchHistory {
         return instance;
     }
 
+    /** The searches made in the Assets tab: a list of their own, kept next to the Templates one. */
+    public static synchronized TemplateSearchHistory assets() {
+        if (assetsInstance == null) {
+            assetsInstance = new TemplateSearchHistory(Preferences.userRoot().node("com/vanvatcorporation/doubleclips"), ASSETS_KEY);
+        }
+        return assetsInstance;
+    }
+
     /** Public so a test can use a node of its own. */
     public TemplateSearchHistory(Preferences prefs) {
+        this(prefs, KEY);
+    }
+
+    private TemplateSearchHistory(Preferences prefs, String key) {
         this.prefs = prefs;
-        String stored = prefs.get(KEY, "");
+        this.key = key;
+        String stored = prefs.get(key, "");
         for (String line : stored.split("\n")) {
             String q = line.trim();
             if (!q.isEmpty() && items.size() < LIMIT) items.add(q);
@@ -68,7 +84,7 @@ public final class TemplateSearchHistory {
     public void removeListener(Runnable r) { listeners.remove(r); }
 
     private void changed() {
-        prefs.put(KEY, String.join("\n", items));
+        prefs.put(key, String.join("\n", items));
         for (Runnable r : listeners) r.run();
     }
 }

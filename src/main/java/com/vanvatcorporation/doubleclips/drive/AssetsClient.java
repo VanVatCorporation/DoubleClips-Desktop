@@ -3,6 +3,7 @@ package com.vanvatcorporation.doubleclips.drive;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.vanvatcorporation.doubleclips.auth.TrendingSearch;
 import com.vanvatcorporation.doubleclips.data.storage.StorageHelper;
 
 import java.io.File;
@@ -66,6 +67,62 @@ public final class AssetsClient {
         }
         String next = DriveJson.str(o, "nextCursor");
         return new Page(Collections.unmodifiableList(items), next == null || next.isEmpty() ? null : next);
+    }
+
+    // ---- search hints (public; docs: "Search (hot searches + suggestions)") -----------------------------
+
+    /**
+     * The hot searches, best first (last 72 h; the same for everyone, cached 60 s on the server). When fewer than {@code limit}
+     * terms qualify the server tops the list up with titles of the most downloaded assets (no count, no flame).
+     * The routes need a migration on the server: until it ran they answer 500 and the caller falls back to this computer's own hints.
+     */
+    public List<TrendingSearch> trending(int limit) throws IOException {
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("limit", String.valueOf(limit));
+        JsonObject o = drive.json("GET", "/public/assets/search/trending", q, null, false);
+        List<TrendingSearch> out = new ArrayList<>();
+        JsonElement array = o.get("items");
+        if (array != null && array.isJsonArray()) {
+            for (JsonElement e : array.getAsJsonArray()) {
+                if (!e.isJsonObject()) continue;
+                JsonObject row = e.getAsJsonObject();
+                String text = DriveJson.str(row, "query");
+                if (text == null || text.trim().isEmpty()) continue;
+                Integer count = row.has("count") && !row.get("count").isJsonNull() ? Integer.valueOf((int) DriveJson.lng(row, "count", 0)) : null;
+                out.add(new TrendingSearch(text.trim(), count, DriveJson.bool(row, "hot")));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Autocomplete for what is typed: earlier searches, then titles of assets that are shown, then their tags. An empty
+     * {@code typed} asks for "You may like": popular shown assets' titles, in an order that is stable for the day.
+     */
+    public List<String> suggest(String typed, int limit) throws IOException {
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("q", typed == null ? "" : typed.trim());
+        q.put("limit", String.valueOf(limit));
+        JsonObject o = drive.json("GET", "/public/assets/search/suggest", q, null, false);
+        List<String> out = new ArrayList<>();
+        JsonElement array = o.get("items");
+        if (array != null && array.isJsonArray()) {
+            for (JsonElement e : array.getAsJsonArray()) {
+                try {
+                    String text = e.getAsString();
+                    if (text != null && !text.trim().isEmpty()) out.add(text.trim());
+                } catch (RuntimeException ignored) { /* not a string: skip */ }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Tells the server a search was submitted so "Trending" can rank it (signed in only: one person can't push a term up; the
+     * server counts it once per person + query per hour, and only when it matches at least one asset). Best effort.
+     */
+    public void logSearch(String query) throws IOException {
+        drive.json("POST", "/assets/search/log", null, "{\"query\":" + DriveJson.quote(query) + "}", true);
     }
 
     // ---- get (signed in) ---------------------------------------------------------------------------------

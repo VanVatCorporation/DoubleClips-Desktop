@@ -40,6 +40,7 @@ public final class TemplateSearchBar extends HBox {
     private final StackPane ticker = new StackPane();
     private final Timeline rotation;
     private final Consumer<String> onOpen;
+    private final String emptyPrompt;
 
     private List<String> terms = new ArrayList<>();
     private int index = 0;
@@ -48,6 +49,12 @@ public final class TemplateSearchBar extends HBox {
 
     /** @param onOpen gets the hot search showing in the bar at the click ("" when there is none): the search window's prompt */
     public TemplateSearchBar(Consumer<String> onOpen) {
+        this(I18n.t("Search templates..."), onOpen);
+    }
+
+    /** @param emptyPrompt what the bar says while there are no hot searches ("Search assets..." in the Assets tab) */
+    public TemplateSearchBar(String emptyPrompt, Consumer<String> onOpen) {
+        this.emptyPrompt = emptyPrompt;
         this.onOpen = onOpen;
         setSpacing(12);
         setAlignment(Pos.CENTER_LEFT);
@@ -117,7 +124,7 @@ public final class TemplateSearchBar extends HBox {
     /** The current term (or the prompt) with no movement. */
     private void showStatic() {
         ticker.getChildren().clear();
-        shown = row(terms.isEmpty() ? I18n.t("Search templates...") : terms.get(index % terms.size()), terms.isEmpty());
+        shown = row(terms.isEmpty() ? emptyPrompt : terms.get(index % terms.size()), terms.isEmpty());
         ticker.getChildren().add(shown);
     }
 

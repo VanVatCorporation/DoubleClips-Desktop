@@ -56,7 +56,7 @@ public final class AssetsBrowser extends VBox {
 
     private AssetKind kind;                       // null = every kind
     private String sort = AssetsClient.SORT_NEW;
-    private String query = "";
+    private String query;
     private String cursor;
     private boolean hasMore = true, loading, failed;
     private String errorText;
@@ -64,14 +64,21 @@ public final class AssetsBrowser extends VBox {
     private int generation;
 
     private final Runnable blockedListener = () -> Platform.runLater(this::redraw);
+    private Runnable onPageLoaded;
 
     /**
      * @param target    where media and fonts go (the editor's project), or null in the main window
      * @param cardWidth 220 for the tab, about 150 for the editor's narrower window
      */
     public AssetsBrowser(AssetTarget target, double cardWidth) {
+        this(target, cardWidth, "");
+    }
+
+    /** @param initialQuery the search words the first page is for (the search window's results), "" = everything */
+    public AssetsBrowser(AssetTarget target, double cardWidth, String initialQuery) {
         this.target = target;
         this.cardWidth = cardWidth;
+        this.query = initialQuery == null ? "" : initialQuery.trim();
         setSpacing(12);
 
         getChildren().addAll(buildToolbar(), buildGrid());
@@ -161,12 +168,23 @@ public final class AssetsBrowser extends VBox {
 
     // ---- loading -----------------------------------------------------------------------------------------
 
-    /** Search words (matched on title, tags and description); "" = everything. */
+    /** Search words (matched on title, tags and description); "" = everything. The same words again reload the list. */
     public void setQuery(String text) {
-        String next = text == null ? "" : text.trim();
-        if (next.equals(query)) return;
-        query = next;
+        query = text == null ? "" : text.trim();
         start();
+    }
+
+    /** Runs (on the FX thread) after each page arrives: the tab's search bar takes its fallback hot terms from the first titles. */
+    public void setOnPageLoaded(Runnable r) { onPageLoaded = r; }
+
+    /** The titles of the first {@code max} assets shown (hidden people left out). */
+    public List<String> titles(int max) {
+        List<String> out = new ArrayList<>();
+        for (CommunityAsset a : items) {
+            if (out.size() >= max) break;
+            if (!BlockedAuthors.contains(a.ownerName)) out.add(a.title);
+        }
+        return out;
     }
 
     /** Starts over from the first page (a new filter, sort or search, or the Refresh button). */
@@ -215,6 +233,7 @@ public final class AssetsBrowser extends VBox {
         cursor = page.next;
         hasMore = page.next != null && !page.items.isEmpty();   // an empty page never asks for another
         redraw();
+        if (onPageLoaded != null) onPageLoaded.run();
         Platform.runLater(this::maybeLoadMore);
     }
 
