@@ -58,6 +58,20 @@ final class DriveJson {
         return e != null && e.isJsonObject() ? e.getAsJsonObject() : null;
     }
 
+    /** An array of strings (blank and non-string entries skipped); empty when the key is missing. */
+    static java.util.List<String> strings(JsonObject o, String key) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        JsonElement e = get(o, key);
+        if (e == null || !e.isJsonArray()) return out;
+        for (JsonElement item : e.getAsJsonArray()) {
+            try {
+                String text = item.getAsString();
+                if (text != null && !text.trim().isEmpty()) out.add(text.trim());
+            } catch (RuntimeException ignored) { /* not a string: skip */ }
+        }
+        return out;
+    }
+
     static boolean bool(JsonObject o, String key) {
         JsonElement e = get(o, key);
         try { return e != null && e.getAsBoolean(); } catch (RuntimeException ex) { return false; }

@@ -182,6 +182,16 @@ public final class DriveClient {
         return o != null ? o : new JsonObject();
     }
 
+    /** Sends raw bytes with a PUT (an asset's preview JPEG). */
+    void putBinary(String path, byte[] body, String contentType) throws IOException {
+        HttpRequest req = builderAt(base, path, null, Duration.ofSeconds(60), true)
+                .header("Content-Type", contentType)
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(body))
+                .build();
+        HttpResponse<byte[]> r = exec(req, HttpResponse.BodyHandlers.ofByteArray());
+        check(r.statusCode(), r.headers(), r.body());
+    }
+
     /** A link the server gave as a path ("/api/v2/drive/public/assets/x/preview") made absolute; absolute links stay as they are. */
     public String absoluteUrl(String url) {
         if (url == null || url.isEmpty()) return null;
