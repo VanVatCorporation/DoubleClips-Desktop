@@ -553,6 +553,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "uniform int uTaps;\n" +        // motion-blur taps (1 = none)
             "uniform vec2 uPixel;\n" +      // pixelate: block size in uv, 0 = none
             "uniform vec2 uPixelOrigin;\n" + // where the block grid starts: the picture's box corner
+            "uniform float uRedTint;\n" +    // red cast: lifts red, cuts green / blue
+            "uniform float uWhiteMix;\n" +   // wash-out toward white
             "out vec4 fragColor;\n" +
             "vec2 clampTo(vec2 p, vec4 r) { return clamp(p, r.xy, r.zw); }\n" +
             "vec4 lookAt(vec2 q) {\n" +
@@ -584,7 +586,10 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             "        float t = (uTaps > 1) ? float(i) / float(uTaps - 1) * 2.0 - 1.0 + jitter : 0.0;\n" +
             "        sum += lookAt(clampTo(q + uHalfStreak * t, uExtent));\n" +
             "    }\n" +
-            "    fragColor = sum / float(uTaps);\n" + // still premultiplied, like the layer it read
+            "    vec4 avg = sum / float(uTaps);\n" + // still premultiplied, like the layer it read
+            "    vec3 rgb = avg.rgb * vec3(1.0 + 0.15 * uRedTint, 1.0 - 0.6 * uRedTint, 1.0 - 0.6 * uRedTint);\n" +
+            "    rgb = rgb * (1.0 - uWhiteMix) + vec3(uWhiteMix) * avg.a;\n" +    // white is the layer's own coverage, premultiplied
+            "    fragColor = vec4(rgb, avg.a);\n" +
             "}\n";
 
     // ---- in-animation blur. Separable Gaussian, applied along uDirection only: call once
@@ -644,23 +649,27 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     // Created lazily on first use, so a project with no transitions or blur pays nothing for them.
     // 0, 1, 2: transitions, blur, blend and the effect clips' passes. 3: the layer of a clip that has its own effect
     // (a "clip group"). 4, 5, 6: that effect's own working copies, so they never touch the group while it is being filtered.
-    private final GlTarget[] scratch = new GlTarget[7];
+    private final GlTarget[] scratch = new GlTarget[9];
     private static final int GROUP_SLOT = 3, GROUP_FX_BASE = 4;
     /** Where "the main canvas" draws go: null = the real canvas; the clip group's layer while one is being built. */
     private GlTarget baseTarget = null;
     private GlTarget mainTarget;
     private int copyProgram = 0, uCopyTexLoc;
-    private int transitionProgram = 0, blurProgram = 0, streakProgram = 0, blendProgram = 0;
+    private int transitionProgram = 0, blurProgram = 0, streakProgram = 0, blendProgram = 0, maskProgram = 0;
+    private boolean maskUnavailable = false;
+    private final java.util.Map<String, Integer> maskLocs = new java.util.HashMap<>();
     private int uBlendLayerLoc, uBlendBackdropLoc, uBlendModeLoc;
     private int uTransALoc, uTransBLoc, uTransProgressLoc, uTransStyleLoc, uTransAspectLoc, uTransCanvasLoc;
     private int uBlurTexLoc, uBlurDirLoc, uBlurTexelLoc, uBlurSigmaLoc;
-    private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc, uStrPixelLoc, uStrPixelOriginLoc;
+    private int uStrTexLoc, uStrBoxLoc, uStrExtentLoc, uStrSlideLoc, uStrSqueezeLoc, uStrAnchorLoc, uStrHalfLoc, uStrTapsLoc, uStrPixelLoc, uStrPixelOriginLoc, uStrRedTintLoc, uStrWhiteMixLoc;
     // Effect clips: one program for the whole catalog (resources/shaders/effects.frag), built on first use.
     private int effectProgram = 0;
     private boolean effectsUnavailable = false;
-    private int uFxTexLoc, uFxTex2Loc, uFxStyleLoc, uFxPassLoc, uFxIntensityLoc, uFxProgressLoc, uFxTimeLoc, uFxElapsedLoc,
-            uFxWanderLoc, uFxResolutionLoc, uFxRandLoc, uFxLayerLoc,
-            uFxFrameTLoc, uFxFrameCLoc, uFxFrameMLoc, uFxFrameKLoc, uFxFrameTapsLoc, uFxTileLoc;
+    private int uFxTexLoc, uFxResolutionLoc, uFxFrameTLoc, uFxFrameCLoc, uFxFrameMLoc, uFxFrameKLoc, uFxFrameGLoc, uFxFrameTapsLoc;
+    // The filter-op program (effect_ops.frag): one program, uOp picks the op, its uniforms are looked up by name once.
+    private int opsProgram = 0;
+    private boolean opsUnavailable = false;
+    private final java.util.Map<String, Integer> opsLocs = new java.util.HashMap<>();
 
     GlCompositor(int width, int height) {
         this.width = width;
@@ -933,6 +942,86 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     }
 
     /** destSlot < 0 = onto the main canvas (blended over it), else into that scratch canvas as it is (premultiplied). */
+    @Override
+    public void blendMask(int slotA, int slotB, OpenGLEdit.MaskSpec mask) {
+        maskPass(slotA, slotB, mask, -1);
+    }
+
+    @Override
+    public void blendMaskToSlot(int slotA, int slotB, OpenGLEdit.MaskSpec mask, int destSlot) {
+        maskPass(slotA, slotB, mask, destSlot);
+    }
+
+    private int maskLoc(String name) {
+        Integer l = maskLocs.get(name);
+        if (l == null) {
+            l = glGetUniformLocation(maskProgram, name);
+            maskLocs.put(name, l);
+        }
+        return l;
+    }
+
+    /**
+     * One pass of transition_mask.frag: the two scratch canvases through the mask shape, onto the main canvas ({@code destSlot} < 0)
+     * or into a scratch canvas. Same maths as iOS ClipCompositor.transitionMask + masked and Android's TransitionMaskRenderer.
+     */
+    private void maskPass(int slotA, int slotB, OpenGLEdit.MaskSpec m, int destSlot) {
+        if (m == null) return;
+        if (maskProgram == 0) {
+            if (maskUnavailable) return;
+            try {
+                maskProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, readShader("/shaders/transition_mask.frag"));
+            } catch (RuntimeException | java.io.IOException e) {
+                maskUnavailable = true;
+                System.err.println("LOG Mask transitions are unavailable on this GPU, they will draw nothing: " + e.getMessage());
+                return;
+            }
+        }
+        if (destSlot < 0) {
+            bindMain();
+        } else {
+            bindScratchCleared(destSlot);
+            glDisable(GL_BLEND); // the layer is written as it is, not blended over its own clear colour
+        }
+        glUseProgram(maskProgram);
+        glBindVertexArray(vao);
+        int shape;
+        switch (m.shape) {
+            case "circle": shape = 1; break;
+            case "noise": shape = 2; break;
+            case "slices": shape = 3; break;
+            case "clock": shape = 4; break;
+            case "rect": shape = 5; break;
+            case "distance": shape = 6; break;
+            default: shape = 0; // wipe
+        }
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(slotA).texture);
+        glUniform1i(maskLoc("uTextureA"), 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(slotB).texture);
+        glUniform1i(maskLoc("uTextureB"), 1);
+        glUniform2f(maskLoc("uRes"), width, height);
+        glUniform1i(maskLoc("uShape"), shape);
+        glUniform1f(maskLoc("uReveal"), m.reveal);
+        glUniform1f(maskLoc("uAngle"), (float) Math.toRadians(m.angleDegrees));
+        glUniform1f(maskLoc("uSoft"), m.softness);
+        glUniform2f(maskLoc("uCenter"), m.cx, m.cy);
+        glUniform1f(maskLoc("uGrain"), m.grain);
+        glUniform1f(maskLoc("uCount"), m.count);
+        glUniform1f(maskLoc("uStart"), (float) Math.toRadians(m.startDegrees));
+        glUniform1i(maskLoc("uFlag"), (shape == 1 ? m.invert : m.normalized) ? 1 : 0);
+        glUniform1i(maskLoc("uCrop"), m.crop ? 1 : 0);
+        glUniform1f(maskLoc("uCut"), m.cut);
+        glUniform1f(maskLoc("uProgress"), m.progress);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glActiveTexture(GL_TEXTURE0); // leave unit 0 active: draw() assumes it
+        if (destSlot >= 0) {
+            glEnable(GL_BLEND);
+            bindMain();
+        }
+    }
+
     private void transitionPass(int slotA, int slotB, float progress, String style, int destSlot) {
         if (transitionProgram == 0) {
             transitionProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, TRANSITION_FRAGMENT_SHADER);
@@ -1043,6 +1132,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
             uStrTapsLoc = glGetUniformLocation(streakProgram, "uTaps");
             uStrPixelLoc = glGetUniformLocation(streakProgram, "uPixel");
             uStrPixelOriginLoc = glGetUniformLocation(streakProgram, "uPixelOrigin");
+            uStrRedTintLoc = glGetUniformLocation(streakProgram, "uRedTint");
+            uStrWhiteMixLoc = glGetUniformLocation(streakProgram, "uWhiteMix");
         }
     }
 
@@ -1107,6 +1198,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glUniform1i(uStrTapsLoc, taps);
         glUniform2f(uStrPixelLoc, fx.pixelU, fx.pixelV);
         glUniform2f(uStrPixelOriginLoc, fx.boxMinU, fx.boxMinV);
+        glUniform1f(uStrRedTintLoc, fx.redTint);
+        glUniform1f(uStrWhiteMixLoc, fx.whiteMix);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         if (toMain) useStraightBlend(); else glEnable(GL_BLEND);
         bindMain();
@@ -1114,37 +1207,34 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
 
     // ---- effect clips ------------------------------------------------------------------------------
 
-    private static final int EFFECT_BLUR = 10, EFFECT_GLOW = 11; // positions in EffectCatalog
+    // The effect pipeline (what Android's EffectLayerRenderer does): an effect is its JSON, drawn in this order -
+    //   1. capture: a copy of the picture so far (scratch FX_CAPTURE, kept to the end),
+    //   2. the look: the style's channels in one pass of effects.frag, then the Gaussian blur channel,
+    //   3. the filters, in order, one pass (or a few) of effect_ops.frag each, on working canvases FX_POOL_FIRST..FX_POOL_LAST,
+    //   4. back onto the target: the chain's result, blended over the look by the strength when the style mixes.
+    // Every intermediate picture is canvas-sized and opaque (v up, like every layer). A clip's own transparent layer is run as the
+    // colour it shows over black (premultiplied colour is exactly that) and gets its own outline back at the end.
 
-    /** Builds the effect program once. A shader that won't compile here turns effects off for the run instead of ending it. */
+    private static final int FX_CAPTURE = 4, FX_POOL_FIRST = 5, FX_POOL_LAST = 8;
+    private static final int OP_COPY = 0, OP_COLOR = 1, OP_PHOTO = 2, OP_SEPIA = 3, OP_VIGNETTE = 4, OP_PIXEL = 5, OP_DOT = 6,
+            OP_BRIGHT = 7, OP_ADD = 8, OP_TWIRL = 9, OP_BUMP = 10, OP_KALEIDO = 11, OP_RGB = 12, OP_SLICE = 13, OP_CROSS = 14,
+            OP_VHS = 15, OP_TILE = 16, OP_OUTLINE = 17, OP_MIX = 18;
+    private static final String[] PHOTO_NAMES = {"noir", "chrome", "fade", "instant", "mono", "process", "tonal", "transfer"};
+
+    /** Builds the look program once. A shader that won't compile here turns effects off for the run instead of ending it. */
     private boolean prepareEffects() {
         if (effectProgram != 0) return true;
         if (effectsUnavailable) return false;
         try {
-            String source;
-            try (java.io.InputStream in = GlCompositor.class.getResourceAsStream("/shaders/effects.frag")) {
-                if (in == null) throw new IllegalStateException("shaders/effects.frag is missing from the app");
-                source = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            }
-            effectProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, source);
+            effectProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, readShader("/shaders/effects.frag"));
             uFxTexLoc = glGetUniformLocation(effectProgram, "uTexture");
-            uFxTex2Loc = glGetUniformLocation(effectProgram, "uTexture2");
-            uFxStyleLoc = glGetUniformLocation(effectProgram, "uStyle");
-            uFxPassLoc = glGetUniformLocation(effectProgram, "uPass");
-            uFxIntensityLoc = glGetUniformLocation(effectProgram, "uIntensity");
-            uFxProgressLoc = glGetUniformLocation(effectProgram, "uProgress");
-            uFxTimeLoc = glGetUniformLocation(effectProgram, "uTime");
-            uFxElapsedLoc = glGetUniformLocation(effectProgram, "uElapsed");
-            uFxWanderLoc = glGetUniformLocation(effectProgram, "uWander");
             uFxResolutionLoc = glGetUniformLocation(effectProgram, "uResolution");
-            uFxRandLoc = glGetUniformLocation(effectProgram, "uRand");
-            uFxLayerLoc = glGetUniformLocation(effectProgram, "uLayer");
             uFxFrameTLoc = glGetUniformLocation(effectProgram, "uFrameT");
             uFxFrameCLoc = glGetUniformLocation(effectProgram, "uFrameC");
             uFxFrameMLoc = glGetUniformLocation(effectProgram, "uFrameM");
             uFxFrameKLoc = glGetUniformLocation(effectProgram, "uFrameK");
+            uFxFrameGLoc = glGetUniformLocation(effectProgram, "uFrameG");
             uFxFrameTapsLoc = glGetUniformLocation(effectProgram, "uFrameTaps");
-            uFxTileLoc = glGetUniformLocation(effectProgram, "uTile");
             return true;
         } catch (RuntimeException | java.io.IOException e) {
             effectsUnavailable = true;
@@ -1153,18 +1243,25 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         }
     }
 
-    /** Runs a fullscreen pass of the effect program, reading scratch {@code sourceSlot} (and {@code secondSlot} if >= 0). */
-    private void effectPass(int pass, int sourceSlot, int secondSlot) {
-        glUseProgram(effectProgram);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, scratchTarget(sourceSlot).texture);
-        if (secondSlot >= 0) {
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, scratchTarget(secondSlot).texture);
-            glActiveTexture(GL_TEXTURE0);
+    /** Builds the filter-op program once; same fail-soft rule as {@link #prepareEffects}. */
+    private boolean prepareOps() {
+        if (opsProgram != 0) return true;
+        if (opsUnavailable) return false;
+        try {
+            opsProgram = buildProgram(FULLSCREEN_VERTEX_SHADER, readShader("/shaders/effect_ops.frag"));
+            return true;
+        } catch (RuntimeException | java.io.IOException e) {
+            opsUnavailable = true;
+            System.err.println("LOG Effect filters are unavailable on this GPU, effect clips will be skipped: " + e.getMessage());
+            return false;
         }
-        glUniform1i(uFxPassLoc, pass);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    private static String readShader(String resource) throws java.io.IOException {
+        try (java.io.InputStream in = GlCompositor.class.getResourceAsStream(resource)) {
+            if (in == null) throw new IllegalStateException(resource + " is missing from the app");
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
     }
 
     /** One separable Gaussian pass of the blur program: {@code from} scratch slot to the currently bound target. */
@@ -1179,70 +1276,68 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
 
-    /**
-     * An effect clip: copy the picture so far, then redraw it through the effect over the main canvas, which it
-     * REPLACES (blending is off for these passes). "blur" is two Gaussian passes; "glow" keeps the bright parts,
-     * softens them with two Gaussian passes and adds them back with a screen blend; every other effect is one pass.
-     * (tests/glcheck runs this exact pass order against the CPU renderer on a software GL.)
-     */
+    /** An effect clip: filters everything drawn so far on the main canvas, in place. */
     @Override
-    public void applyEffect(String style, float intensity, float progress, float time, float elapsed) {
-        applyEffectCore(mainTarget, 0, false, style, intensity, progress, time, elapsed);
+    public void applyEffect(OpenGLEdit.EffectCommand fx) {
+        runEffect(mainTarget, false, fx);
     }
 
-    /** The same effect on ONE clip's transparent layer in scratch canvas {@code slot} (premultiplied), in place. */
+    /** A clip's own effect: filters ONE clip's transparent layer (premultiplied) in scratch canvas {@code slot}, in place. */
     @Override
-    public void applyEffectToSlot(int slot, String style, float intensity, float progress, float time, float elapsed) {
-        applyEffectCore(scratchTarget(slot), GROUP_FX_BASE, true, style, intensity, progress, time, elapsed);
+    public void applyEffectToSlot(int slot, OpenGLEdit.EffectCommand fx) {
+        runEffect(scratchTarget(slot), true, fx);
         bindMain();
     }
 
-    /** The shader's STYLE_FRAME: a data-driven effect, not a position in {@link EffectCatalog}'s built-in list. */
-    private static final int EFFECT_FRAME_STYLE = 100;
-
-    /** The shader's STYLE_TILE: the tile_grid filter op. */
-    private static final int EFFECT_TILE_STYLE = 101;
-
-    @Override
-    public void applyTileEffect(int cols, int rows) {
-        applyTileCore(mainTarget, 0, false, cols, rows);
+    /** The first working canvas that is not one of {@code busy} (the capture is never one of them). */
+    private static int freeSlot(int... busy) {
+        outer:
+        for (int slot = FX_POOL_FIRST; slot <= FX_POOL_LAST; slot++) {
+            for (int b : busy) if (b == slot) continue outer;
+            return slot;
+        }
+        throw new IllegalStateException("No free effect canvas");
     }
 
-    @Override
-    public void applyTileEffectToSlot(int slot, int cols, int rows) {
-        applyTileCore(scratchTarget(slot), GROUP_FX_BASE, true, cols, rows);
-        bindMain();
-    }
-
-    /** Everything in {@code dst} repeated cols x rows times (reads a copy of dst in scratch canvas {@code base}, writes dst). */
-    private void applyTileCore(GlTarget dst, int base, boolean layer, int cols, int rows) {
-        int c = Math.max(1, cols), r = Math.max(1, rows);
-        if ((c == 1 && r == 1) || !prepareEffects()) return;
+    private void runEffect(GlTarget dst, boolean layer, OpenGLEdit.EffectCommand fx) {
+        if (fx == null || fx.isNoOp() || !prepareEffects() || !prepareOps()) return;
         glDisable(GL_BLEND);
         try {
             glBindVertexArray(vao);
-            GlTarget copy = scratchTarget(base);
+
+            // 1. the picture so far
             glBindFramebuffer(GL_READ_FRAMEBUFFER, dst.fbo);
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copy.fbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, scratchTarget(FX_CAPTURE).fbo);
             glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-            glUseProgram(effectProgram);
-            glUniform1i(uFxTexLoc, 0);
-            glUniform1i(uFxTex2Loc, 1);
-            glUniform1i(uFxStyleLoc, EFFECT_TILE_STYLE);
-            glUniform1i(uFxLayerLoc, layer ? 1 : 0);
-            glUniform1f(uFxIntensityLoc, 1f);
-            glUniform1f(uFxProgressLoc, 0f);
-            glUniform1f(uFxTimeLoc, 0f);
-            glUniform1f(uFxElapsedLoc, 0f);
-            glUniform1f(uFxWanderLoc, 0f);
-            glUniform2f(uFxResolutionLoc, width, height);
-            // One cell's shape against the canvas's is rows / cols: the wider side of the picture is cropped to match.
-            float k = (float) r / c;
-            glUniform4f(uFxTileLoc, c, r, Math.min(k, 1f), Math.min(1f / k, 1f));
+            // 2. the look
+            int cur = FX_CAPTURE;
+            if (fx.lookActive()) cur = runLook(cur, fx.look);
+            int afterLook = cur; // stays untouched, so a style that mixes can blend with it at the end
 
-            bindTarget(dst);
-            effectPass(0, base, -1);
+            // 3. the filters, in order
+            for (OpenGLEdit.FilterStep step : fx.steps) cur = runStep(step, cur, afterLook);
+
+            // 4. back onto the target
+            boolean mixes = !fx.steps.isEmpty() && fx.mix < 0.9999f;
+            if (layer) {
+                int result = cur;
+                if (mixes) {
+                    result = freeSlot(cur, afterLook);
+                    opBegin(OP_MIX, cur, afterLook, scratchTarget(result));
+                    opF("uAlpha", Math.max(fx.mix, 0f));
+                    opDraw();
+                }
+                opBegin(OP_OUTLINE, result, FX_CAPTURE, dst);   // the effect, inside the clip's own outline
+                opDraw();
+            } else if (mixes) {
+                opBegin(OP_MIX, cur, afterLook, dst);
+                opF("uAlpha", Math.max(fx.mix, 0f));
+                opDraw();
+            } else {
+                opBegin(OP_COPY, cur, -1, dst);
+                opDraw();
+            }
         } finally {
             glEnable(GL_BLEND); // draw() assumes it; beginFrame set it up once
             glUseProgram(program);
@@ -1250,138 +1345,234 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         }
     }
 
-    @Override
-    public void applyFrameEffect(ClipAnimationFrame frame) {
-        applyFrameCore(mainTarget, 0, false, frame);
-    }
+    /** The style's channels as one pass of the look shader, then the Gaussian blur channel. Returns the slot holding the result. */
+    private int runLook(int src, ClipAnimationFrame f) {
+        int out = freeSlot(src);
+        bindTarget(scratchTarget(out));
+        glUseProgram(effectProgram);
+        glUniform1i(uFxTexLoc, 0);
+        glUniform2f(uFxResolutionLoc, width, height);
+        float streakPx = Math.max(0f, f.motionBlurWidthFraction()) * width;
+        int taps = 1;
+        if (streakPx > 0.5f) {
+            taps = Math.min(STREAK_MAX_TAPS, Math.max(9, (int) Math.ceil(streakPx / STREAK_TAP_SPACING_PIXELS))) | 1;
+        }
+        glUniform4f(uFxFrameTLoc, f.scale(), f.offsetX() * width, f.offsetY() * height, (float) Math.toRadians(f.rotationDegrees()));
+        glUniform4f(uFxFrameCLoc, f.exposure(), f.saturation(), f.contrast(), f.redTint());
+        glUniform4f(uFxFrameMLoc, streakPx, (float) Math.toRadians(f.blurAngleDegrees()),
+                f.edgeSlideFraction() * width, f.edgeSlideYFraction() * height);
+        glUniform2f(uFxFrameKLoc, f.whiteMix(), f.edgeFill() ? 1f : 0f);
+        glUniform4f(uFxFrameGLoc, (float) Math.toRadians(f.hueDegrees()), f.brightness(), f.temperatureKelvin(), f.opacity());
+        glUniform1i(uFxFrameTapsLoc, taps);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(src).texture);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    @Override
-    public void applyFrameEffectToSlot(int slot, ClipAnimationFrame frame) {
-        applyFrameCore(scratchTarget(slot), GROUP_FX_BASE, true, frame);
-        bindMain();
+        int cur = out;
+        float sigma = f.blurWidthFraction() * width;
+        if (sigma > 0.25f) cur = blurSlot(cur, sigma, -1);
+        return cur;
     }
 
     /**
-     * A data-driven effect (an {@link EffectStyle}'s channels at this moment, as one frame) on everything in {@code dst}: the picture
-     * is moved / rotated / scaled about the canvas centre, slid with its edges filled, motion-blurred along an angle and graded, all in
-     * the effect shader (STYLE_FRAME). Reads a copy of {@code dst} in scratch canvas {@code base} and writes {@code dst}, like the
-     * built-in effects. Channels it doesn't draw (hue, temperature, brightness, gaussian blur, warp, opacity) are left as they are.
+     * Gaussian blur (horizontal then vertical) of working canvas {@code src}; the result is in a working canvas other than
+     * {@code keep} / {@code alsoKeep}. {@code src} itself may be overwritten unless it is one of those.
      */
-    private void applyFrameCore(GlTarget dst, int base, boolean layer, ClipAnimationFrame f) {
-        if (f == null || f.isNeutral() || !prepareEffects()) return;
-        glDisable(GL_BLEND);
-        try {
-            glBindVertexArray(vao);
-            GlTarget copy = scratchTarget(base);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, dst.fbo);
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copy.fbo);
-            glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    private int blurSlot(int src, float sigma, int keep, int... alsoKeep) {
+        ensureBlurProgram();
+        int[] busy = new int[2 + alsoKeep.length];
+        busy[0] = src;
+        busy[1] = keep;
+        System.arraycopy(alsoKeep, 0, busy, 2, alsoKeep.length);
+        int a = freeSlot(busy);
+        bindTarget(scratchTarget(a));
+        gaussianPass(src, 1f, 0f, sigma);
+        busy[0] = a; // src is free to be overwritten now, unless it was kept
+        int b = freeSlot(busy);
+        bindTarget(scratchTarget(b));
+        gaussianPass(a, 0f, 1f, sigma);
+        return b;
+    }
 
-            glUseProgram(effectProgram);
-            glUniform1i(uFxTexLoc, 0);
-            glUniform1i(uFxTex2Loc, 1);
-            glUniform1i(uFxStyleLoc, EFFECT_FRAME_STYLE);
-            glUniform1i(uFxLayerLoc, layer ? 1 : 0);
-            glUniform1f(uFxIntensityLoc, 1f);
-            glUniform1f(uFxProgressLoc, 0f);
-            glUniform1f(uFxTimeLoc, 0f);
-            glUniform1f(uFxElapsedLoc, 0f);
-            glUniform1f(uFxWanderLoc, 0f);
-            glUniform2f(uFxResolutionLoc, width, height);
+    // ---- one filter-op pass: opBegin, the op's uniforms, opDraw ----
 
-            float streakPx = Math.max(0f, f.motionBlurWidthFraction()) * width;
-            int taps = 1;
-            if (streakPx > 0.5f) {
-                taps = Math.min(STREAK_MAX_TAPS, Math.max(9, (int) Math.ceil(streakPx / STREAK_TAP_SPACING_PIXELS))) | 1;
+    private int opLoc(String name) {
+        Integer l = opsLocs.get(name);
+        if (l == null) {
+            l = glGetUniformLocation(opsProgram, name);
+            opsLocs.put(name, l);
+        }
+        return l;
+    }
+
+    private void opF(String name, float v) { glUniform1f(opLoc(name), v); }
+
+    private void opF2(String name, float a, float b) { glUniform2f(opLoc(name), a, b); }
+
+    /** Starts a pass of {@code op} reading working canvas {@code src} (and {@code src2} when >= 0), writing {@code out}. */
+    private void opBegin(int op, int src, int src2, GlTarget out) {
+        bindTarget(out);
+        glUseProgram(opsProgram);
+        glActiveTexture(GL_TEXTURE1);
+        if (src2 >= 0) glBindTexture(GL_TEXTURE_2D, scratchTarget(src2).texture);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scratchTarget(src).texture);
+        glUniform1i(opLoc("uTexture"), 0);
+        glUniform1i(opLoc("uTexture2"), 1);
+        glUniform1i(opLoc("uOp"), op);
+        opF2("uRes", width, height);
+    }
+
+    private void opDraw() {
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    /** A pass of {@code op} over {@code src} into a free working canvas (not {@code keep}); returns that canvas. The op sets its uniforms in {@code uniforms}. */
+    private int opPass(int op, int src, int keep, Runnable uniforms) {
+        int out = freeSlot(src, keep);
+        opBegin(op, src, -1, scratchTarget(out));
+        if (uniforms != null) uniforms.run();
+        opDraw();
+        return out;
+    }
+
+    /** Runs one filter op over {@code src}; returns the canvas holding the result (src itself when the op does nothing). */
+    private int runStep(OpenGLEdit.FilterStep step, int src, int keep) {
+        switch (step.op) {
+            case "blur": {
+                float sigma = height * step.v("radius");
+                return sigma > 0.1f ? blurSlot(src, sigma, keep) : src;
             }
-            glUniform4f(uFxFrameTLoc, f.scale(), f.offsetX() * width, f.offsetY() * height, (float) Math.toRadians(f.rotationDegrees()));
-            glUniform4f(uFxFrameCLoc, f.exposure(), f.saturation(), f.contrast(), f.redTint());
-            glUniform4f(uFxFrameMLoc, streakPx, (float) Math.toRadians(f.blurAngleDegrees()),
-                    f.edgeSlideFraction() * width, f.edgeSlideYFraction() * height);
-            glUniform2f(uFxFrameKLoc, f.whiteMix(), f.edgeFill() ? 1f : 0f);
-            glUniform1i(uFxFrameTapsLoc, taps);
-
-            bindTarget(dst);
-            effectPass(0, base, -1);
-        } finally {
-            glEnable(GL_BLEND); // draw() assumes it; beginFrame set it up once
-            glUseProgram(program);
-            glActiveTexture(GL_TEXTURE0);
+            case "colorControls":
+                return passColor(src, keep, step.v("brightness"), step.v("contrast"), step.v("saturation"));
+            case "photoEffect": {
+                int mode = 0;
+                for (int i = 0; i < PHOTO_NAMES.length; i++) if (PHOTO_NAMES[i].equals(step.name)) mode = i;
+                final float m = mode;
+                return opPass(OP_PHOTO, src, keep, () -> opF("uMode", m));
+            }
+            case "sepia": {
+                float intensity = step.v("intensity");
+                if (intensity < 0.001f) return src;
+                return opPass(OP_SEPIA, src, keep, () -> opF("uIntensity", intensity));
+            }
+            case "vignette": {
+                float intensity = step.v("intensity");
+                if (intensity < 0.001f) return src;
+                float radius = step.v("radius");
+                return opPass(OP_VIGNETTE, src, keep, () -> { opF("uIntensity", intensity); opF("uRadius", radius); });
+            }
+            case "pixellate": {
+                float scale = step.v("scale");
+                if (scale < 0.0001f) return src;
+                float cell = Math.max(2f, height * scale); // pixels
+                return opPass(OP_PIXEL, src, keep, () -> opF2("uCell", cell / width, cell / height));
+            }
+            case "dotScreen": {
+                float pitch = Math.max(3f, height * step.v("width"));
+                float angle = step.v("angle"), sharpness = step.v("sharpness");
+                return opPass(OP_DOT, src, keep, () -> {
+                    opF2("uCenter", 0.5f, 0.5f);
+                    opF("uAngle", angle);
+                    opF("uWidth", pitch);
+                    opF("uSharpness", sharpness);
+                });
+            }
+            case "bloom": {
+                float amount = step.v("intensity");
+                float sigma = height * step.v("radius") * 0.6f;
+                if (amount < 0.001f || sigma < 0.1f) return src;
+                int highlights = opPass(OP_BRIGHT, src, keep, null);                 // what glows
+                int glow = blurSlot(highlights, sigma, keep, src);                   // softened
+                int out = freeSlot(src, glow, keep);
+                opBegin(OP_ADD, src, glow, scratchTarget(out));                      // the picture plus its glow
+                opF("uAmount", amount * 1.2f);
+                opDraw();
+                return out;
+            }
+            case "kaleidoscope": {
+                float count = Math.round(step.v("count")), angle = step.v("angle");
+                return opPass(OP_KALEIDO, src, keep, () -> { opF("uCount", count); opF("uAngle", angle); });
+            }
+            case "twirl": {
+                float radius = Math.min(width, height) * step.v("radius"), angle = step.v("angle");
+                return opPass(OP_TWIRL, src, keep, () -> { opF("uRadius", radius); opF("uAngle", angle); });
+            }
+            case "bump": {
+                float radius = Math.min(width, height) * step.v("radius"), scale = step.v("scale");
+                return opPass(OP_BUMP, src, keep, () -> { opF("uRadius", radius); opF("uScale", scale); });
+            }
+            case "rgbShift": {
+                float direction = step.randomSign ? (step.random(1) > 0.5f ? 1f : -1f) : 1f;
+                return passRgb(src, keep, width * step.v("dx") * direction);
+            }
+            case "tearSlices": {
+                float amount = step.v("amount");
+                int cur = src;
+                for (int i = 0; i < 2; i++) {
+                    cur = passSlice(cur, keep, step.random(3 + i) * height * 0.85f,
+                            height * (0.02f + 0.08f * step.random(5 + i)),
+                            (step.random(7 + i) - 0.5f) * width * 0.14f * amount);
+                }
+                return cur;
+            }
+            case "crossProcess":
+                return opPass(OP_CROSS, src, keep, null);
+            case "tile_grid": {
+                int cols = Math.max(1, Math.round(step.v("cols"))), rows = Math.max(1, Math.round(step.v("rows")));
+                if (cols == 1 && rows == 1) return src;
+                // One cell's shape against the canvas's is rows / cols: the wider side of the picture is cropped to match,
+                // so each copy keeps the picture's shape (cropped, never stretched).
+                float k = (float) rows / cols;
+                return opPass(OP_TILE, src, keep, () -> {
+                    opF2("uGrid", cols, rows);
+                    opF2("uCrop", Math.min(k, 1f), Math.min(1f / k, 1f));
+                });
+            }
+            case "vhs":
+                return runVhs(step, src, keep);
+            default:
+                return src; // an op this build doesn't draw (the export screen warns, see OpenGLEdit.SUPPORTED_EFFECT_OPS)
         }
     }
 
-    /**
-     * The effect passes, reading and writing {@code dst}: {@code base}, {@code base + 1} and {@code base + 2} are the
-     * scratch canvases the passes use as working copies. {@code layer}: dst holds one clip's transparent layer rather
-     * than the opaque canvas (the shader then keeps the alpha and writes premultiplied colour).
-     */
-    private void applyEffectCore(GlTarget dst, int base, boolean layer, String style, float intensity, float progress,
-                                 float time, float elapsed) {
-        int index = EffectCatalog.indexOf(style);
-        if (index < 0 || !prepareEffects()) return;
-        float a = Math.max(intensity, 0f);
+    /** iOS EffectRenderer.vhs: worn colour, soft picture, colour fringing, tearing at the bottom + a wandering band, scanlines, grain. */
+    private int runVhs(OpenGLEdit.FilterStep step, int src, int keep) {
+        float s = Math.min(step.v("amount"), 2f);
+        if (s < 0.001f) return src;
+        int cur = passColor(src, keep, 0f, 1.05f, 0.88f);
+        cur = blurSlot(cur, Math.max(0.5f, height * 0.0009f * s), keep);
+        cur = passRgb(cur, keep, width * 0.004f * s);
+        cur = passSlice(cur, keep, 0f, height * 0.05f, (step.random(21) - 0.5f) * width * 0.06f * s);
+        float wander = (float) ((step.step * 0.07) % 1.0);
+        cur = passSlice(cur, keep, wander * height, height * 0.012f, (step.random(23) - 0.5f) * width * 0.03f * s);
+        float seedU = step.random(25) * 700f, seedV = step.random(27) * 700f;
+        float line = Math.max(1f, height / 540f);
+        return opPass(OP_VHS, cur, keep, () -> {
+            opF("uS", s);
+            opF("uLine", line);
+            opF2("uSeed", seedU, seedV);
+        });
+    }
 
-        glDisable(GL_BLEND);
-        try {
-            glBindVertexArray(vao);
+    private int passColor(int src, int keep, float brightness, float contrast, float saturation) {
+        return opPass(OP_COLOR, src, keep, () -> {
+            opF("uBrightness", brightness);
+            opF("uContrast", contrast);
+            opF("uSaturation", saturation);
+        });
+    }
 
-            // 1. a copy of everything drawn so far (the effect reads it while it writes dst)
-            GlTarget copy = scratchTarget(base);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, dst.fbo);
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copy.fbo);
-            glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    /** Red moves {@code dxPixels} to the right, blue the same to the left, green stays. */
+    private int passRgb(int src, int keep, float dxPixels) {
+        return opPass(OP_RGB, src, keep, () -> opF("uShift", dxPixels / width));
+    }
 
-            if (index == EFFECT_BLUR) {
-                float sigma = height * 0.014f * a;
-                if (sigma <= 0.1f) return; // nothing to soften: dst is already what it should be
-                ensureBlurProgram();
-                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(base + 1).fbo);
-                glViewport(0, 0, width, height);
-                gaussianPass(base, 1f, 0f, sigma);
-                bindTarget(dst);
-                gaussianPass(base + 1, 0f, 1f, sigma);
-                return;
-            }
-
-            // the effect program's uniforms are the same for every pass
-            glUseProgram(effectProgram);
-            glUniform1i(uFxTexLoc, 0);
-            glUniform1i(uFxTex2Loc, 1);
-            glUniform1i(uFxStyleLoc, index);
-            glUniform1i(uFxLayerLoc, layer ? 1 : 0);
-            glUniform1f(uFxIntensityLoc, a);
-            glUniform1f(uFxProgressLoc, progress);
-            glUniform1f(uFxTimeLoc, time);
-            glUniform1f(uFxElapsedLoc, elapsed);
-            glUniform1f(uFxWanderLoc, EffectRandoms.wander(time));
-            glUniform2f(uFxResolutionLoc, width, height);
-            glUniform1fv(uFxRandLoc, EffectRandoms.randoms(style, time));
-
-            if (index == EFFECT_GLOW) {
-                float sigma = height * 0.025f * a;
-                ensureBlurProgram();
-                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(base + 1).fbo);
-                glViewport(0, 0, width, height);
-                effectPass(1, base, -1);                         // bright parts -> base + 1
-                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(base + 2).fbo);
-                glViewport(0, 0, width, height);
-                gaussianPass(base + 1, 1f, 0f, sigma);           // soften sideways -> base + 2
-                glBindFramebuffer(GL_FRAMEBUFFER, scratchTarget(base + 1).fbo);
-                glViewport(0, 0, width, height);
-                gaussianPass(base + 2, 0f, 1f, sigma);           // soften up and down -> base + 1
-                bindTarget(dst);
-                glUseProgram(effectProgram);
-                effectPass(2, base, base + 1);                   // picture + glow -> dst
-                return;
-            }
-
-            bindTarget(dst);
-            effectPass(0, base, -1);
-        } finally {
-            glEnable(GL_BLEND); // draw() assumes it; beginFrame set it up once
-            glUseProgram(program);
-            glActiveTexture(GL_TEXTURE0);
-        }
+    /** Moves the band {@code yPixels} .. +{@code heightPixels} (measured from the BOTTOM, like iOS) sideways. */
+    private int passSlice(int src, int keep, float yPixels, float heightPixels, float shiftPixels) {
+        float v0 = yPixels / height, v1 = (yPixels + heightPixels) / height;
+        if (v1 <= 0f || v0 >= 1f) return src;
+        return opPass(OP_SLICE, src, keep, () -> glUniform3f(opLoc("uBand"), v0, v1, shiftPixels / width));
     }
 
     // ---- a clip with an effect of its own (a "clip group") -------------------------------------
@@ -1398,11 +1589,7 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
     @Override
     public void endClipGroup(OpenGLEdit.EffectCommand fx, float time, int blendMode, boolean backdrop) {
         baseTarget = null;
-        if (fx != null) {
-            if (fx.frame != null) applyFrameEffectToSlot(GROUP_SLOT, fx.frame);
-            else applyEffectToSlot(GROUP_SLOT, fx.style, fx.intensity, fx.progress, time, fx.elapsed);
-            if (fx.hasTile()) applyTileEffectToSlot(GROUP_SLOT, fx.tileCols, fx.tileRows);
-        }
+        if (fx != null) applyEffectToSlot(GROUP_SLOT, fx);
         bindMain();
         glEnable(GL_BLEND);
         if (blendMode != 0 && backdrop) {
@@ -1472,6 +1659,8 @@ final class GlCompositor implements OpenGLTimelineExporter.Compositor {
         if (streakProgram != 0) glDeleteProgram(streakProgram);
         if (blendProgram != 0) glDeleteProgram(blendProgram);
         if (effectProgram != 0) glDeleteProgram(effectProgram);
+        if (opsProgram != 0) glDeleteProgram(opsProgram);
+        if (maskProgram != 0) glDeleteProgram(maskProgram);
         if (opticalFlow != null) opticalFlow.close();
         glDeleteTextures(colorTex);
         glDeleteFramebuffers(fbo);

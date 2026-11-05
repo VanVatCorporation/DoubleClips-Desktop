@@ -51,6 +51,11 @@ public class OpenGLEdit {
     // and any transition using a mode other than OVERLAP are flagged as
     // unsupported by getUnsupportedFeatures below rather than silently
     // approximated or ignored. Keys must match FXCommandEmitter.FXRegistry.
+    /** The filter ops of an effect's JSON ({@code "filters"}) that GlCompositor draws (one pass or a few each, see GlCompositor.runStep). */
+    public static final Set<String> SUPPORTED_EFFECT_OPS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "blur", "colorControls", "photoEffect", "sepia", "vignette", "bloom", "pixellate", "dotScreen",
+            "kaleidoscope", "twirl", "bump", "rgbShift", "tearSlices", "crossProcess", "vhs", "tile_grid"
+    ));
     public static final Set<String> SUPPORTED_TRANSITION_STYLES = new java.util.HashSet<>(java.util.Arrays.asList(
             "fade", "dissolve", "wipeleft", "wiperight", "slideleft", "slideright", "slideup", "slidedown",
             "circleopen", "circleclose", "diagtl", "diagbl", "radial", "hlslice", "hrslice", "vuslice", "vdslice",
@@ -161,41 +166,19 @@ public class OpenGLEdit {
                         && clip.endTransition.effect != null && !"none".equals(clip.endTransition.effect.style)) {
                     TransitionStyle dataStyle = TransitionStyleLoader.get(clip.endTransition.effect.style);
                     if (dataStyle != null) {
-                        // Data-driven styles are drawn in every timing mode, but only "cut" ones: layers / mask / crop styles
-                        // (both pictures at once, B revealed through a mask) are not drawn from their JSON by this renderer yet.
-                        // One that also has a built-in shader (SUPPORTED_TRANSITION_STYLES: circleopen, circlecrop, rectcrop,
-                        // distance...) is still drawn by that, so there is nothing to report for it.
-                        if (dataStyle.getMode() != TransitionStyle.Mode.CUT
-                                && !SUPPORTED_TRANSITION_STYLES.contains(clip.endTransition.effect.style)) {
-                            found.add("The '" + dataStyle.getName() + "' transition style (its \"" + dataStyle.getMode().json
-                                    + "\" mode is not drawn by the OpenGL export yet; it plays as a plain cut)");
-                        }
+                        // A data-driven style is drawn in every timing mode (Overlap, End First, Begin Second) and in every
+                        // style mode (cut, layers, mask, crop): nothing to report.
                     } else if (clip.endTransition.mode != TransitionClip.TransitionMode.OVERLAP) {
                         found.add("Transitions using End First/Begin Second timing (only Overlap is supported)");
                     } else if (!SUPPORTED_TRANSITION_STYLES.contains(clip.endTransition.effect.style)) {
                         found.add("Transitions using the '" + clip.endTransition.effect.style + "' effect");
                     }
                 }
-                reportUndrawnAnimationChannels(clip.inAnimation, ClipAnimation.Direction.IN, found);
-                reportUndrawnAnimationChannels(clip.outAnimation, ClipAnimation.Direction.OUT, found);
                 if (!SUPPORTS_REVERSE && clip.isReverse()) found.add("Reversed clips");
                 if (!SUPPORTS_KEYFRAMES && clip.hasAnimatedProperties()) found.add("Keyframe animations");
             }
         }
         return new ArrayList<>(found);
-    }
-
-    /**
-     * redTint and whiteMix are in the shared channel list (the iOS effect styles use them) but nothing here draws them
-     * yet, so an animation that drives them would silently do nothing: say so instead.
-     */
-    private static void reportUndrawnAnimationChannels(AnimationClip slot, ClipAnimation.Direction direction,
-                                                       java.util.Set<String> found) {
-        ClipAnimation def = animationFor(slot, direction);
-        if (def == null) return;
-        if (def.channels().contains(ClipAnimation.Channel.RED_TINT) || def.channels().contains(ClipAnimation.Channel.WHITE_MIX)) {
-            found.add("The '" + def.getName() + "' animation (its redTint / whiteMix colour channels are not drawn by the OpenGL export yet)");
-        }
     }
 
     /** Half a pixel at 1920 wide, as a canvas fraction: a slide or motion blur below this is ignored. */
@@ -223,12 +206,17 @@ public class OpenGLEdit {
         public final float boxMinU, boxMinV, boxMaxU, boxMaxV;
         /** Pixelate: the square block's size in canvas u / v (0 = none); the grid starts at the picture's box corner (boxMinU, boxMinV). */
         public final float pixelU, pixelV;
+        /** Red cast (lifts red, cuts green / blue) and wash-out toward white, both 0 = none .. 1 = full. */
+        public final float redTint, whiteMix;
 
         private PostFx(float streakU, float streakV, float streakLengthFraction, float slideU, float slideV,
                        float squeezeX, float squeezeAnchor, boolean edgeFill,
-                       float boxMinU, float boxMinV, float boxMaxU, float boxMaxV, float pixelU, float pixelV) {
+                       float boxMinU, float boxMinV, float boxMaxU, float boxMaxV, float pixelU, float pixelV,
+                       float redTint, float whiteMix) {
             this.pixelU = pixelU;
             this.pixelV = pixelV;
+            this.redTint = redTint;
+            this.whiteMix = whiteMix;
             this.streakU = streakU;
             this.streakV = streakV;
             this.streakLengthFraction = streakLengthFraction;
@@ -261,7 +249,9 @@ public class OpenGLEdit {
             // Pixelate: blocks a fraction of the canvas WIDTH wide; like iOS, anything under 1.5 px is none.
             float pixelFraction = anim.pixelateWidthFraction();
             boolean hasPixel = pixelFraction * canvasWidth > 1.5f;
-            if (!fill && !hasStreak && !hasSlideU && !hasSlideV && !hasSqueeze && !hasPixel) return null;
+            float redTint = anim.redTint(), whiteMix = anim.whiteMix();
+            boolean hasTint = redTint > 0.001f || whiteMix > 0.001f;
+            if (!fill && !hasStreak && !hasSlideU && !hasSlideV && !hasSqueeze && !hasPixel && !hasTint) return null;
 
             // The picture's bounding box: where the quad's corners land (mvp maps the unit quad to NDC; NDC +1 = canvas top = v 1).
             float minU = Float.MAX_VALUE, minV = Float.MAX_VALUE, maxU = -Float.MAX_VALUE, maxV = -Float.MAX_VALUE;
@@ -290,7 +280,7 @@ public class OpenGLEdit {
                     hasSlideU ? slideU : 0f, hasSlideV ? slideV : 0f,
                     hasSqueeze ? squeeze : 1f, anim.squeezeAnchor(), fill,
                     minU, minV, maxU, maxV,
-                    hasPixel ? pixelFraction : 0f, hasPixel ? pixelFraction * aspect : 0f);
+                    hasPixel ? pixelFraction : 0f, hasPixel ? pixelFraction * aspect : 0f, redTint, whiteMix);
         }
     }
 
@@ -404,10 +394,46 @@ public class OpenGLEdit {
      * guaranteed to be a key in SUPPORTED_TRANSITION_STYLES (callers filter
      * unsupported ones out before this is created).
      */
+    /**
+     * A data-driven mask / crop transition at one moment (animations/transitions/*.json {@code "mask"}): the shape and its
+     * parameters already evaluated at window progress {@code p}. Mirrors Android's OpenGLEdit.MaskSpec.
+     */
+    public static final class MaskSpec {
+        public final String shape;
+        public final float reveal, angleDegrees, softness, cx, cy, grain, count, startDegrees;
+        public final boolean normalized, invert;
+        /** Mode crop: one picture (A before {@link #cut}, B after) is seen through the shape on black, instead of B over A. */
+        public final boolean crop;
+        /** Window progress at which crop switches from A to B. */
+        public final float cut;
+        /** Window progress now (0..1): what {@link #cut} is compared with. */
+        public final float progress;
+
+        MaskSpec(EffectFilterOps.Filter mask, float p, boolean crop, float cut) {
+            this.crop = crop;
+            this.cut = cut;
+            this.progress = p;
+            shape = mask.getOp();
+            reveal = (float) Math.min(Math.max(mask.raw("reveal", p), 0.0), 1.0);
+            angleDegrees = (float) mask.raw("angle", p);
+            softness = (float) mask.raw("softness", p);
+            cx = (float) mask.raw("cx", p);
+            cy = (float) mask.raw("cy", p);
+            grain = (float) mask.raw("grain", p);
+            count = (float) mask.raw("count", p);
+            startDegrees = (float) mask.raw("start", p);
+            normalized = mask.hasFlag("normalized");
+            invert = mask.hasFlag("invert");
+        }
+    }
+
     public static class TransitionCommand {
         public final DrawCommand clipACommand;
         public final DrawCommand clipBCommand;
+        /** The built-in style's key, or null for a data-driven mask / crop transition ({@link #mask}). */
         public final String style;
+        /** A data-driven mask / crop transition's shape, or null for a built-in style. */
+        public final MaskSpec mask;
         /** 0 at the start of the transition window, 1 at the end. */
         public final float progress;
 
@@ -422,68 +448,127 @@ public class OpenGLEdit {
         /** The own effect ({@link Clip#clipEffect}) of each side, applied to that side's layer before the two are blended; null = none. */
         public EffectCommand clipAEffect, clipBEffect;
 
+        public TransitionCommand(DrawCommand clipACommand, DrawCommand clipBCommand, MaskSpec mask, float progress) {
+            this(clipACommand, clipBCommand, null, mask, progress);
+        }
+
         public TransitionCommand(DrawCommand clipACommand, DrawCommand clipBCommand, String style, float progress) {
+            this(clipACommand, clipBCommand, style, null, progress);
+        }
+
+        private TransitionCommand(DrawCommand clipACommand, DrawCommand clipBCommand, String style, MaskSpec mask, float progress) {
             this.clipACommand = clipACommand;
             this.clipBCommand = clipBCommand;
             this.style = style;
+            this.mask = mask;
             this.progress = progress;
         }
     }
 
+    /** One filter op of an effect at one moment, every number already evaluated (distances are fractions of the canvas, see GlCompositor.runStep). */
+    public static final class FilterStep {
+        public final String op;
+        /** {@code photoEffect}'s name ("noir", "chrome"...), else null. */
+        public final String name;
+        /** The op's {@code randomSign} flag (rgbShift). */
+        public final boolean randomSign;
+        /** Which 1/15 s slot of output time this is: the seed of the random patterns (see {@link #random}). */
+        public final int step;
+        private final java.util.Map<String, Double> values;
+
+        FilterStep(String op, String name, boolean randomSign, int step, java.util.Map<String, Double> values) {
+            this.op = op;
+            this.name = name;
+            this.randomSign = randomSign;
+            this.step = step;
+            this.values = values;
+        }
+
+        /** Deterministic pseudo-random 0..1 for this step (iOS EffectRenderer.random): the same frame always looks the same in preview, scrubbing and export. */
+        public float random(double salt) { return EffectRandoms.random(step, salt); }
+
+        /** A parameter at this moment (0 for a name the op doesn't have). */
+        public float v(String param) {
+            Double d = values.get(param);
+            return d == null ? 0f : d.floatValue();
+        }
+    }
+
     /**
-     * An effect clip at one moment: an ADJUSTMENT LAYER. It filters everything drawn before it in the layer
-     * list (the tracks below it in the stack), so clips on later tracks are drawn over the result untouched.
+     * An effect at one moment (an effect clip's ADJUSTMENT LAYER, or a clip's own effect): the style's JSON evaluated for this
+     * frame, so the compositor only has to draw. Like Android's EffectCommand it has the {@link #look} (the channels: a whole-picture
+     * transform and colour, motion blur, blur) and the {@link #steps} (the filter ops, in order). An adjustment layer filters
+     * everything drawn before it in the layer list, so clips on later tracks are drawn over the result untouched.
      */
     public static final class EffectCommand {
         public final Clip clip;
         /** The effect's key in {@link EffectCatalog}. */
         public final String style;
-        /** The strength setting, already inside the effect's range (1 = the default look). */
+        /** The strength setting, already inside the effect's range (1 = the file's own look). */
         public final float intensity;
         /** 0..1 through the effect clip. */
         public final float progress;
         /** Seconds since the effect clip began. */
         public final float elapsed;
+        /** Output time: the seed of the random patterns (they jump 15 times a second). */
+        public final float time;
+        /** The style's channels at this moment, already pushed by the strength, or null when it has none. */
+        public final ClipAnimationFrame look;
+        /** The style's filter ops at this moment, in order. */
+        public final java.util.List<FilterStep> steps;
+        /** How much of the filter chain's result is blended over the picture before it (1 = all of it). */
+        public final float mix;
+        private final boolean lookActive;
 
-        /**
-         * For a data-driven style ({@link EffectCatalog.Style#dataDriven}): its channels at this moment, already pushed by
-         * the strength; the compositor draws that instead of a built-in effect. null for a built-in style.
-         */
-        public final ClipAnimationFrame frame;
-
-        /** The style's {@code tile_grid} filter at this moment (1 x 1 = none): the picture is repeated cols x rows times after the channels. */
-        public final int tileCols, tileRows;
-
-        public boolean hasTile() { return tileCols > 1 || tileRows > 1; }
-
-        EffectCommand(Clip clip, String style, float intensity, float progress, float elapsed, ClipAnimationFrame frame) {
-            this(clip, style, intensity, progress, elapsed, frame, 1, 1);
-        }
-
-        EffectCommand(Clip clip, String style, float intensity, float progress, float elapsed, ClipAnimationFrame frame,
-                      int tileCols, int tileRows) {
-            this.tileCols = Math.max(1, tileCols);
-            this.tileRows = Math.max(1, tileRows);
+        EffectCommand(Clip clip, String style, float intensity, float progress, float elapsed, float time,
+                      ClipAnimationFrame look, java.util.List<FilterStep> steps, float mix) {
             this.clip = clip;
             this.style = style;
             this.intensity = intensity;
             this.progress = progress;
             this.elapsed = elapsed;
-            this.frame = frame;
+            this.time = time;
+            this.look = look;
+            this.steps = steps;
+            this.mix = mix;
+            this.lookActive = look != null && drawsAnything(look);
         }
 
-        /** The command for {@code style} {@code elapsed} seconds into an effect that lasts {@code length} seconds. */
-        static EffectCommand of(Clip clip, EffectCatalog.Style style, float intensity, float progress, float elapsed, float length) {
-            ClipAnimationFrame frame = style.dataDriven && style.data != null ? style.data.frameAt(elapsed, length, intensity) : null;
-            int cols = 1, rows = 1;
-            if (style.data != null) {
-                for (EffectFilterOps.Filter filter : style.data.getFilters()) {
-                    if (!"tile_grid".equals(filter.getOp())) continue;
-                    cols = Math.round((float) style.data.filterValue(filter, "cols", elapsed, length, intensity));
-                    rows = Math.round((float) style.data.filterValue(filter, "rows", elapsed, length, intensity));
+        /** True when some channel the look shader draws is away from neutral right now (the squeeze / warp / pixelate channels are clip-only). */
+        private static boolean drawsAnything(ClipAnimationFrame f) {
+            for (ClipAnimation.Channel ch : ClipAnimation.Channel.values()) {
+                switch (ch) {
+                    case WARP_TOP_WIDTH: case WARP_BOTTOM_WIDTH: case WARP_HEIGHT:
+                    case SQUEEZE_X: case SQUEEZE_ANCHOR: case PIXELATE:
+                        continue;
+                    default:
+                        if (Math.abs(f.get(ch) - ch.neutral) > 1e-5) return true;
                 }
             }
-            return new EffectCommand(clip, style.key, intensity, progress, elapsed, frame, cols, rows);
+            return false;
+        }
+
+        /** Whether the look (channels) has anything to draw now. */
+        public boolean lookActive() { return lookActive; }
+
+        /** True when drawing it would change nothing (an effect whose look is neutral right now and that has no filters). */
+        public boolean isNoOp() { return !lookActive && steps.isEmpty(); }
+
+        /** The command for {@code style} {@code elapsed} seconds into an effect that lasts {@code length} seconds, at output time {@code time}. */
+        static EffectCommand of(Clip clip, EffectCatalog.Style style, float intensity, float progress, float elapsed, float length, float time) {
+            EffectStyle data = style.data;
+            ClipAnimationFrame look = data.hasChannels() ? data.frameAt(elapsed, length, intensity) : null;
+            java.util.List<FilterStep> steps = new java.util.ArrayList<>();
+            int randomStep = (int) Math.floor(Math.max(time, 0f) * 15.0); // random patterns jump 15 times a second
+            for (EffectFilterOps.Filter filter : data.getFilters()) {
+                if (!SUPPORTED_EFFECT_OPS.contains(filter.getOp())) continue;
+                java.util.Map<String, Double> values = new java.util.HashMap<>();
+                for (EffectFilterOps.Param param : filter.getSpec().params) {
+                    values.put(param.name, data.filterValue(filter, param.name, elapsed, length, intensity));
+                }
+                steps.add(new FilterStep(filter.getOp(), filter.getString("name"), filter.hasFlag("randomSign"), randomStep, values));
+            }
+            return new EffectCommand(clip, style.key, intensity, progress, elapsed, time, look, steps, data.filterMix(intensity));
         }
     }
 
@@ -546,7 +631,11 @@ public class OpenGLEdit {
             // frame, and null (no allocation, no registry lookup) for the usual track that has none near the playhead.
             DataWindow[] dataWindows = dataWindows(track, outputTimeSeconds);
             DataWindow dataHit = dataWindows == null ? null : dataWindowAt(dataWindows, outputTimeSeconds);
-            if (dataHit != null) {
+            if (dataHit != null && (dataHit.style.isLayers() || dataHit.style.usesMask())
+                    && addBothSidedTransition(layers, dataHit, outputTimeSeconds, canvasWidth, canvasHeight, stretchToFull, projection)) {
+                continue;
+            }
+            if (dataHit != null && !(dataHit.style.isLayers() || dataHit.style.usesMask())) {
                 // No blend: ONE picture at a time - A before the style's cut, B after it - drawn like any clip, with
                 // that side's look (exposure, motion blur, edge fill, warp, ...) stacked on the clip's own properties
                 // and its In / Out animation. A's out animation runs over the whole window, like iOS.
@@ -604,6 +693,39 @@ public class OpenGLEdit {
     }
 
     /**
+     * A data-driven layers / mask / crop transition: BOTH pictures are drawn for the whole window, each with its side's look
+     * (the style's {@code from} / {@code to} channels) on top of the clip's own properties and animations.
+     * <ul>
+     * <li>mask / crop: the two sides become one {@link TransitionCommand} carrying the mask; the compositor blends them.
+     *     A style may leave a side's look out (that clip is then drawn as it is).</li>
+     * <li>layers: B over A as two ordinary layers; the looks (slides, cross fades) do the rest.</li>
+     * </ul>
+     * Returns false when neither side can be drawn (an unsupported clip type): the caller then falls through to the normal
+     * single-clip handling.
+     */
+    private boolean addBothSidedTransition(List<FrameLayer> layers, DataWindow w, float t, int canvasWidth, int canvasHeight,
+                                           boolean stretchToFull, float[] projection) {
+        float p = w.window.progressAt(t);
+        TransitionStyle style = w.style;
+        ClipAnimationFrame fromLook = style.usesMask() && style.getFrom().channels().isEmpty() ? null : style.getFrom().evaluate(p);
+        ClipAnimationFrame toLook = style.usesMask() && style.getTo().channels().isEmpty() ? null : style.getTo().evaluate(p);
+        DrawCommand a = buildDrawCommand(w.clipA, t, canvasWidth, canvasHeight, stretchToFull, projection, fromLook, w.window);
+        DrawCommand b = buildDrawCommand(w.clipB, t, canvasWidth, canvasHeight, stretchToFull, projection, toLook, null);
+        if (a == null && b == null) return false;
+        if (style.usesMask() && a != null && b != null) {
+            TransitionCommand tc = new TransitionCommand(a, b, new MaskSpec(style.getMask(), p, style.isCrop(), (float) style.getCut()), p);
+            tc.clipAEffect = ownEffectOf(w.clipA, t);
+            tc.clipBEffect = ownEffectOf(w.clipB, t);
+            layers.add(FrameLayer.of(tc));
+            return true;
+        }
+        // layers, or a mask / crop with one side that can't be drawn: B over A
+        if (a != null) addClipLayers(layers, w.clipA, java.util.Collections.singletonList(a), t);
+        if (b != null) addClipLayers(layers, w.clipB, java.util.Collections.singletonList(b), t);
+        return true;
+    }
+
+    /**
      * Adds one clip's draw commands (one, or a text clip's units) as layers; when the clip has an effect of its own that shows
      * now, they sit between begin / end markers so the compositor draws them into a layer the effect then filters alone.
      */
@@ -634,7 +756,7 @@ public class OpenGLEdit {
         float elapsed = t - clip.startTime - start;
         if (elapsed < 0f || elapsed > length) return null;
         float progress = length > 1e-3f ? Math.max(0f, Math.min(1f, elapsed / length)) : 1f;
-        return EffectCommand.of(clip, style, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.clipEffect, t)), progress, elapsed, length);
+        return EffectCommand.of(clip, style, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.clipEffect, t)), progress, elapsed, length, t);
     }
 
     /** An active OVERLAP-mode, built-in-style (two-sided blend) transition on a track at some t. */
@@ -727,7 +849,7 @@ public class OpenGLEdit {
 
     /**
      * The data-driven transition at the end of clip {@code a} (track.clips[i]), or null: there is none, its style is not
-     * data-driven, its style is not a "cut" one (layers / mask are not drawn yet), one side is not a picture
+     * data-driven, one side is not a picture
      * (video / image), B does not start where A ends (within {@link TransitionTiming#ADJACENT_TOLERANCE_SECONDS}), or it is
      * too short to draw once limited to what fits.
      */
@@ -735,7 +857,7 @@ public class OpenGLEdit {
         if (b == null || a.endTransition.effect == null) return null;
         TransitionClip transition = a.endTransition;
         TransitionStyle style = TransitionStyleLoader.get(transition.effect.style);
-        if (style == null || style.getMode() != TransitionStyle.Mode.CUT) return null;
+        if (style == null) return null;
         if (!isPicture(a) || !isPicture(b) || a.duration <= 0f || b.duration <= 0f) return null;
         if (Math.abs(b.startTime - (a.startTime + a.duration)) > TransitionTiming.ADJACENT_TOLERANCE_SECONDS) return null;
         TransitionTiming.Mode mode = transition.mode == null ? TransitionTiming.Mode.OVERLAP
@@ -856,7 +978,7 @@ public class OpenGLEdit {
         if (style == null) return null;
         float elapsed = Math.max(0f, t - clip.startTime);
         float progress = clip.duration > 1e-3f ? Math.max(0f, Math.min(1f, elapsed / clip.duration)) : 1f;
-        return EffectCommand.of(clip, style, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.effect, t)), progress, elapsed, clip.duration);
+        return EffectCommand.of(clip, style, EffectCatalog.clampIntensity(style, strengthAt(clip, clip.effect, t)), progress, elapsed, clip.duration, t);
     }
 
     /**

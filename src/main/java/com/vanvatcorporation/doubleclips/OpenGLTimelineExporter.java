@@ -115,37 +115,28 @@ public final class OpenGLTimelineExporter {
         void blendTransitionToSlot(int slotA, int slotB, float progress, String style, int destSlot);
 
         /**
-         * Filters everything drawn onto the main canvas so far through the effect {@code style} (an
-         * {@link EffectCatalog} key), in place: an adjustment layer. {@code time} is the timeline time,
-         * {@code progress} 0..1 through the effect clip and {@code elapsed} seconds since it began.
-         * An effect that can't run on this machine leaves the canvas as it is.
+         * A data-driven mask / crop transition ({@link OpenGLEdit.MaskSpec}, animations/transitions/*.json): scratch canvases
+         * {@code slotA} and {@code slotB} are blended through the mask shape onto the main canvas (B shows where the mask is
+         * white, A where it is black; a crop draws ONE picture through the shape on black).
          */
-        void applyEffect(String style, float intensity, float progress, float time, float elapsed);
+        void blendMask(int slotA, int slotB, OpenGLEdit.MaskSpec mask);
+
+        /** {@link #blendMask}, but the result is left in scratch canvas {@code destSlot} (premultiplied) instead of the main canvas. */
+        void blendMaskToSlot(int slotA, int slotB, OpenGLEdit.MaskSpec mask, int destSlot);
 
         /**
-         * The same effect on ONE clip's transparent layer (premultiplied) in scratch canvas {@code slot}, in place: only
-         * that clip is filtered. Used for the two sides of a transition that have an effect of their own.
+         * Filters everything drawn onto the main canvas so far through the effect {@code fx} (an {@link EffectStyle}'s JSON at one
+         * moment: its channels as a whole-picture look, then its filter ops in order, blended by the strength when the style
+         * mixes), in place: an adjustment layer. An effect that can't run on this machine leaves the canvas as it is.
          */
-        void applyEffectToSlot(int slot, String style, float intensity, float progress, float time, float elapsed);
+        void applyEffect(OpenGLEdit.EffectCommand fx);
 
         /**
-         * A data-driven effect ({@link EffectStyle}: its channels already evaluated into one frame) on everything drawn so far:
-         * the whole picture is moved, rotated, scaled, slid, motion-blurred and graded. Default: nothing (a compositor without it
-         * leaves the canvas as it is).
+         * The same effect on ONE clip's transparent layer (premultiplied) in scratch canvas {@code slot}, in place: only that
+         * clip is filtered (and never painted outside its own outline). Used for the two sides of a transition that have an
+         * effect of their own.
          */
-        default void applyFrameEffect(ClipAnimationFrame frame) {}
-
-        /** The same data-driven effect on ONE clip's transparent layer in scratch canvas {@code slot}, in place. */
-        default void applyFrameEffectToSlot(int slot, ClipAnimationFrame frame) {}
-
-        /**
-         * The {@code tile_grid} filter op of a data-driven effect: everything drawn so far repeated {@code cols} x {@code rows} times,
-         * each copy cropped to the cell's shape. Default: nothing.
-         */
-        default void applyTileEffect(int cols, int rows) {}
-
-        /** The same on ONE clip's transparent layer in scratch canvas {@code slot}, in place. */
-        default void applyTileEffectToSlot(int slot, int cols, int rows) {}
+        void applyEffectToSlot(int slot, OpenGLEdit.EffectCommand fx);
 
         /**
          * Starts a clip that has an effect of its own: from here until {@link #endClipGroup}, every draw (and blur / streak /
@@ -283,10 +274,7 @@ public final class OpenGLTimelineExporter {
                 continue;
             }
             if (layer.effect != null) {
-                OpenGLEdit.EffectCommand fx = layer.effect;
-                if (fx.frame != null) compositor.applyFrameEffect(fx.frame);
-                else compositor.applyEffect(fx.style, fx.intensity, fx.progress, outputTimeSeconds, fx.elapsed);
-                if (fx.hasTile()) compositor.applyTileEffect(fx.tileCols, fx.tileRows);
+                compositor.applyEffect(layer.effect);
                 continue;
             }
             // Transition: each side is rendered to its own full-canvas transparent
@@ -297,24 +285,21 @@ public final class OpenGLTimelineExporter {
             compositor.beginOffscreen(0);
             drawer.draw(transition.clipACommand, outputTimeSeconds);
             if (transition.clipAEffect != null) {
-                OpenGLEdit.EffectCommand own = transition.clipAEffect; // the outgoing clip's own effect filters its side only
-                if (own.frame != null) compositor.applyFrameEffectToSlot(0, own.frame);
-                else compositor.applyEffectToSlot(0, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
-                if (own.hasTile()) compositor.applyTileEffectToSlot(0, own.tileCols, own.tileRows);
+                compositor.applyEffectToSlot(0, transition.clipAEffect); // the outgoing clip's own effect filters its side only
             }
             compositor.beginOffscreen(1);
             drawer.draw(transition.clipBCommand, outputTimeSeconds);
             if (transition.clipBEffect != null) {
-                OpenGLEdit.EffectCommand own = transition.clipBEffect;
-                if (own.frame != null) compositor.applyFrameEffectToSlot(1, own.frame);
-                else compositor.applyEffectToSlot(1, own.style, own.intensity, own.progress, outputTimeSeconds, own.elapsed);
-                if (own.hasTile()) compositor.applyTileEffectToSlot(1, own.tileCols, own.tileRows);
+                compositor.applyEffectToSlot(1, transition.clipBEffect);
             }
             compositor.endOffscreen();
             int mode = transition.blendMode();
             if (mode != 0 && backdrop) {
-                compositor.blendTransitionToSlot(0, 1, transition.progress, transition.style, 2);
+                if (transition.mask != null) compositor.blendMaskToSlot(0, 1, transition.mask, 2);
+                else compositor.blendTransitionToSlot(0, 1, transition.progress, transition.style, 2);
                 compositor.blendOntoMain(2, 0, mode);
+            } else if (transition.mask != null) {
+                compositor.blendMask(0, 1, transition.mask);
             } else {
                 compositor.blendTransition(0, 1, transition.progress, transition.style);
             }
