@@ -430,7 +430,7 @@ public class FFmpegEdit {
                             templateSettings.isTrimAllowed ?
                                     Constants.DEFAULT_TEMPLATE_TRIM_MARK(clipIndex) :
                                     clip.type == ClipType.VIDEO ?
-                                            "trim=start=" + clip.startClipTrim + ":end=" + (clip.startClipTrim + clip.duration + extendMediaDuration) :
+                                            "trim=start=" + clip.startClipTrim + ":end=" + videoTrimEnd(clip, extendMediaDuration) :
                                             "trim=duration=" + (clip.duration + fillingTransitionDuration);
 
                     // First we declared the stream of video
@@ -910,6 +910,22 @@ public class FFmpegEdit {
         return cmd.toString();
     }
 
+    private static String curvedSetptsBody(Clip clip, double shiftSeconds) {
+        if (clip.type != ClipType.VIDEO) return null;
+        return VideoSpeedGraph.setptsBody(clip.timeMapSnapshot(), clip.duration, shiftSeconds); // null for a constant speed
+    }
+
+    /**
+     * Where a video clip's {@code trim} ends, in SOURCE seconds. A clip's duration is its length on the TIMELINE (it follows the
+     * speed), so the source it consumes is read through the speed map, plus a transition's extension. At speed 1 it is the
+     * plain {@code start + duration + extension}, exactly as before.
+     */
+    private static String videoTrimEnd(Clip clip, double extendMediaDuration) {
+        ClipTimeMap map = clip.timeMapSnapshot();
+        if (map.isIdentity()) return String.valueOf(clip.startClipTrim + clip.duration + extendMediaDuration);
+        return String.format(java.util.Locale.US, "%.6f", clip.startClipTrim + map.sourceOffset(clip.duration + extendMediaDuration));
+    }
+
     /**
      * The speed + "start on the timeline" step of a video clip's filter chain. Normally one setpts; with the clip's optical flow
      * on, the in-between frames are made at the clip's speed and between the two steps ({@code minterpolate=fps=N}, ffmpeg's
@@ -920,10 +936,15 @@ public class FFmpegEdit {
         String shift = clip.startTime + "/TB";
         boolean flow = clip.type == ClipType.VIDEO && clip.hasOpticalFlow();
         String blur = clip.type == ClipType.VIDEO ? motionBlurFilters(clip, projectFps) : "";
+        // A speed CURVE is placed through its integral (VideoSpeedGraph, the same map the OpenGL export and the audio use);
+        // a constant speed keeps the plain (PTS-STARTPTS)/speed.
+        final String curved = curvedSetptsBody(clip, 0);
         if (!flow && blur.isEmpty()) {
+            final String curvedShifted = curvedSetptsBody(clip, clip.startTime);
+            if (curvedShifted != null) return "setpts='" + curvedShifted + "'";
             return "setpts='(PTS-STARTPTS)/" + speedExpr + "+" + shift + "'";
         }
-        StringBuilder sb = new StringBuilder("setpts='(PTS-STARTPTS)/" + speedExpr + "'");
+        StringBuilder sb = new StringBuilder(curved != null ? "setpts='" + curved + "'" : "setpts='(PTS-STARTPTS)/" + speedExpr + "'");
         if (flow) {
             sb.append(",minterpolate=fps=")
                     .append(com.vanvatcorporation.doubleclips.data.editing.ClipOpticalFlow.format(clip.opticalFlow.effectiveFps()));
@@ -1012,10 +1033,6 @@ public class FFmpegEdit {
                 }
                 if (clip.blendMode != null && clip.blendMode != com.vanvatcorporation.doubleclips.data.editing.ClipBlendMode.NORMAL) {
                     found.add("Clip blend modes are skipped (only the OpenGL export draws them; FFmpeg draws those clips normally)");
-                }
-                if (clip.keyframes != null && clip.keyframes.holderCount(VideoProperties.ValueType.Speed) > 1) {
-                    // The OpenGL export integrates the speed curve (Clip.timeMap); the filter graph only has setpts with the speed at each instant.
-                    found.add("Speed curves are approximated (only the OpenGL export follows a changing speed exactly)");
                 }
                 if (clip.hasMotionBlur() && clip.type == ClipType.VIDEO) {
                     // The OpenGL engine streaks along the optical flow; FFmpeg can only blend interpolated sub-frames.
