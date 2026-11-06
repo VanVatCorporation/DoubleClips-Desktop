@@ -516,6 +516,7 @@ public class ExportWindow extends Stage {
         strPreviewFiles.add(new File(IOHelper.CombinePath(project.getProjectPath(), "preview.png")).getAbsolutePath());
         strPreviewFiles.add(preview.getAbsolutePath());
 
+        com.vanvatcorporation.doubleclips.data.ProjectRepository.getInstance().flushSaves(); // the file below must hold the newest edit
         String timelineFilePath = IOHelper.CombinePath(project.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
 
         finishExportRendering();

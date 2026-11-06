@@ -25,6 +25,12 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import com.vanvatcorporation.doubleclips.helper.FileHelper;
 
 public class ProjectRepository {
@@ -111,6 +117,7 @@ public class ProjectRepository {
     }
 
     public void cloneProject(ProjectData project) {
+        flushSaves(); // the copy must have the newest edit
         try {
             Path source = Paths.get(project.getProjectPath());
             String cloneTitle = project.getProjectTitle() + "_clone";
@@ -257,6 +264,105 @@ public class ProjectRepository {
         refreshProjects();
     }
 
+    // ── Background save ─────────────────────────────────────────────────────
+    //  saveTimeline() does all of this on the calling (UI) thread: the project folder's size (a walk over every cached
+    //  thumbnail and preview), an ffmpeg process for the project's preview picture, three JSON writes and a re-read of EVERY
+    //  project's properties. The editor saves after every edit, so it all ran on every click and grew with the project.
+    //  saveTimelineAsync() keeps only the part that must read the live timeline (the JSON text) on the caller and hands the
+    //  rest to one background thread; a burst of saves is written once (the newest wins).
+
+    private final ExecutorService saveExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "ProjectSave");
+        t.setDaemon(true);
+        return t;
+    });
+    private final AtomicReference<Runnable> pendingSave = new AtomicReference<>();
+    /** What the preview picture was last made from, per project: it is only made again when that changes. */
+    private final Map<String, String> lastPreviewKey = new ConcurrentHashMap<>();
+    /** When a project's folder size was last counted: counting walks the whole folder, so not on every save. */
+    private final Map<String, Long> lastSizeAt = new ConcurrentHashMap<>();
+    private static final long SIZE_RECOUNT_MS = 10_000;
+
+    public void saveTimelineAsync(ProjectData data, Timeline timeline, VideoSettings settings) {
+        // On the caller: what reads the live model.
+        if (timeline != null) timeline.recalculateDuration();
+        data.setProjectTimestamp(new Date().getTime());
+        if (timeline != null) data.setProjectDuration((long) (timeline.duration * 1000));
+        final String timelineJson = timeline == null ? null : exposeGson.toJson(timeline);
+        final String settingsJson = settings == null ? null : exposeGson.toJson(settings);
+
+        Clip firstClip = null;
+        if (timeline != null && timeline.tracks != null) {
+            for (Track track : timeline.tracks) {
+                if (!track.clips.isEmpty()) { firstClip = track.clips.get(0); break; }
+            }
+        }
+        String previewSource = null;
+        float previewTime = 0;
+        if (firstClip != null && (firstClip.type == ClipType.VIDEO || firstClip.type == ClipType.IMAGE || firstClip.type == ClipType.SCENE_3D)) {
+            previewSource = firstClip.getAbsolutePath(data);
+            previewTime = firstClip.type == ClipType.VIDEO ? firstClip.startClipTrim : 0;
+        }
+        final String fPreviewSource = previewSource;
+        final float fPreviewTime = previewTime;
+
+        // In the background: everything that touches the disk.
+        pendingSave.set(() -> {
+            String path = data.getProjectPath();
+            long now = System.currentTimeMillis();
+            Long counted = lastSizeAt.get(path);
+            if (counted == null || now - counted >= SIZE_RECOUNT_MS) {
+                data.setProjectSize(IOHelper.getFileSize(path));
+                lastSizeAt.put(path, now);
+            }
+            saveProjectProperties(data);
+
+            if (fPreviewSource != null) {
+                String key = fPreviewSource + "|" + fPreviewTime;
+                if (!key.equals(lastPreviewKey.get(path))) {
+                    lastPreviewKey.put(path, key);
+                    FFmpegEdit.generateThumbnail(fPreviewSource, IOHelper.CombinePath(path, "preview.png"), fPreviewTime, -1, -1);
+                }
+            }
+            if (settingsJson != null) writeAtomically(new File(path, Constants.DEFAULT_VIDEO_SETTINGS_FILENAME), settingsJson);
+            if (timelineJson != null) writeAtomically(new File(path, Constants.DEFAULT_TIMELINE_FILENAME), timelineJson);
+            refreshProjects();
+        });
+        saveExecutor.execute(() -> {
+            Runnable job = pendingSave.getAndSet(null);     // null: a newer save already took (and wrote) this one's place
+            if (job == null) return;
+            try {
+                job.run();
+            } catch (Throwable t) {
+                t.printStackTrace();
+            }
+        });
+    }
+
+    /** Waits until every save handed over so far is on disk (closing the editor, copying or exporting the project). */
+    public void flushSaves() {
+        try {
+            saveExecutor.submit(() -> { }).get(30, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+            // a stuck disk must not freeze the caller for good
+        }
+    }
+
+    /** The file is written whole under another name and then moved over the old one, so a crash mid-write never leaves half a project. */
+    private static void writeAtomically(File target, String text) {
+        File tmp = new File(target.getPath() + ".tmp");
+        try {
+            Files.writeString(tmp.toPath(), text);
+            try {
+                Files.move(tmp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     /**
      * Settings-only save, mirroring Android's VideoSettings.saveSettings().
      * saveTimeline() also saves settings, but recalculates duration and
@@ -273,6 +379,7 @@ public class ProjectRepository {
     }
 
     public Timeline loadTimeline(ProjectData data) {
+        flushSaves(); // an edit saved a moment ago may still be on its way to the disk
         File timelineFile = new File(data.getProjectPath(), Constants.DEFAULT_TIMELINE_FILENAME);
         if (!timelineFile.exists()) {
             return new Timeline();

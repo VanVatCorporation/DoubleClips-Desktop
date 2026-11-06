@@ -467,9 +467,39 @@ public class EditorWindow extends Stage implements PropertyContext {
     @Override public VideoSettings getVideoSettings() { return videoSettings; }
     @Override public ProjectData getProject() { return project; }
 
+    // The editor saves after every edit. A save is the project's JSON plus disk work (see ProjectRepository.saveTimelineAsync),
+    // so a burst of edits (a drag, a run of clicks) is saved ONCE, shortly after the last one, and never later than
+    // SAVE_MAX_WAIT_MS after the first.
+    private static final double SAVE_DEBOUNCE_MS = 350;
+    private static final long SAVE_MAX_WAIT_MS = 3000;
+    private javafx.animation.PauseTransition saveDebounce;
+    private boolean savePending;
+    private long savePendingSince;
+
     @Override
     public void saveProject() {
-        ProjectRepository.getInstance().saveTimeline(project, timeline, videoSettings);
+        if (!javafx.application.Platform.isFxApplicationThread()) {     // the timer below, and the model it reads, belong to the UI thread
+            javafx.application.Platform.runLater(this::saveProject);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!savePending) { savePending = true; savePendingSince = now; }
+        if (now - savePendingSince >= SAVE_MAX_WAIT_MS) { saveProjectNow(); return; }   // edits that never pause still get saved
+        if (saveDebounce == null) {
+            saveDebounce = new javafx.animation.PauseTransition(javafx.util.Duration.millis(SAVE_DEBOUNCE_MS));
+            saveDebounce.setOnFinished(e -> saveProjectNow());
+        }
+        saveDebounce.playFromStart();
+    }
+
+    /** Saves now if an edit is waiting to be saved (the disk part runs in the background). */
+    private void saveProjectNow() {
+        if (saveDebounce != null) saveDebounce.stop();
+        if (!savePending) return;
+        savePending = false;
+        final long perfT0 = TimelinePerf.begin();
+        ProjectRepository.getInstance().saveTimelineAsync(project, timeline, videoSettings);
+        TimelinePerf.end("saveProject (UI thread part)", perfT0, 10, null);
     }
 
     private void initPlaybackTimer() {
@@ -903,7 +933,9 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (voiceover != null) voiceover.shutdown();   // before the dock goes: a running take is dropped, not turned into a clip
         if (dock != null) dock.shutdown();
         stopPlayback();
-        saveProject();
+        savePending = true;                                    // closing always saves (it also stamps the project as just edited)
+        saveProjectNow();
+        ProjectRepository.getInstance().flushSaves();          // and waits until it is on the disk
         if (sourcePreview != null) sourcePreview.shutdown();
         if (timelineRenderer != null) timelineRenderer.shutdown();
         DoubleClipsDesktop.getInstance().closeEditor(this);
@@ -2566,17 +2598,22 @@ public class EditorWindow extends Stage implements PropertyContext {
         // Update position when scrolling
         tracksScrollPane.hvalueProperty().addListener((obs, old, newVal) -> {
             updatePlayheadPosition();
+            refreshRulerWindow();
             scheduleVisibleThumbnailRefresh();
         });
 
         // Update position when resizing viewport
         tracksScrollPane.viewportBoundsProperty().addListener((obs, old, newVal) -> {
             updatePlayheadPosition();
+            refreshRulerWindow();
             scheduleVisibleThumbnailRefresh();
         });
 
         // Update position when content width changes (e.g. zoom)
-        tracksPane.widthProperty().addListener((obs, old, newVal) -> updatePlayheadPosition());
+        tracksPane.widthProperty().addListener((obs, old, newVal) -> {
+            updatePlayheadPosition();
+            refreshRulerWindow();
+        });
 
         // Bind playhead height to container
         playheadLine.endYProperty().bind(tracksWithPlayhead.heightProperty());
@@ -2689,6 +2726,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     /** Geometry-only relayout for a new scale. Deliberately does NOT touch the timeline data, the preview, or thumbnails. */
     private void applyZoomLayout(float newPps) {
+        final long perfT0 = TimelinePerf.begin();
         pixelsPerSecond = newPps;
         double contentWidth = Math.max(1200, timeline.duration * newPps + 1000); // same padding as refreshTimelineUI
 
@@ -2715,6 +2753,7 @@ public class EditorWindow extends Stage implements PropertyContext {
             Clip clip = entry.getKey();
             entry.getValue().setX((clip.startTime + clip.duration) * newPps - TRANSITION_CUBE_SIZE / 2.0);
         }
+        TimelinePerf.end("applyZoomLayout", perfT0, 16, String.format(java.util.Locale.US, "pps=%.1f", newPps));
     }
 
     /** Content x currently at the left edge of the tracks viewport. */
@@ -2796,6 +2835,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void ensureThumbnails(ClipNode node) {
         if (!isNodeNearViewport(node.getContainerClip())) return; // picked up when scrolled/zoomed near
+        node.enableTiles();
         ensureWaveBand(node);
         String signature = thumbnailSignature(node);
         if (signature.equals(node.getThumbSignature())) return;
@@ -2816,7 +2856,9 @@ public class EditorWindow extends Stage implements PropertyContext {
         if (timeline == null || timeline.tracks == null) return;
         for (Track track : timeline.tracks) {
             for (Clip clip : track.clips) {
-                if (clip.viewRef instanceof ClipNode node && node.getParent() == tracksPane) ensureThumbnails(node);
+                if (!(clip.viewRef instanceof ClipNode node) || node.getParent() != tracksPane) continue;
+                if (isNodeNearViewport(clip)) ensureThumbnails(node);
+                else node.dropTiles();                  // far away: its tile nodes are not worth keeping (rebuilt when near again)
             }
         }
     }
@@ -2838,111 +2880,40 @@ public class EditorWindow extends Stage implements PropertyContext {
         return (float) (frame / fps);
     }
 
-    private float getRulerInterval(float pixelsPerSecond) {
-        int fps = rulerFps();
-        // Preferred intervals in seconds: 1, 2, 5, 10, 15 frames (the ones shorter than a second), then whole seconds, doubling
-        java.util.List<Float> intervals = new java.util.ArrayList<>();
-        for (int frames : new int[]{1, 2, 5, 10, 15}) {
-            if (frames < fps) intervals.add(frames / (float) fps);
-        }
-        for (float seconds = 1f; seconds <= 1024f; seconds *= 2f) intervals.add(seconds);
-
-        // Aim for at least 80 pixels between major ticks for readability
-        float minSpacing = 80f;
-        for (float interval : intervals) {
-            if (interval * pixelsPerSecond >= minSpacing) {
-                return interval;
-            }
-        }
-        return intervals.get(intervals.size() - 1);
-    }
-
-    /**
-     * The label of a tick at a frame of the timeline: the whole seconds as "0s", "1s", "1m5s", every other frame as its
-     * number inside its second ("1f" ... "29f" at 30 fps), so the frames count 0, 1, 2, 3 ... up to the next second.
-     */
-    private String rulerLabel(long frame, int fps) {
-        long sec = frame / fps;
-        int f = (int) (frame % fps);
-        if (f == 0) {
-            long m = sec / 60;
-            long s = sec % 60;
-            if (m > 0) return s == 0 ? m + "m" : m + "m" + s + "s";
-            return s + "s";
-        }
-        return f + "f";
-    }
-
-    /**
-     * One tick of the ruler. The start of a second is drawn to stand out (taller, thicker, bold label, always labelled);
-     * frames in between are plain, and minor ones fainter.
-     */
-    private void addRulerMark(Pane ruler, double x, long frame, int fps, boolean major, boolean labelled) {
-        boolean second = frame % fps == 0;
-        Line tick = new Line(x, second ? 2 : (major ? 10 : 18), x, 30);
-        tick.getStyleClass().add(major || second ? "ruler-tick-major" : "ruler-tick-minor");
-        if (second) tick.setStyle("-fx-stroke-width: 2;");
-        else if (!major) tick.setStyle("-fx-opacity: 0.5;");
-        ruler.getChildren().add(tick);
-
-        if (labelled || second) {
-            javafx.scene.text.Text label = new javafx.scene.text.Text(x + 3, 9, rulerLabel(frame, fps));
-            label.getStyleClass().add("ruler-text");
-            label.setStyle(second ? "-fx-font-weight: bold; -fx-fill: -color-fg-default;" : "-fx-opacity: 0.7;");
-            ruler.getChildren().add(label);
-        }
-    }
+    // ── Ruler ──────────────────────────────────────────────────────────────
+    //  RulerView draws only the visible part of the ruler on a few canvases (see RulerTicks / RulerView) instead of a Line and
+    //  a Text per tick for the WHOLE timeline, which was thousands of nodes rebuilt on every refresh and zoom step once the
+    //  timeline was long or zoomed in to frames. This tells it the timeline length, zoom, frame rate and scroll position,
+    //  and wires the hover / click handlers once.
 
     private void buildRuler(double width) {
-        Pane ruler;
-        if (rulerScrollPane.getContent() instanceof Pane) {
-            ruler = (Pane) rulerScrollPane.getContent();
+        RulerView ruler;
+        if (rulerScrollPane.getContent() instanceof RulerView existing) {
+            ruler = existing;
         } else {
-            ruler = new Pane();
-            ruler.setPickOnBounds(true);
-            ruler.getStyleClass().add("timeline-ruler-pane");
+            ruler = new RulerView();
+            installRulerHandlers(ruler);
             rulerScrollPane.setContent(ruler);
         }
-
         ruler.setPrefWidth(width);
-        ruler.setPrefHeight(30);
-        ruler.getChildren().clear(); // Clearing ruler ticks is okay, they are light
+        updateRuler(ruler, width);
+    }
 
-        int fps = rulerFps();
-        float rulerInterval = getRulerInterval(pixelsPerSecond);
-        float visibleDuration = timeline.duration;
-        long steps = (long) Math.ceil(visibleDuration / rulerInterval);
+    /** Re-checks which part of the ruler is painted (scroll / resize): does nothing while the visible part is already drawn. */
+    private void refreshRulerWindow() {
+        if (timeline == null || tracksScrollPane == null || tracksPane == null) return;
+        if (!(rulerScrollPane.getContent() instanceof RulerView ruler)) return;
+        updateRuler(ruler, tracksPane.getPrefWidth() > 0 ? tracksPane.getPrefWidth() : tracksPane.getWidth());
+    }
 
-        // long and double: with a very high frame rate a second is more frames than an int holds
-        long framesInInterval = Math.max(1L, Math.round((double) rulerInterval * fps));
-        float pixelsPerFrame = pixelsPerSecond / fps;
+    private void updateRuler(RulerView ruler, double contentWidth) {
+        double viewportWidth = tracksScrollPane == null ? 0 : tracksScrollPane.getViewportBounds().getWidth();
+        double scrollPx = tracksScrollPane == null ? 0
+                : TimelineZoomMath.scrollPx(tracksScrollPane.getHvalue(), contentWidth, viewportWidth);
+        ruler.update(contentWidth, pixelsPerSecond, timeline.duration, rulerFps(), scrollPx, viewportWidth);
+    }
 
-        for (long step = 0; step <= steps; step++) {
-            // counted in whole frames, so every tick and label is exact (no 1/30 s rounding)
-            long frame = step * framesInInterval;
-            double x = frame * (double) pixelsPerSecond / fps;
-
-            addRulerMark(ruler, x, frame, fps, true, true);
-
-            // Minor ticks (frames) between this major tick and the next
-            if (step < steps) {
-                if (pixelsPerFrame >= 4f) {
-                    // Enough space for every frame (at least 4px between ticks); very zoomed in, each carries its own
-                    // number inside its second. The loop only runs when the frames are this wide, so it stays small.
-                    for (long f = 1; f < framesInInterval; f++) {
-                        long subFrame = frame + f;
-                        addRulerMark(ruler, subFrame * (double) pixelsPerSecond / fps, subFrame, fps, false,
-                                pixelsPerFrame >= 40f && framesInInterval > 1);
-                    }
-                } else if (framesInInterval >= 10) {
-                    // Too dense for every frame, but wide enough for a midpoint tick. One tick, not a pass over every frame:
-                    // at a very high frame rate a single interval holds more frames than anyone could loop over.
-                    long mid = frame + framesInInterval / 2;
-                    addRulerMark(ruler, mid * (double) pixelsPerSecond / fps, mid, fps, false, false);
-                }
-            }
-        }
-
+    private void installRulerHandlers(RulerView ruler) {
         ruler.setOnMouseEntered(e -> ghostPlayheadLine.setVisible(true));
         ruler.setOnMouseMoved(e -> {
             double x = e.getX();
@@ -3146,6 +3117,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     @Override
     public void refreshTimelineUI() {
+        final long perfT0 = TimelinePerf.begin();
         timeline.reassignClips(videoSettings.frameRate);
         timeline.recalculateDuration();
         project.setProjectDuration((long) (timeline.duration * 1000));
@@ -3155,7 +3127,10 @@ public class EditorWindow extends Stage implements PropertyContext {
         double contentWidth = Math.max(1200, totalDuration * pixelsPerSecond + 1000); // Add 1000px padding at end
 
         // Refresh Ruler
+        final long perfRuler0 = TimelinePerf.begin();
         buildRuler(contentWidth);
+        final double perfRulerMs = TimelinePerf.msSince(perfRuler0);
+        final long perfClips0 = TimelinePerf.begin();
 
         // Update Tracks Pane dimensions
         tracksPane.setPrefWidth(contentWidth);
@@ -3195,6 +3170,7 @@ public class EditorWindow extends Stage implements PropertyContext {
                     node = (ClipNode) clip.viewRef;
                 } else {
                     node = new ClipNode(clip, this);
+                    node.deferTiles();                  // tile nodes only for clips near the viewport (see ensureThumbnails)
                     setupClipInteraction(node);
                     node.setOnKeyframeClicked(kf -> {
                         selectClipForKeyframe(clip);   // picking a keyframe picks its clip too
@@ -3319,13 +3295,25 @@ public class EditorWindow extends Stage implements PropertyContext {
         refreshTrackSelectionVisuals();                       // the selected track's band (bands may be new)
         applyTrackMuteVisuals();
 
+        final double perfClipsMs = TimelinePerf.msSince(perfClips0);
+
         // Rebuild TimelineRenderer
+        final long perfRenderer0 = TimelinePerf.begin();
         if (timelineRenderer != null) {
             timelineRenderer.buildTimeline(timeline);
         }
+        final double perfRendererMs = TimelinePerf.msSince(perfRenderer0);
 
         // Update playhead
         updateCurrentTime(currentTime);
+
+        // Slow refreshes only (see TimelinePerf): which part of it was the slow one
+        if (TimelinePerf.msSince(perfT0) >= 30) {
+            int clipCount = 0;
+            for (Track t : timeline.tracks) clipCount += t.clips.size();
+            TimelinePerf.end("refreshTimelineUI", perfT0, 0, String.format(java.util.Locale.US,
+                    "ruler=%.1f clips+tracks=%.1f renderer=%.1f (%d clips, pps=%.1f)", perfRulerMs, perfClipsMs, perfRendererMs, clipCount, pixelsPerSecond));
+        }
     }
 
     // =========================================================================

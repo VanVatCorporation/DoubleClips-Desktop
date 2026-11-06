@@ -60,6 +60,18 @@ public class ClipNode extends Pane {
     /** Scale the keyframe knots were last laid out with; their drag maths must use the CURRENT one. */
     private float keyframePps = 100f;
     private double lastTileWidth = -1, lastTileHeight = -1;
+    /**
+     * Thumbnail tile nodes (one StackPane + ImageView per tile, about one per 70 px of clip) only exist for clips near the
+     * viewport; a clip that was never near one has none. On by default (drag ghosts); EditorWindow defers it for the clips of
+     * the timeline and enables it from ensureThumbnails. Without this, zooming in made tens of thousands of tile nodes for
+     * clips nobody could see.
+     */
+    private boolean tilesEnabled = true;
+    /** What the keyframe / mask knots were last built from (see {@link #knotSignature()}); null = no knots built. */
+    private String knotSignature;
+    /** Scale the trim drags convert pixels to time with; the handlers are installed once and read it live. */
+    private double trimPps = 100;
+    private boolean trimHandlersInstalled;
 
     private java.util.function.Consumer<Keyframe> onKeyframeClicked;
     private Runnable onKeyframesModified;
@@ -242,6 +254,31 @@ public class ClipNode extends Pane {
         singleImageOverlay.setVisible(true);
     }
 
+    /** Don't build thumbnail tile nodes until {@link #enableTiles()} (a clip nobody can see needs none). */
+    public void deferTiles() {
+        tilesEnabled = false;
+    }
+
+    /** The clip is near the viewport: build its tile nodes now (no-op when they already exist). */
+    public void enableTiles() {
+        if (tilesEnabled) return;
+        tilesEnabled = true;
+        refreshThumbnails();
+    }
+
+    /**
+     * The clip is far from the viewport: forget its tile nodes (they are rebuilt, and refilled, when it comes near again). Keeps
+     * the number of tile nodes to what is on screen however many clips the project has or far it is zoomed in.
+     */
+    public void dropTiles() {
+        if (!tilesEnabled && thumbnailRow.getChildren().isEmpty()) return;
+        tilesEnabled = false;
+        thumbnailRow.getChildren().clear();
+        lastTileWidth = -1;
+        lastTileHeight = -1;
+        thumbSignature = null;                 // a thumbnail job still running for it is stale now, and it refills when near again
+    }
+
     /** Tile count implied by the assigned size (same formula as {@link #refreshThumbnails()}). */
     public int computeTileCount() {
         double w = getPrefWidth() > 0 ? getPrefWidth() : getWidth();
@@ -289,7 +326,15 @@ public class ClipNode extends Pane {
     public void setOnMaskKeyframeClicked(java.util.function.Consumer<Float> handler) { this.onMaskKeyframeClicked = handler; }
     public void setOnTrimFinished(TrimHandler handler) { this.onTrimFinished = handler; }
 
+    /**
+     * Sets the scale the trim handles convert pixels to time with. The drag handlers are installed once (they read the current
+     * scale), so a refresh or a zoom no longer re-creates them for every clip.
+     */
     public void setupTrimInteractions(double pixelsPerSecond) {
+        this.trimPps = pixelsPerSecond;
+        if (trimHandlersInstalled) return;
+        trimHandlersInstalled = true;
+
         final double[] dragStartX = new double[1];
         final float[] initialStartTime = new float[1];
         final float[] initialDuration = new float[1];
@@ -310,7 +355,7 @@ public class ClipNode extends Pane {
 
         leftHandle.setOnMouseDragged(e -> {
             double deltaX = e.getSceneX() - dragStartX[0];
-            float deltaTime = (float) (deltaX / pixelsPerSecond);
+            float deltaTime = (float) (deltaX / trimPps);
 
             // Clamp delta so we don't trim before 0 or after originalDuration
             // and don't make clip too small
@@ -339,7 +384,7 @@ public class ClipNode extends Pane {
             }
 
             // Visual update
-            updateVisuals(pixelsPerSecond);
+            updateVisuals(trimPps);
             e.consume();
         });
 
@@ -367,7 +412,7 @@ public class ClipNode extends Pane {
 
         rightHandle.setOnMouseDragged(e -> {
             double deltaX = e.getSceneX() - dragStartX[0];
-            float deltaTime = (float) (deltaX / pixelsPerSecond);
+            float deltaTime = (float) (deltaX / trimPps);
 
             float minDuration = 0.1f;
             float proposedDelta = deltaTime;
@@ -393,7 +438,7 @@ public class ClipNode extends Pane {
             }
 
             // Visual update
-            updateVisuals(pixelsPerSecond);
+            updateVisuals(trimPps);
             e.consume();
         });
 
@@ -427,6 +472,15 @@ public class ClipNode extends Pane {
      */
     public void updateKeyframes(float pixelsPerSecond) {
         keyframePps = pixelsPerSecond;
+        String signature = knotSignature();
+        if (signature.equals(knotSignature)) {
+            // Same keyframes (the very same objects), same height: the knots on the node are still right. Only the scale may
+            // have changed, which just moves them. (This ran for every clip on every refresh, destroying and re-creating every
+            // knot, tooltip and handler.)
+            relayoutKeyframeKnots(pixelsPerSecond);
+            return;
+        }
+        knotSignature = signature;
         // Remove existing knots first
         clearKeyframeKnots();
         buildMaskKnots(pixelsPerSecond);
@@ -676,8 +730,37 @@ public class ClipNode extends Pane {
         }
     }
 
+    /**
+     * Everything the knots are built from: the node height, and for every keyframe / mask keyframe its identity (the handlers
+     * capture the object, so a restored copy must rebuild), time and what it holds. Compared as a string: exactness matters
+     * more than the few allocations.
+     */
+    private String knotSignature() {
+        StringBuilder sb = new StringBuilder(64);
+        sb.append(getHeight() > 0 ? getHeight() : getPrefHeight());
+        if (clip.keyframes != null && clip.keyframes.keyframes != null) {
+            for (Keyframe kf : clip.keyframes.keyframes) {
+                sb.append('|').append(System.identityHashCode(kf)).append(':')
+                  .append(Float.floatToIntBits(kf.getLocalTime())).append(':').append(String.valueOf(kf.channels));
+            }
+        }
+        if (clip.hasMasks()) {
+            for (int mi = 0; mi < clip.masks.size(); mi++) {
+                com.vanvatcorporation.doubleclips.data.editing.ClipMask mask = clip.masks.get(mi);
+                sb.append("|m").append(mi).append(':').append(mask.shape);
+                if (mask.keys == null) continue;
+                for (com.vanvatcorporation.doubleclips.data.editing.ClipMask.MaskKeyframe key : mask.keys) {
+                    sb.append('|').append(System.identityHashCode(key)).append(':').append(Float.floatToIntBits(key.time))
+                      .append(':').append(key.values == null ? null : key.values.keySet());
+                }
+            }
+        }
+        return sb.toString();
+    }
+
     /** Remove all keyframe diamond knots (Rectangle nodes tagged with a Keyframe). */
     public void clearKeyframeKnots() {
+        knotSignature = null;                  // the knots are gone: the next updateKeyframes must rebuild them
         List<javafx.scene.Node> toRemove = new ArrayList<>();
         for (javafx.scene.Node n : getChildren()) {
             if (n instanceof Rectangle r && (r.getUserData() instanceof Keyframe || r.getUserData() instanceof MaskKnot)) {
@@ -694,6 +777,7 @@ public class ClipNode extends Pane {
      * Called automatically on zoom (width change).
      */
     public void refreshThumbnails() {
+        if (!tilesEnabled) return;             // never been near the viewport: no tile nodes yet (see enableTiles)
         // Prefer the size the timeline assigned (pref == min == max) over the laid-out size: it is
         // correct immediately, whereas getWidth() lags a layout pass behind after a zoom.
         double w = getPrefWidth() > 0 ? getPrefWidth() : getWidth();

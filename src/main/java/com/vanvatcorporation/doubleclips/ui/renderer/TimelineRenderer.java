@@ -322,6 +322,12 @@ public class TimelineRenderer {
         boolean gpu = isGpuPreviewActive();
         if (gpu) client.markTimelineDirty();
 
+        // Under the GPU preview a ClipRenderer (gpuPreview=true, ownAudio=false) has nothing to do: no picture, no text node, no
+        // audio line, no decoding - the worker draws everything and the AudioEngine plays the sound. It used to be created
+        // anyway for EVERY clip on EVERY timeline refresh (two executors each) and then visited by every frame's updateTime,
+        // so the cost of each edit and of each frame grew with the number of clips. With the GPU preview active there are none.
+        if (gpu) return;
+
         for (Track track : timeline.tracks) {
             List<ClipRenderer> renderers = new ArrayList<>();
             for (Clip clip : track.clips) {
