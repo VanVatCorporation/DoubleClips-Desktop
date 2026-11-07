@@ -297,10 +297,13 @@ public class Clip implements Serializable, UnknownKeysHolder {
      */
     public void snapEndToFrame(int frameRate) {
         boolean trims = (type == ClipType.VIDEO || type == ClipType.AUDIO) && originalDuration > 0;
-        ClipEndSnap.Result r = ClipEndSnap.snap(startTime, duration, endClipTrim, frameRate, trims ? timeMapSnapshot() : null, trims);
+        // The trim at the clip's right edge: the end trim, or for a reversed video (which plays backwards) the start trim.
+        boolean reversedVideo = type == ClipType.VIDEO && isReverse;
+        ClipEndSnap.Result r = ClipEndSnap.snap(startTime, duration, reversedVideo ? startClipTrim : endClipTrim, frameRate, trims ? timeMapSnapshot() : null, trims);
         if (!r.changed) return;
         duration = r.duration;
-        endClipTrim = r.endClipTrim;
+        if (reversedVideo) startClipTrim = r.endClipTrim;
+        else endClipTrim = r.endClipTrim;
     }
 
     public float getDuration() { return duration; }

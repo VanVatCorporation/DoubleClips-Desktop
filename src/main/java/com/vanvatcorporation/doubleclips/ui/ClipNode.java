@@ -296,6 +296,8 @@ public class ClipNode extends Pane {
         final float[] initialStartTrim = new float[1];
         final float[] initialEndTrim = new float[1];
         final com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap[] dragMap = new com.vanvatcorporation.doubleclips.data.editing.ClipTimeMap[1];
+        // Reverse is fixed for the length of a drag (read at press time, see the handlers below).
+        final boolean[] reversedDrag = new boolean[1];
 
         // --- Left Handle Drag ---
         leftHandle.setOnMousePressed(e -> {
@@ -305,6 +307,7 @@ public class ClipNode extends Pane {
             initialStartTrim[0] = clip.startClipTrim;
             initialEndTrim[0] = clip.endClipTrim;
             dragMap[0] = clip.timeMapSnapshot();
+            reversedDrag[0] = clip.type == ClipType.VIDEO && clip.isReverse;
             e.consume();
         });
 
@@ -315,21 +318,26 @@ public class ClipNode extends Pane {
             // Clamp delta so we don't trim before 0 or after originalDuration
             // and don't make clip too small
             float minDuration = 0.1f;
-            float maxDelta = initialStartTrim[0]; // can only reduce trim to 0
-            float minDelta = -(initialDuration[0] - minDuration); // can only increase trim up to minDuration left
 
             // Limit by minimum duration
             float proposedDelta = deltaTime;
             proposedDelta = Math.min(initialDuration[0] - minDuration, proposedDelta);
-            
+
             if (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO) {
-                // Limit by source start (cannot trim before 0 of file)
                 // The handle moves in TIMELINE seconds; the trim is in SOURCE seconds (they differ when the speed isn't 1).
                 double s = dragMap[0].sourceOffset(proposedDelta);
-                if (s < -initialStartTrim[0]) { s = -initialStartTrim[0]; proposedDelta = (float) (s / dragMap[0].speedAt(0)); }
-
+                if (reversedDrag[0]) {
+                    // A reversed video plays its used range backwards, so what sits at the clip's LEFT edge is the
+                    // source's END: the left handle eats endClipTrim, never startClipTrim.
+                    // Limit by source end (cannot extend past the end of the file)
+                    if (s < -initialEndTrim[0]) { s = -initialEndTrim[0]; proposedDelta = (float) (s / dragMap[0].speedAt(0)); }
+                    clip.endClipTrim = initialEndTrim[0] + (float) s;
+                } else {
+                    // Limit by source start (cannot trim before 0 of file)
+                    if (s < -initialStartTrim[0]) { s = -initialStartTrim[0]; proposedDelta = (float) (s / dragMap[0].speedAt(0)); }
+                    clip.startClipTrim = initialStartTrim[0] + (float) s;
+                }
                 clip.startTime = initialStartTime[0] + proposedDelta;
-                clip.startClipTrim = initialStartTrim[0] + (float) s;
                 clip.duration = initialDuration[0] - proposedDelta;
             } else {
                 // Unlimited resources: IMAGE, TEXT, EFFECT, etc.
@@ -362,6 +370,7 @@ public class ClipNode extends Pane {
             initialStartTrim[0] = clip.startClipTrim;
             initialEndTrim[0] = clip.endClipTrim;
             dragMap[0] = clip.timeMapSnapshot();
+            reversedDrag[0] = clip.type == ClipType.VIDEO && clip.isReverse;
             e.consume();
         });
 
@@ -376,16 +385,20 @@ public class ClipNode extends Pane {
             proposedDelta = Math.max(-(initialDuration[0] - minDuration), proposedDelta);
 
             if (clip.type == ClipType.VIDEO || clip.type == ClipType.AUDIO) {
-                // Limit by source end (cannot trim after originalDuration)
+                // Source seconds the clip gains (+) or gives back (-) at its right edge.
                 double base = dragMap[0].sourceOffset(initialDuration[0]);
                 double s = dragMap[0].sourceOffset(initialDuration[0] + proposedDelta) - base;
-                if (s > initialEndTrim[0]) {
-                    s = initialEndTrim[0];
+                // Forward: the right edge is the source's END, so the right handle eats endClipTrim.
+                // Reversed: the right edge is the source's START, so it eats startClipTrim instead.
+                float room = reversedDrag[0] ? initialStartTrim[0] : initialEndTrim[0];
+                if (s > room) {
+                    s = room;
                     proposedDelta = (float) (dragMap[0].localTime(base + s) - initialDuration[0]);
                 }
 
                 clip.duration = initialDuration[0] + proposedDelta;
-                clip.endClipTrim = initialEndTrim[0] - (float) s;
+                if (reversedDrag[0]) clip.startClipTrim = initialStartTrim[0] - (float) s;
+                else clip.endClipTrim = initialEndTrim[0] - (float) s;
             } else {
                 // Unlimited resources: IMAGE, TEXT, EFFECT, etc.
                 // Just adjust duration, no trim needed

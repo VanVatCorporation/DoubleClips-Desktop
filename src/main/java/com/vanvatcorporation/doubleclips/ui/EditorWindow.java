@@ -2737,7 +2737,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clip clip = node.getContainerClip();
         switch (clip.type) {
             case VIDEO:
-                return "V|" + node.computeTileCount() + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature();
+                return "V|" + node.computeTileCount() + "|" + clip.startClipTrim + "|" + clip.endClipTrim + "|" + clip.isReverse() + "|" + clip.duration + "|" + clip.speedSignature();
             case AUDIO:
                 // The waveform bitmap is drawn for a specific scale.
                 return "A|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature()
@@ -3013,7 +3013,11 @@ public class EditorWindow extends Stage implements PropertyContext {
                 for (int i = 0; i < tileCount; i++) {
                     if (stale.getAsBoolean())
                         return; // node removed, or re-zoomed/re-trimmed since this job was queued
-                    float time = clip.startClipTrim + (float) speedMap.sourceOffset(i * tileDuration);
+                    // A reversed clip plays its used range backwards from its end, so the tiles run from the source's end down.
+                    final double elapsed = speedMap.sourceOffset(i * tileDuration);
+                    float time = clip.isReverse()
+                            ? Math.max(0f, (clip.originalDuration - clip.endClipTrim) - (float) elapsed)
+                            : clip.startClipTrim + (float) elapsed;
                     Image img = decodeVideoFrame(clip, time);
                     if (img != null) {
                         decoded++;
