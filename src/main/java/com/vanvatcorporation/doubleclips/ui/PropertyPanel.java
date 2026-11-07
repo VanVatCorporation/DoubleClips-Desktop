@@ -195,39 +195,11 @@ public class PropertyPanel extends VBox {
             } catch (Exception ignored) {}
         }));
 
-        fields.getChildren().add(buildPropertyField(I18n.t("Start Trim"), String.valueOf(selectedClip.startClipTrim), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.startClipTrim;
-                if (val == oldVal) return;
-                context.executePropertyChange("Change Start Trim", () -> {
-                    selectedClip.setStartClipTrim(val);
-                    context.refreshTimelineUI();
-                    context.saveProject();
-                }, () -> {
-                    selectedClip.setStartClipTrim(oldVal);
-                    context.refreshTimelineUI();
-                    context.saveProject();
-                });
-            } catch (Exception ignored) {}
-        }));
-
-        fields.getChildren().add(buildPropertyField(I18n.t("End Trim"), String.valueOf(selectedClip.endClipTrim), newValue -> {
-            try {
-                float val = Float.parseFloat(newValue);
-                float oldVal = selectedClip.endClipTrim;
-                if (val == oldVal) return;
-                context.executePropertyChange("Change End Trim", () -> {
-                    selectedClip.setEndClipTrim(val);
-                    context.refreshTimelineUI();
-                    context.saveProject();
-                }, () -> {
-                    selectedClip.setEndClipTrim(oldVal);
-                    context.refreshTimelineUI();
-                    context.saveProject();
-                });
-            } catch (Exception ignored) {}
-        }));
+        // A reversed video plays backwards, so the clip's LEFT edge is the source's end: the first field ("Start Trim", the left
+        // edge, like the left timeline handle) edits endClipTrim and the second ("End Trim", the right edge) edits startClipTrim.
+        final boolean reversedVideo = selectedClip.type == ClipType.VIDEO && selectedClip.isReverse;
+        fields.getChildren().add(buildTrimField(selectedClip, I18n.t("Start Trim"), reversedVideo));
+        fields.getChildren().add(buildTrimField(selectedClip, I18n.t("End Trim"), !reversedVideo));
         if(selectedClip.type == ClipType.AUDIO || selectedClip.type == ClipType.VIDEO) {
             fields.getChildren().add(audioVolumeRow.build(selectedClip));
         }
@@ -1402,6 +1374,27 @@ public class PropertyPanel extends VBox {
         HBox.setHgrow(line, Priority.ALWAYS);
         row.getChildren().addAll(lbl, line);
         return row;
+    }
+
+    /** One trim field. {@code editsEnd}: it edits {@code endClipTrim} (else {@code startClipTrim}). */
+    private VBox buildTrimField(Clip clip, String label, boolean editsEnd) {
+        final String undoName = "Change " + label;
+        return buildPropertyField(label, String.valueOf(editsEnd ? clip.endClipTrim : clip.startClipTrim), newValue -> {
+            try {
+                float val = Float.parseFloat(newValue);
+                float oldVal = editsEnd ? clip.endClipTrim : clip.startClipTrim;
+                if (val == oldVal) return;
+                context.executePropertyChange(undoName, () -> {
+                    if (editsEnd) clip.setEndClipTrim(val); else clip.setStartClipTrim(val);
+                    context.refreshTimelineUI();
+                    context.saveProject();
+                }, () -> {
+                    if (editsEnd) clip.setEndClipTrim(oldVal); else clip.setStartClipTrim(oldVal);
+                    context.refreshTimelineUI();
+                    context.saveProject();
+                });
+            } catch (Exception ignored) {}
+        });
     }
 
     private VBox buildPropertyField(String label, String value, Consumer<String> onUpdate) {

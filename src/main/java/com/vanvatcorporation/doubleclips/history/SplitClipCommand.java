@@ -1,6 +1,7 @@
 package com.vanvatcorporation.doubleclips.history;
 
 import com.vanvatcorporation.doubleclips.data.editing.Clip;
+import com.vanvatcorporation.doubleclips.data.editing.ClipType;
 import com.vanvatcorporation.doubleclips.data.editing.Timeline;
 import com.vanvatcorporation.doubleclips.data.editing.Track;
 
@@ -36,12 +37,24 @@ public class SplitClipCommand implements Command {
         // Secondary part
         secondPart.startTime = splitTime;
         // The split point in SOURCE seconds: the speed (a number or a curve) decides how much source the first part uses.
-        float splitSource = oldStartClipTrim + (float) originalClip.timeMap().sourceOffset(localSplitTime);
-        secondPart.setStartClipTrim(splitSource);
-        secondPart.setEndClipTrim(oldEndClipTrim);
+        double consumed = originalClip.timeMap().sourceOffset(localSplitTime);
+        boolean reversedVideo = originalClip.type == ClipType.VIDEO && originalClip.isReverse;
+        if (reversedVideo) {
+            // A reversed video plays its used range backwards, so the part on the LEFT of the cut is the source's LATER half:
+            // it keeps the end trim and starts (in source terms) at the split point; the right part plays what is before it.
+            float splitSource = (originalClip.originalDuration - oldEndClipTrim) - (float) consumed;
+            secondPart.setStartClipTrim(oldStartClipTrim);
+            secondPart.setEndClipTrim(originalClip.originalDuration - splitSource);
 
-        // Primary part
-        originalClip.setEndClipTrim(originalClip.originalDuration - splitSource);
+            originalClip.setStartClipTrim(splitSource);
+        } else {
+            float splitSource = oldStartClipTrim + (float) consumed;
+            secondPart.setStartClipTrim(splitSource);
+            secondPart.setEndClipTrim(oldEndClipTrim);
+
+            // Primary part
+            originalClip.setEndClipTrim(originalClip.originalDuration - splitSource);
+        }
 
         track.addClip(secondPart);
         track.sortClips();

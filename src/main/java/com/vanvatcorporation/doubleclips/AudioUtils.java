@@ -194,7 +194,15 @@ public class AudioUtils {
                 int frameSize = fmt.getFrameSize();
                 double rate = fmt.getSampleRate();
                 final double windowSource = speedMap.sourceOffset(from);          // source seconds, from the trim, where the stretch begins
-                long startFrame = (long) ((clip.startClipTrim + windowSource) * rate);
+                // A reversed video plays its used range backwards from its end: timeline time t is at source position
+                // (originalDuration - endClipTrim) - offset(t). The file is read forward, so the stretch is read from its
+                // LOWEST source position and the bars are filled from the right (mirrored) to match the timeline.
+                final boolean reversed = clip.type == com.vanvatcorporation.doubleclips.data.editing.ClipType.VIDEO && clip.isReverse;
+                final double usedEnd = clip.originalDuration - clip.endClipTrim;
+                final double lowSource = reversed
+                        ? Math.max(0.0, usedEnd - speedMap.sourceOffset(from + span))
+                        : clip.startClipTrim + windowSource;
+                long startFrame = (long) (lowSource * rate);
                 long toSkip = startFrame * frameSize, skipped = 0;
                 while (skipped < toSkip) {
                     long r = ais.skip(toSkip - skipped);
@@ -203,7 +211,15 @@ public class AudioUtils {
                 }
                 // Source frame (relative to the trim) at which each bar ends.
                 double[] edge = new double[bars];
-                for (int b = 0; b < bars; b++) edge[b] = (speedMap.sourceOffset(from + span * (b + 1) / (double) bars) - windowSource) * rate;
+                for (int b = 0; b < bars; b++) {
+                    if (!reversed) {
+                        edge[b] = (speedMap.sourceOffset(from + span * (b + 1) / (double) bars) - windowSource) * rate;
+                    } else {
+                        // forward bar j is timeline bar (bars-1-j); it ends at the source position of that bar's START time
+                        double tStart = from + span * (bars - 1 - b) / (double) bars;
+                        edge[b] = (usedEnd - speedMap.sourceOffset(tStart) - lowSource) * rate;
+                    }
+                }
                 float volume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.plain(clip);
                 // A keyframed volume: each bar is as loud as the volume at its own moment.
                 final boolean keyedVolume = com.vanvatcorporation.doubleclips.data.editing.VolumeCurve.isAnimated(clip);
@@ -223,9 +239,10 @@ public class AudioUtils {
                         while (bar < bars - 1 && frame >= edge[bar]) bar++;
                         int o = i * frameSize;
                         short s = (short) ((buf[o] & 0xFF) | (buf[o + 1] << 8));   // the first channel is enough for a band
-                        double v = s / 32768.0 * barVolume[bar];
-                        sumSq[bar] += v * v;
-                        count[bar]++;
+                        int slot = reversed ? bars - 1 - bar : bar;                 // where this bar sits on the timeline
+                        double v = s / 32768.0 * barVolume[slot];
+                        sumSq[slot] += v * v;
+                        count[slot]++;
                         if (frame >= edge[bars - 1]) { bar = bars; break; }
                     }
                 }
