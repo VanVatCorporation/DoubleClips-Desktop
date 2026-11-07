@@ -1311,3 +1311,199 @@
     -fx-cursor: hand;
     -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.25), 4, 0, 0, 1);
 }
+
+
+/* ============================================
+   PROFILE TAB (grouped rows) + STATISTICS
+   ============================================ */
+.profile-scroll,
+.profile-scroll > .viewport {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.profile-avatar-ring {
+    -fx-stroke: -color-accent-emphasis;
+    -fx-stroke-width: 2;
+}
+
+.profile-avatar-initial {
+    -fx-font-size: 44px;
+    -fx-font-weight: bold;
+    -fx-text-fill: white;
+}
+
+.profile-name {
+    -fx-font-size: 26px;
+    -fx-font-weight: bold;
+}
+
+.profile-summary {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-fg-muted;
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 999;
+    -fx-padding: 5 14;
+}
+
+.profile-section-header {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-muted;
+    -fx-padding: 0 0 0 6;
+}
+
+.profile-group {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 14;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+}
+
+.profile-divider {
+    -fx-background-color: -color-border-subtle;
+}
+
+/* one row = one button with no chrome of its own (the card draws the frame) */
+.profile-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-background-insets: 0;
+    -fx-border-width: 0;
+    -fx-effect: null;
+    -fx-padding: 11 16 11 16;
+    -fx-cursor: hand;
+}
+
+.profile-row:hover {
+    -fx-background-color: -color-bg-inset;
+}
+
+.profile-row:pressed {
+    -fx-background-color: -color-border-subtle;
+}
+
+.profile-tile {
+    -fx-background-radius: 10;
+}
+
+.profile-tile-icon {
+    -fx-icon-color: white;
+    -fx-icon-size: 20px;
+}
+
+.tile-blue   { -fx-background-color: #007AFF; }
+.tile-purple { -fx-background-color: #AF52DE; }
+.tile-pink   { -fx-background-color: #FF2D55; }
+.tile-orange { -fx-background-color: #FF9500; }
+.tile-green  { -fx-background-color: #34C759; }
+.tile-red    { -fx-background-color: #FF3B30; }
+.tile-grey   { -fx-background-color: #8E8E93; }
+
+.profile-row-title {
+    -fx-font-size: 15px;
+    -fx-text-fill: -color-fg-default;
+}
+
+.profile-row-danger {
+    -fx-font-size: 15px;
+    -fx-text-fill: -color-danger-fg;
+}
+
+.profile-row-sub {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-fg-muted;
+}
+
+.ikonli-font-icon.profile-chevron {
+    -fx-icon-color: -color-fg-muted;
+    -fx-icon-size: 20px;
+}
+
+/* ---- Statistics ---- */
+.stat-section-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+}
+
+.stat-small-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-muted;
+}
+
+.stat-tile {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 14;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+    -fx-padding: 14 16 14 16;
+}
+
+.stat-value {
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+}
+
+.stat-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-fg-muted;
+}
+
+.stat-sub {
+    -fx-font-size: 11px;
+    -fx-text-fill: -color-fg-muted;
+}
+
+.stat-bar {
+    -fx-background-color: -color-accent-emphasis;
+    -fx-background-radius: 6;
+}
+
+.stat-bar-track {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 999;
+}
+
+.stat-bar-fill {
+    -fx-background-color: -color-accent-emphasis;
+    -fx-background-radius: 999;
+}
+
+.stat-rank {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-muted;
+}
+
+.stat-row-title {
+    -fx-font-size: 14px;
+}
+
+.stat-row-value {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.stat-segment {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 999;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-radius: 999;
+    -fx-padding: 5 14;
+    -fx-font-size: 12px;
+    -fx-cursor: hand;
+}
+
+.stat-segment:hover {
+    -fx-background-color: -color-bg-inset;
+}
+
+.stat-segment:selected {
+    -fx-background-color: -color-accent-emphasis;
+    -fx-border-color: transparent;
+    -fx-text-fill: white;
+}
