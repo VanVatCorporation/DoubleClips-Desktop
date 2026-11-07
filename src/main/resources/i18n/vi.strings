@@ -548,3 +548,26 @@
 "Hide “%s”?" = "Ẩn “%s”?";
 "Add picture\u2026" = "Thêm ảnh\u2026";
 "Change picture\u2026" = "Đổi ảnh\u2026";
+
+/* Open-source licences */
+"ABOUT" = "GIỚI THIỆU";
+"Open-source licences" = "Giấy phép mã nguồn mở";
+"View" = "Xem";
+"The third-party software DoubleClips is built with, and its licences." = "Các phần mềm bên thứ ba mà DoubleClips sử dụng và giấy phép của chúng.";
+"Used for" = "Dùng để";
+"Licence" = "Giấy phép";
+"Website" = "Trang web";
+"Source code" = "Mã nguồn";
+"Licence text" = "Nội dung giấy phép";
+"Show the licence text" = "Hiện nội dung giấy phép";
+"Hide the licence text" = "Ẩn nội dung giấy phép";
+"The full text isn't bundled with this build. Use the licence link above." = "Bản dựng này chưa kèm toàn văn giấy phép. Hãy dùng liên kết giấy phép ở trên.";
+"The bundled ffmpeg could not be run, so its licence could not be read." = "Không chạy được ffmpeg đi kèm nên không đọc được giấy phép của nó.";
+"NON-FREE build (--enable-nonfree): it may not be redistributed" = "Bản dựng KHÔNG TỰ DO (--enable-nonfree): không được phân phối lại";
+"Cutting, joining, filtering, encoding and previewing video and audio (the bundled ffmpeg program)." = "Cắt, ghép, lọc, mã hóa và xem trước video, âm thanh (chương trình ffmpeg đi kèm).";
+"The windows and controls of the app." = "Cửa sổ và các điều khiển của ứng dụng.";
+"The look of the app (themes)." = "Giao diện của ứng dụng (chủ đề).";
+"The icons (including the Material Design Icons pack)." = "Các biểu tượng (gồm bộ Material Design Icons).";
+"Reading and writing project files (JSON)." = "Đọc và ghi tệp dự án (JSON).";
+"Talking to the Van Vat servers (account, Drive, templates, assets)." = "Giao tiếp với máy chủ Van Vat (tài khoản, Drive, mẫu, tài nguyên).";
+"OpenGL drawing of the preview and the export." = "Vẽ OpenGL cho phần xem trước và xuất video.";

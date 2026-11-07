@@ -213,7 +213,21 @@ public class SettingsOverlay extends StackPane {
         driveGroup.getChildren().add(new HBox(18, terms, privacy));
         bindDriveThumbnails(thumbsSwitch);
 
-        content.getChildren().addAll(generalGroup, editingGroup, shortcutsGroup, layoutGroup, hiddenGroup, driveGroup);
+        // --- ABOUT: the third-party software inside the app and its licences ---
+        VBox aboutGroup = createGroup(I18n.t("ABOUT"));
+        HBox licensesRow = createSettingRow(I18n.t("Open-source licences"),
+                I18n.t("The third-party software DoubleClips is built with, and its licences."),
+                new FontIcon(org.kordamp.ikonli.materialdesign2.MaterialDesignS.SCALE_BALANCE));
+        Button licensesBtn = new Button(I18n.t("View"));
+        licensesBtn.setOnAction(e -> {
+            final LicensesOverlay[] ref = new LicensesOverlay[1];
+            ref[0] = new LicensesOverlay(v -> getChildren().remove(ref[0]));
+            getChildren().add(ref[0]);         // over the settings card; closing it shows the card again
+        });
+        licensesRow.getChildren().add(licensesBtn);
+        aboutGroup.getChildren().add(licensesRow);
+
+        content.getChildren().addAll(generalGroup, editingGroup, shortcutsGroup, layoutGroup, hiddenGroup, driveGroup, aboutGroup);
         scrollPane.setContent(content);
 
         settingsCard.getChildren().addAll(header, scrollPane);
