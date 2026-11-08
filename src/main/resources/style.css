@@ -1507,3 +1507,20 @@
     -fx-border-color: transparent;
     -fx-text-fill: white;
 }
+
+.stat-bar-zero {
+    -fx-background-color: -color-bg-inset;
+    -fx-background-radius: 2;
+}
+
+.stat-up {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #34C759;
+}
+
+.stat-down {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #FF3B30;
+}

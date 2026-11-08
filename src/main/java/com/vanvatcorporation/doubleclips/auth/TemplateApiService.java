@@ -39,6 +39,10 @@ public interface TemplateApiService {
     @POST("/doubleclips/api/templates/search/log")
     Call<JsonObject> logSearch(@Body Map<String, Object> body);
 
+    /** "My statistics": totals, per-day activity of other people and the author's templates (needs an account). */
+    @GET("/doubleclips/api/templates/stats")
+    Call<AuthorStats> authorStats(@Query("days") int days, @Query("tz") int tzMinutes, @Query("viewer") String viewer);
+
     @GET("/doubleclips/api/templates/liked")
     Call<TemplatePage> liked(@Query("limit") int limit, @Query("cursor") String cursor, @Query("viewer") String viewer);
 

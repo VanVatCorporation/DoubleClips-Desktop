@@ -1,11 +1,10 @@
 package com.vanvatcorporation.doubleclips.ui.overlays;
 
 import com.vanvatcorporation.doubleclips.auth.AuthRepository;
-import com.vanvatcorporation.doubleclips.auth.TemplateFeedSource;
-import com.vanvatcorporation.doubleclips.auth.TemplateRepository;
+import com.vanvatcorporation.doubleclips.auth.AuthorStats;
+import com.vanvatcorporation.doubleclips.auth.AuthorStatsRepository;
 import com.vanvatcorporation.doubleclips.data.ProjectData;
 import com.vanvatcorporation.doubleclips.data.ProjectRepository;
-import com.vanvatcorporation.doubleclips.data.TemplateData;
 import com.vanvatcorporation.doubleclips.helper.DateHelper;
 import com.vanvatcorporation.doubleclips.helper.ProjectBackup;
 import com.vanvatcorporation.doubleclips.i18n.I18n;
@@ -17,6 +16,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Tooltip;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCode;
@@ -35,23 +35,18 @@ import java.time.ZoneId;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.function.Consumer;
 
 /**
  * Profile -> Statistics. Two parts: what is on THIS computer (projects, footage, disk space, activity by month; works signed out),
- * and how the account's posted templates perform (views, uses, likes, saves, comments, and a top list by any of them; pulled
- * from the same "My templates" list the Profile shows, page by page).
+ * and how the account's templates perform, which the SERVER counts (GET /templates/stats): all-time totals, the last 7 / 30 / 90
+ * days compared with the same number of days before, a per-day chart of other people's activity, and the top templates.
  */
 public class StatisticsOverlay extends StackPane {
 
     private enum Metric { VIEWS, USES, LIKES, SAVES }
-
-    /** A safety stop for an account with a huge number of templates (20 a page). */
-    private static final int MAX_PAGES = 100;
 
     private final Consumer<Void> onClose;
     private boolean closed;
@@ -60,7 +55,8 @@ public class StatisticsOverlay extends StackPane {
     private int loadGeneration;
     private boolean templatesLoading;
     private String templatesError;
-    private List<TemplateData> mine;
+    private AuthorStats remote;
+    private int days = 30;
     private Metric metric = Metric.USES;
 
     public StatisticsOverlay(Consumer<Void> onClose) {
@@ -185,37 +181,25 @@ public class StatisticsOverlay extends StackPane {
         return row;
     }
 
-    // ── Your templates ─────────────────────────────────────────────────────────
+    // ── Your templates (counted by the server) ────────────────────────────────
 
     private void loadTemplates() {
+        remote = null;
+        templatesError = null;
         if (AuthRepository.getInstance().getCurrentUser() == null) {
+            templatesLoading = false;
             renderTemplates();
             return;
         }
         final int gen = ++loadGeneration;
         templatesLoading = true;
-        templatesError = null;
-        mine = null;
         renderTemplates();
-        fetchMore(gen, null, 0, new ArrayList<>(), new HashSet<>());
-    }
-
-    private void fetchMore(int gen, String cursor, int pages, List<TemplateData> acc, Set<String> seen) {
-        TemplateRepository.getInstance().fetchPage(TemplateFeedSource.mine(), cursor, TemplateRepository.PAGE_SIZE,
-                page -> {
+        AuthorStatsRepository.fetch(days,
+                stats -> {
                     if (gen != loadGeneration || closed) return;
-                    for (TemplateData d : page.items) {
-                        if (seen.add(d.getTemplateId().toLowerCase(Locale.ROOT))) acc.add(d);
-                    }
-                    String next = page.nextCursor;
-                    boolean more = page.hasMore && next != null && !next.isEmpty() && pages + 1 < MAX_PAGES;
-                    if (more) {
-                        fetchMore(gen, next, pages + 1, acc, seen);
-                    } else {
-                        mine = acc;
-                        templatesLoading = false;
-                        renderTemplates();
-                    }
+                    remote = stats;
+                    templatesLoading = false;
+                    renderTemplates();
                 },
                 message -> {
                     if (gen != loadGeneration || closed) return;
@@ -227,9 +211,16 @@ public class StatisticsOverlay extends StackPane {
 
     private void renderTemplates() {
         templatesSection.getChildren().clear();
-        templatesSection.getChildren().add(sectionTitle(I18n.t("Your templates")));
 
-        if (AuthRepository.getInstance().getCurrentUser() == null) {
+        Region grow = new Region();
+        HBox.setHgrow(grow, Priority.ALWAYS);
+        HBox titleRow = new HBox(12, sectionTitle(I18n.t("Your templates")), grow);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+        boolean signedIn = AuthRepository.getInstance().getCurrentUser() != null;
+        if (signedIn) titleRow.getChildren().add(rangeSwitch());
+        templatesSection.getChildren().add(titleRow);
+
+        if (!signedIn) {
             templatesSection.getChildren().add(mutedLine(I18n.t("Sign in to see how your templates perform.")));
             return;
         }
@@ -249,52 +240,96 @@ public class StatisticsOverlay extends StackPane {
             templatesSection.getChildren().addAll(mutedLine(I18n.t("Couldn't load your templates") + ": " + templatesError), retry);
             return;
         }
-        if (mine == null || mine.isEmpty()) {
+        if (remote == null || remote.totalsOrEmpty().templates == 0) {
             templatesSection.getChildren().add(mutedLine(I18n.t("You haven't posted a template yet")));
             return;
         }
 
-        long views = 0, uses = 0, likes = 0, saves = 0, comments = 0;
-        for (TemplateData d : mine) {
-            views += d.getViewCount();
-            uses += d.getUseCount();
-            likes += d.getHeartCount();
-            saves += d.getBookmarkCount();
-            comments += d.getCommentCount();
-        }
-        String useRate = views > 0 ? I18n.f("%s of views", String.format(Locale.ROOT, "%.1f%%", 100.0 * uses / views)) : null;
+        // all time: the counters on the template cards
+        AuthorStats.Totals t = remote.totalsOrEmpty();
+        String useRate = t.views > 0 ? I18n.f("%s of views", String.format(Locale.ROOT, "%.1f%%", 100.0 * t.uses / t.views)) : null;
+        FlowPane totals = new FlowPane(12, 12);
+        totals.getChildren().add(statTile(I18n.t("Templates"), compact(t.templates), null, 28));
+        totals.getChildren().add(statTile(I18n.t("Views"), compact(t.views), null, 28));
+        totals.getChildren().add(statTile(I18n.t("Uses"), compact(t.uses), useRate, 28));
+        totals.getChildren().add(statTile(I18n.t("Likes"), compact(t.likes), null, 28));
+        totals.getChildren().add(statTile(I18n.t("Saves"), compact(t.saves), null, 28));
+        totals.getChildren().add(statTile(I18n.t("Comments"), compact(t.comments), null, 28));
+        totals.getChildren().add(statTile(I18n.t("Unique viewers"), compact(t.uniqueViewers), I18n.t("people who opened them"), 28));
+        templatesSection.getChildren().addAll(smallTitle(I18n.t("All time")), totals);
 
-        FlowPane tiles = new FlowPane(12, 12);
-        tiles.getChildren().add(statTile(I18n.t("Templates"), compact(mine.size()), null, 28));
-        tiles.getChildren().add(statTile(I18n.t("Views"), compact(views), null, 28));
-        tiles.getChildren().add(statTile(I18n.t("Uses"), compact(uses), useRate, 28));
-        tiles.getChildren().add(statTile(I18n.t("Likes"), compact(likes), null, 28));
-        tiles.getChildren().add(statTile(I18n.t("Saves"), compact(saves), null, 28));
-        tiles.getChildren().add(statTile(I18n.t("Comments"), compact(comments), null, 28));
-        templatesSection.getChildren().add(tiles);
+        // this period against the one before it (other people's activity only)
+        AuthorStats.Counts cur = remote.currentOrEmpty();
+        AuthorStats.Counts prev = remote.previousOrEmpty();
+        FlowPane period = new FlowPane(12, 12);
+        period.getChildren().add(deltaTile(I18n.t("New viewers"), cur.newViewers, prev.newViewers));
+        period.getChildren().add(deltaTile(I18n.t("Uses"), cur.uses, prev.uses));
+        period.getChildren().add(deltaTile(I18n.t("Likes"), cur.likes, prev.likes));
+        period.getChildren().add(deltaTile(I18n.t("Saves"), cur.saves, prev.saves));
+        period.getChildren().add(deltaTile(I18n.t("Comments"), cur.comments, prev.comments));
+        templatesSection.getChildren().addAll(
+                smallTitle(I18n.f("Last %d days (change against the %d days before)", days, days)), period);
 
-        // the top list, by the metric picked in the switch
-        templatesSection.getChildren().add(smallTitle(I18n.t("Top templates")));
-        templatesSection.getChildren().add(metricSwitch());
+        // the day-by-day chart and the top list follow the metric picked in the switch
+        templatesSection.getChildren().addAll(smallTitle(I18n.t("Activity per day")), metricSwitch(), dailyChart(remote.seriesOrEmpty()));
 
-        List<TemplateData> sorted = new ArrayList<>(mine);
-        sorted.sort((a, b) -> Long.compare(valueOf(b), valueOf(a)));
-        long top = sorted.isEmpty() ? 0 : valueOf(sorted.get(0));
+        List<AuthorStats.Item> sorted = new ArrayList<>(remote.templatesOrEmpty());
+        sorted.sort((a, b) -> Long.compare(itemValue(b), itemValue(a)));
+        long top = sorted.isEmpty() ? 0 : itemValue(sorted.get(0));
         VBox list = new VBox(14);
         for (int i = 0; i < Math.min(5, sorted.size()); i++) {
-            list.getChildren().add(topRow(i + 1, sorted.get(i), valueOf(sorted.get(i)), top));
+            list.getChildren().add(topRow(i + 1, sorted.get(i), itemValue(sorted.get(i)), top));
         }
-        templatesSection.getChildren().add(list);
+        templatesSection.getChildren().addAll(smallTitle(I18n.t("Top templates")), list);
     }
 
-    private long valueOf(TemplateData d) {
+    private long dayValue(AuthorStats.Day d) {
         switch (metric) {
-            case VIEWS: return d.getViewCount();
-            case LIKES: return d.getHeartCount();
-            case SAVES: return d.getBookmarkCount();
+            case VIEWS: return d.newViewers;
+            case LIKES: return d.likes;
+            case SAVES: return d.saves;
             case USES:
-            default: return d.getUseCount();
+            default: return d.uses;
         }
+    }
+
+    private long itemValue(AuthorStats.Item d) {
+        switch (metric) {
+            case VIEWS: return d.views;
+            case LIKES: return d.likes;
+            case SAVES: return d.saves;
+            case USES:
+            default: return d.uses;
+        }
+    }
+
+    private String metricUnit() {
+        switch (metric) {
+            case VIEWS: return I18n.t("new viewers");
+            case LIKES: return I18n.t("likes");
+            case SAVES: return I18n.t("saves");
+            case USES:
+            default: return I18n.t("uses");
+        }
+    }
+
+    /** 7 / 30 / 90 days: asks the server again. */
+    private Node rangeSwitch() {
+        ToggleGroup group = new ToggleGroup();
+        HBox box = new HBox(8);
+        box.setAlignment(Pos.CENTER_RIGHT);
+        for (int option : new int[]{7, 30, 90}) {
+            ToggleButton tb = new ToggleButton(I18n.f("%d days", option));
+            tb.setToggleGroup(group);
+            tb.getStyleClass().add("stat-segment");
+            tb.setSelected(option == days);
+            tb.setOnAction(e -> {
+                if (option != days) { days = option; loadTemplates(); }
+                else tb.setSelected(true);                       // the picked one stays picked
+            });
+            box.getChildren().add(tb);
+        }
+        return box;
     }
 
     private Node metricSwitch() {
@@ -316,12 +351,43 @@ public class StatisticsOverlay extends StackPane {
         return box;
     }
 
-    private Node topRow(int rank, TemplateData d, long value, long max) {
+    /** One bar per local day of the current period; hover a bar for the day and the number. */
+    private Node dailyChart(List<AuthorStats.Day> series) {
+        long max = 1;
+        for (AuthorStats.Day d : series) max = Math.max(max, dayValue(d));
+
+        HBox bars = new HBox(series.size() > 45 ? 1 : 3);
+        bars.setAlignment(Pos.BOTTOM_LEFT);
+        bars.setMinHeight(130);
+        bars.setPrefHeight(130);
+        for (AuthorStats.Day d : series) {
+            long v = dayValue(d);
+            double h = v == 0 ? 3 : 8 + 112.0 * v / max;
+            Region bar = new Region();
+            bar.getStyleClass().add(v == 0 ? "stat-bar-zero" : "stat-bar");
+            bar.setMinSize(2, h);
+            bar.setPrefHeight(h);
+            bar.setMaxSize(Double.MAX_VALUE, h);
+            HBox.setHgrow(bar, Priority.ALWAYS);
+            Tooltip.install(bar, new Tooltip(d.date + ": " + v + " " + metricUnit()));
+            bars.getChildren().add(bar);
+        }
+
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
+        Label from = new Label(series.isEmpty() ? "" : series.get(0).date);
+        from.getStyleClass().add("stat-sub");
+        Label to = new Label(series.isEmpty() ? "" : series.get(series.size() - 1).date);
+        to.getStyleClass().add("stat-sub");
+        return new VBox(6, bars, new HBox(from, gap, to));
+    }
+
+    private Node topRow(int rank, AuthorStats.Item d, long value, long max) {
         Label rankLabel = new Label(String.valueOf(rank));
         rankLabel.getStyleClass().add("stat-rank");
         rankLabel.setMinWidth(22);
 
-        String name = d.getTemplateTitle();
+        String name = d.title;
         Label title = new Label(name == null || name.trim().isEmpty() ? I18n.t("Untitled") : name);
         title.getStyleClass().add("stat-row-title");
         title.setMaxWidth(Double.MAX_VALUE);
@@ -351,9 +417,28 @@ public class StatisticsOverlay extends StackPane {
         return row;
     }
 
+    /** A tile with this period's number and a green / red change against the previous period. */
+    private VBox deltaTile(String label, long current, long previous) {
+        String text;
+        String style;
+        if (current == previous) { text = I18n.t("No change"); style = "stat-sub"; }
+        else if (previous == 0) { text = "\u25b2 " + I18n.t("new"); style = "stat-up"; }
+        else {
+            double pct = 100.0 * (current - previous) / previous;
+            boolean up = pct > 0;
+            text = (up ? "\u25b2 " : "\u25bc ") + String.format(Locale.ROOT, "%.0f%%", Math.abs(pct));
+            style = up ? "stat-up" : "stat-down";
+        }
+        return statTile(label, compact(current), text, 28, style);
+    }
+
     // ── Small pieces ───────────────────────────────────────────────────────────
 
     private VBox statTile(String label, String value, String sub, double valueSize) {
+        return statTile(label, value, sub, valueSize, "stat-sub");
+    }
+
+    private VBox statTile(String label, String value, String sub, double valueSize, String subClass) {
         Label v = new Label(value);
         v.getStyleClass().add("stat-value");
         v.setStyle("-fx-font-size: " + (int) valueSize + "px;");
@@ -362,7 +447,7 @@ public class StatisticsOverlay extends StackPane {
         VBox tile = new VBox(3, v, l);
         if (sub != null && !sub.isEmpty()) {
             Label s = new Label(sub);
-            s.getStyleClass().add("stat-sub");
+            s.getStyleClass().add(subClass);
             s.setMaxWidth(176);
             tile.getChildren().add(s);
         }

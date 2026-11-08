@@ -604,3 +604,18 @@
 "Couldn't load your templates" = "Không thể tải mẫu của bạn";
 "You haven't posted a template yet" = "Bạn chưa đăng mẫu nào";
 "Sign in to see how your templates perform." = "Đăng nhập để xem hiệu quả các mẫu của bạn.";
+
+/* Statistics from the server */
+"All time" = "Từ trước đến nay";
+"Unique viewers" = "Người xem riêng biệt";
+"people who opened them" = "người đã mở mẫu";
+"New viewers" = "Người xem mới";
+"No change" = "Không đổi";
+"new" = "mới";
+"Last %d days (change against the %d days before)" = "%d ngày qua (so với %d ngày trước đó)";
+"%d days" = "%d ngày";
+"Activity per day" = "Hoạt động theo ngày";
+"new viewers" = "người xem mới";
+"uses" = "lượt dùng";
+"likes" = "lượt thích";
+"saves" = "lượt lưu";
