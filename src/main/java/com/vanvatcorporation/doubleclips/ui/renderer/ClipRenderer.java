@@ -253,9 +253,10 @@ public class ClipRenderer {
     }
 
     private void decodeFrame(float clipTime) {
+        // "Use proxy clips" off means off: the original is read, even when a proxy from an earlier time is still in PreviewClips.
         String previewPath = clip.getAbsolutePreviewPath(data);
         File previewFile = new File(previewPath);
-        if (!previewFile.exists()) {
+        if (!com.vanvatcorporation.doubleclips.data.AppSettings.getInstance().isPreviewUseProxy() || !previewFile.exists()) {
             previewFile = new File(clip.getAbsolutePath(data));
             if (!previewFile.exists()) return;
         }

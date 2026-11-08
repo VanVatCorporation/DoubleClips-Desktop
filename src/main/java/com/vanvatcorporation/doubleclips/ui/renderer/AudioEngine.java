@@ -406,6 +406,7 @@ public final class AudioEngine {
         volatile Track track;                                // the track the clip is on (for "mute track")
         private RandomAccessFile raf;
         private boolean failed;
+        private long lastRetryMillis;
         int channels;
         int sampleRate;
         private long dataStart;
@@ -421,7 +422,15 @@ public final class AudioEngine {
 
         boolean ensureOpen(Consumer<String> log) {
             if (raf != null) return true;
-            if (failed) return false;
+            if (failed) {
+                // The preview sound may have been missing and made since (the editor makes it in the background): look again, but
+                // at most once a second, so a clip that never gets one costs nothing.
+                long now = System.currentTimeMillis();
+                if (now - lastRetryMillis < 1000) return false;
+                lastRetryMillis = now;
+                if (!new File(path).isFile()) return false;
+                failed = false;
+            }
             try {
                 File f = new File(path);
                 if (!f.isFile()) {

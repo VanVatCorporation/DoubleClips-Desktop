@@ -267,6 +267,8 @@ public class EditorWindow extends Stage implements PropertyContext {
     private double lastDragSceneY;
 
     private final com.vanvatcorporation.doubleclips.ReverseManager reverseManager;
+    /** Makes the missing PreviewClips files (preview sound, thumbnails, and the video proxies while "Use proxy clips" is on). */
+    private final com.vanvatcorporation.doubleclips.PreviewMediaManager previewMedia;
 
     @Override
     public void applyReverse(Clip clip) {
@@ -304,6 +306,22 @@ public class EditorWindow extends Stage implements PropertyContext {
                 message -> System.err.println("[Reverse] " + message),
                 com.vanvatcorporation.doubleclips.ClipProcessingTracker.get());
         Platform.runLater(() -> { reverseManager.syncAll(); saveProject(); });
+
+        // The preview files (preview sound, thumbnails and - while "Use proxy clips" is on - the proxies) are not part of a share, and an
+        // imported or older project may lack them: check on EVERY open and make what is missing in the background, shown like the
+        // reversed copies. With "Use proxy clips" off no video proxy is made.
+        previewMedia = new com.vanvatcorporation.doubleclips.PreviewMediaManager(
+                FFmpegEditNative.getFfmpegPath(),
+                () -> project.getProjectPath(),
+                () -> timeline.getAllClips(),
+                Platform::runLater,
+                made -> { if (made) refreshTimelineUI(); },   // waveforms and tiles read the new files
+                (need, why) -> {
+                    System.err.println("[PreviewMedia] " + need.fileName() + ": " + why);
+                    showToast(I18n.t("Couldn't prepare the preview of ") + need.fileName());
+                },
+                com.vanvatcorporation.doubleclips.ClipProcessingTracker.get());
+        Platform.runLater(() -> previewMedia.sync(AppSettings.getInstance().isPreviewUseProxy()));
 
         BorderPane mainContent = new BorderPane();
         mainContent.getStyleClass().add("editor-root");
@@ -896,6 +914,7 @@ public class EditorWindow extends Stage implements PropertyContext {
 
     private void closeWindow() {
         if (reverseManager != null) reverseManager.shutdown();
+        if (previewMedia != null) previewMedia.destroy();
         if (processingListener != null) {
             com.vanvatcorporation.doubleclips.ClipProcessingTracker.get().removeListener(processingListener);
             processingListener = null;
@@ -1064,11 +1083,11 @@ public class EditorWindow extends Stage implements PropertyContext {
         proxyLabel.setPrefWidth(160);
         CheckBox proxyCheck = new CheckBox();
         proxyCheck.setSelected(appSettings.isPreviewUseProxy());
-        proxyCheck.setTooltip(new Tooltip(I18n.t("Off: preview plays the original clips. On: the lighter proxy copies made at import (GPU preview only)")));
-        proxyCheck.disableProperty().bind(gpuCheck.selectedProperty().not());
+        proxyCheck.setTooltip(new Tooltip(I18n.t("Off: the preview and the timeline thumbnails use the original clips. On: the lighter proxy copies, made in the background")));
         proxyCheck.selectedProperty().addListener((obs, o, n) -> {
             appSettings.setPreviewUseProxy(n);
             timelineRenderer.setUseProxy(n);
+            if (n) Platform.runLater(() -> confirmProxyProcessing(proxyCheck));
         });
         proxyRow.getChildren().addAll(proxyLabel, proxyCheck);
 
@@ -1465,7 +1484,13 @@ public class EditorWindow extends Stage implements PropertyContext {
 
         @Override
         public void rebuildProxies(File file, ClipType type, MediaHelper.MediaInfo info, Runnable done) {
-            runWithProgress(I18n.t("Processing Media"), () -> generateProxies(file, file.getName(), type, info, (d, t) -> { }), done);
+            // The file changed, so its old preview files are stale: drop them and make them again in the background.
+            for (File stale : ProjectLibrary.previewFiles(file.getName(), project.getProjectPath())) {
+                //noinspection ResultOfMethodCallIgnored
+                stale.delete();
+            }
+            previewMedia.sync(AppSettings.getInstance().isPreviewUseProxy());
+            if (done != null) done.run();
         }
 
         @Override public void toast(String text) { showToast(text); }
@@ -1618,12 +1643,10 @@ public class EditorWindow extends Stage implements PropertyContext {
 
                     Clip clip = new Clip(filename, 0, info.duration, 0, type, info.hasAudio, info.width, info.height);
 
-                    // A file that was already here keeps the proxies it has; anything else gets them made.
-                    if (!reused || ProjectLibrary.previewFiles(filename, project.getProjectPath()).isEmpty()) {
-                        generateProxies(targetFile, filename, type, info, (done, total) -> updateProgress(done, total));
-                    }
-
                     Platform.runLater(() -> {
+                        // The preview files of the new file are made in the background (a file that was already here keeps the ones
+                        // it has: they are only made when missing).
+                        previewMedia.sync(AppSettings.getInstance().isPreviewUseProxy());
                         loadMediaGrid(mediaGrid); // redraw from disk: the tile gets its badges and menu, and a renamed duplicate shows up
                         if (startTime >= 0 && trackIdx >= 0) {
                             clip.startTime = startTime;
@@ -1656,78 +1679,30 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     /**
-     * Makes the preview proxies of a media file in PreviewClips: for a video the thumbnail, the 720p editing proxy and
-     * the audio proxy, for an audio file the audio proxy. Blocks until ffmpeg is done, so call it off the FX thread.
-     * {@code progress} gets (seconds done, seconds total) while the video proxy is made.
+     * "Use proxy clips" was just switched ON: if video files are missing their proxy, say how many will be processed. Agreeing makes them
+     * in the background (shown like Reverse); declining switches the setting back off.
      */
-    private void generateProxies(File targetFile, String filename, ClipType type, MediaHelper.MediaInfo info,
-                                 java.util.function.BiConsumer<Double, Double> progress) throws InterruptedException {
-                    String previewDir = IOHelper.CombinePath(project.getProjectPath(),
-                            Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY);
-                    File previewDirFile = new File(previewDir);
-                    if (!previewDirFile.exists())
-                        previewDirFile.mkdirs();
-
-                    String previewClipPath = IOHelper.CombinePath(previewDir, filename);
-
-                    CountDownLatch latch = new CountDownLatch(1);
-
-                    if (type == ClipType.VIDEO) {
-                        CountDownLatch thumbLatch = new CountDownLatch(1);
-                        String cmdThumb = "-i \"" + targetFile.getAbsolutePath() + "\" -vframes 1 -s 128x128 -y \""
-                                + previewClipPath + ".jpg\"";
-                        FFmpegEdit.runAnyCommand(cmdThumb, "Preview Thumb",
-                                () -> thumbLatch.countDown(),
-                                () -> thumbLatch.countDown(),
-                                log -> {
-                                }, stats -> {
-                                });
-                        thumbLatch.await();
-
-                        String scaleStr;
-                        if(info.width < info.height) scaleStr = "-2:720";
-                        else scaleStr = "1280:-2";
-
-                        String cmd = "-i \"" + targetFile.getAbsolutePath()
-                                + "\" -vf \"scale=" + scaleStr + "\" -c:v libx264 -preset ultrafast -crf 32 -g 1 -an -y \""
-                                + previewClipPath.substring(0, previewClipPath.lastIndexOf('.')) + ".mp4" + "\"";
-                        FFmpegEdit.runAnyCommand(cmd, "Preview Video",
-                                () -> latch.countDown(),
-                                () -> latch.countDown(),
-                                log -> {
-                                }, stats -> {
-                                    if (stats.getTimeInMs() > 0 && info.duration > 0) {
-                                        progress.accept(stats.getTimeInMs() / 1000.0, (double) info.duration);
-                                    }
-                                });
-                        latch.await();
-
-
-                        if (info.hasAudio) {
-                            CountDownLatch audioLatch = new CountDownLatch(1);
-                            String audioPath = previewClipPath.substring(0, previewClipPath.lastIndexOf('.')) + ".wav";
-                            String cmdAudio = "-i \"" + targetFile.getAbsolutePath()
-                                    + "\" -vn -ac 1 -ar 22050 -c:a pcm_s16le -y \"" + audioPath + "\"";
-                            FFmpegEdit.runAnyCommand(cmdAudio, "Preview Audio",
-                                    () -> audioLatch.countDown(),
-                                    () -> audioLatch.countDown(),
-                                    log -> {
-                                    }, stats -> {
-                                    });
-                            audioLatch.await();
-                        }
-                    } else if (type == ClipType.AUDIO) {
-                        String audioPath = previewClipPath.substring(0, previewClipPath.lastIndexOf('.')) + ".wav";
-                        String cmdAudio = "-i \"" + targetFile.getAbsolutePath()
-                                + "\" -vn -ac 1 -ar 22050 -c:a pcm_s16le -y \"" + audioPath + "\"";
-                        FFmpegEdit.runAnyCommand(cmdAudio, "Preview Audio",
-                                () -> latch.countDown(),
-                                () -> latch.countDown(),
-                                log -> {
-                                }, stats -> {
-                                });
-                        latch.await();
-                    }
+    private void confirmProxyProcessing(CheckBox proxyCheck) {
+        final String projectPath = project.getProjectPath();
+        Thread counter = new Thread(() -> {
+            final int missing = com.vanvatcorporation.doubleclips.PreviewMedia.countMissingProxies(projectPath);
+            Platform.runLater(() -> {
+                if (missing == 0 || !proxyCheck.isSelected()) return; // nothing to make: the proxies are all there
+                ButtonType process = new ButtonType(I18n.t("Process"), ButtonBar.ButtonData.OK_DONE);
+                ButtonType decline = new ButtonType(I18n.t("Don't use proxy"), ButtonBar.ButtonData.CANCEL_CLOSE);
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                        String.format(I18n.t("Proxy clips will be processed on %d clips. This runs in the background and the clips show its progress. Process them now?"), missing),
+                        process, decline);
+                alert.setTitle(I18n.t("Use proxy clips"));
+                alert.setHeaderText(null);
+                alert.initOwner(this);
+                ButtonType answer = alert.showAndWait().orElse(decline);
+                if (answer == process) previewMedia.sync(true);
+                else proxyCheck.setSelected(false); // declined: the setting goes back off (its listener saves that)
+            });
+        }, "proxy-count");
+        counter.setDaemon(true);
+        counter.start();
     }
 
     private void addClipToMediaGrid(FlowPane mediaGrid, Clip clip) {
@@ -2737,7 +2712,7 @@ public class EditorWindow extends Stage implements PropertyContext {
         Clip clip = node.getContainerClip();
         switch (clip.type) {
             case VIDEO:
-                return "V|" + node.computeTileCount() + "|" + clip.startClipTrim + "|" + clip.endClipTrim + "|" + clip.isReverse() + "|" + clip.duration + "|" + clip.speedSignature();
+                return "V|" + node.computeTileCount() + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature();
             case AUDIO:
                 // The waveform bitmap is drawn for a specific scale.
                 return "A|" + pixelsPerSecond + "|" + clip.startClipTrim + "|" + clip.duration + "|" + clip.speedSignature()
@@ -3073,13 +3048,15 @@ public class EditorWindow extends Stage implements PropertyContext {
     }
 
     private Image decodeVideoFrame(Clip clip, float clipTime) {
+        // "Use proxy clips" off means off: the original is read, even when a proxy from an earlier time is still in PreviewClips.
+        final boolean proxyOn = AppSettings.getInstance().isPreviewUseProxy();
         String previewPath = clip.getAbsolutePreviewPath(project);
         java.io.File previewFile = new java.io.File(previewPath);
-        if (!previewFile.exists()) {
+        if (!proxyOn || !previewFile.exists()) {
             // Try with .mp4 extension
             String mp4Preview = clip.getAbsolutePreviewPath(project, ".mp4");
             java.io.File mp4File = new java.io.File(mp4Preview);
-            if (mp4File.exists()) {
+            if (proxyOn && mp4File.exists()) {
                 previewFile = mp4File;
             } else {
                 previewFile = new java.io.File(clip.getAbsolutePath(project));

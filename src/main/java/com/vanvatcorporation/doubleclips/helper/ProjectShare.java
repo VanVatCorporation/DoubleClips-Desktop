@@ -79,6 +79,11 @@ public final class ProjectShare {
         }
 
         AtomicReference<Exception> failure = new AtomicReference<>();
+        // PreviewClips (proxies, preview sound, thumbnails) and Clips/Temp are made again from the originals: the editor checks for them
+        // whenever a project is opened, so they never travel with a share.
+        java.util.Set<String> regenerable = new java.util.HashSet<>(java.util.Arrays.asList(
+                com.vanvatcorporation.doubleclips.constants.Constants.DEFAULT_PREVIEW_CLIP_DIRECTORY,
+                com.vanvatcorporation.doubleclips.constants.Constants.DEFAULT_CLIP_TEMP_DIRECTORY));
         CompressionHelper.zipFolder(projectDir, destZip, new CompressionHelper.ZipProgressListener() {
             @Override public void onProgress(long bytesWritten, long totalBytes, String name) {
                 if (listener != null) listener.onProgress(bytesWritten, totalBytes, name);
@@ -90,7 +95,7 @@ public final class ProjectShare {
                 failure.set(e);
                 if (listener != null) listener.onError(e);
             }
-        });
+        }, regenerable);
 
         Exception e = failure.get();
         if (e != null) {
